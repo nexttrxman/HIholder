@@ -1,0 +1,107 @@
+{
+  "project_context": {
+    "domain": "Crypto Wallet & Telegram Mini App",
+    "theme": "Dark Theme (Mandatory)",
+    "archetype": "Archetype 5 (Jewel & Luxury) mixed with Archetype 4 (Swiss)",
+    "vibe": "Premium, Moody, Cinematic, Clean, Mobile-First"
+  },
+  "typography": {
+    "fonts": {
+      "headings": "'Unbounded', sans-serif",
+      "body": "'Manrope', sans-serif"
+    },
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl font-bold tracking-tight font-display",
+      "h2": "text-2xl sm:text-3xl font-bold tracking-tight font-display",
+      "h3": "text-xl font-semibold font-display",
+      "body": "text-base font-medium text-white/70",
+      "small": "text-sm font-medium text-white/50",
+      "overline": "text-[10px] uppercase tracking-[0.2em] text-white/40"
+    }
+  },
+  "colors": {
+    "background": {
+      "app": "#050505",
+      "surface": "#111114",
+      "surface_glass": "rgba(255,255,255,0.03)"
+    },
+    "brand": {
+      "trx_red": "#FF2A3A",
+      "usdt_green": "#00E676",
+      "accent_glow": "rgba(255,42,58,0.2)"
+    },
+    "text": {
+      "primary": "#FFFFFF",
+      "secondary": "rgba(255,255,255,0.7)",
+      "muted": "rgba(255,255,255,0.4)"
+    },
+    "border": {
+      "subtle": "rgba(255,255,255,0.05)",
+      "active": "rgba(255,255,255,0.15)"
+    }
+  },
+  "layout_and_spacing": {
+    "container": "w-full max-w-md mx-auto min-h-screen relative pb-24 bg-[#050505] text-white overflow-x-hidden",
+    "screen_padding": "p-4 sm:p-6",
+    "bento_grid": "grid grid-cols-1 gap-4",
+    "card_padding": "p-5 sm:p-6"
+  },
+  "surface_strategies": {
+    "premium_card": "backdrop-blur-xl bg-white/[0.03] border border-white/[0.05] rounded-3xl shadow-[0_8px_32px_rgba(0,0,0,0.4)] overflow-hidden",
+    "interactive_card": "backdrop-blur-xl bg-white/[0.03] border border-white/[0.05] rounded-3xl active:scale-[0.98] transition-all cursor-pointer hover:bg-white/[0.05]",
+    "bottom_nav": "fixed bottom-0 left-0 right-0 z-50 backdrop-blur-2xl bg-[#050505]/90 border-t border-white/[0.08] px-2 py-3 sm:px-4 flex justify-between items-center max-w-md mx-auto"
+  },
+  "components": {
+    "hold_to_earn_button": {
+      "wrapper": "relative flex items-center justify-center w-64 h-64 mx-auto my-12",
+      "button": "w-48 h-48 rounded-full bg-gradient-to-b from-[#1a1a1f] to-[#050505] border border-[#FF2A3A]/30 shadow-[0_0_40px_rgba(255,42,58,0.15)] flex flex-col items-center justify-center z-10 select-none",
+      "progress_ring": "absolute inset-0 rounded-full border-4 border-transparent border-t-[#00E676] animate-spin",
+      "interaction": "Use framer-motion whileTap={{ scale: 0.92 }}. Button must feel weighty."
+    },
+    "referral_pool": {
+      "bar_container": "w-full h-3 rounded-full bg-white/5 overflow-hidden",
+      "bar_fill": "h-full bg-gradient-to-r from-[#FF2A3A] to-[#FF8080] shadow-[0_0_12px_rgba(255,42,58,0.6)] rounded-full",
+      "urgency_text": "text-sm text-[#FF2A3A] font-bold animate-pulse"
+    },
+    "wallet_balance": {
+      "container": "flex flex-col items-center justify-center py-6",
+      "amount": "text-4xl font-bold tracking-tight text-white flex items-baseline gap-2 font-display",
+      "currency": "text-lg text-[#00E676] font-display"
+    },
+    "primary_cta": {
+      "classes": "w-full py-4 rounded-2xl bg-white text-black font-bold tracking-tight hover:bg-gray-200 transition-colors active:scale-95 flex items-center justify-center gap-2"
+    },
+    "secondary_cta": {
+      "classes": "w-full py-4 rounded-2xl bg-white/[0.05] border border-white/[0.1] text-white font-semibold transition-colors active:scale-95 hover:bg-white/[0.08] flex items-center justify-center gap-2"
+    }
+  },
+  "icons_and_media": {
+    "library": "lucide-react",
+    "icon_size": "w-6 h-6",
+    "image_urls": [
+      {
+        "category": "background_texture",
+        "url": "https://images.unsplash.com/photo-1659698376016-ae05fd9079d0?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzh8MHwxfHNlYXJjaHwyfHxkYXJrJTIwb2JzaWRpYW4lMjB0ZXh0dXJlfGVufDB8fHx8MTc3NTIxNTU4OHww&ixlib=rb-4.1.0&q=85",
+        "description": "Dark obsidian texture. Use with 5-10% opacity, absolute positioned behind the main interface to add cinematic grain."
+      }
+    ]
+  },
+  "testing_attributes": {
+    "rule": "CRITICAL: All interactive elements MUST include data-testid. Examples: data-testid='hold-button', data-testid='nav-home', data-testid='nav-wallet', data-testid='withdraw-submit', data-testid='copy-memo-btn'."
+  },
+  "instructions_to_main_agent": [
+    "Install dependencies: framer-motion, lucide-react.",
+    "Import fonts in index.html or global css: @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Unbounded:wght@400;600;700&display=swap');",
+    "Configure tailwind.config.js to extend fonts: { fontFamily: { sans: ['Manrope', 'sans-serif'], display: ['Unbounded', 'sans-serif'] } }",
+    "Since it's a Telegram Mini App, lock the layout to a mobile width container (max-w-md mx-auto) with a dark background outside it to simulate mobile on desktop.",
+    "Implement 7 screens/views: Home (Hold to Earn + Stats), Wallet, Withdraw, Deposit, Transactions, Missions, Referrals.",
+    "Use a bottom navigation bar with 5 tabs: Home, Wallet, Missions, Referrals, History.",
+    "For the Hold to Earn mechanic, implement a robust visually rewarding state with framer-motion (scale down on press, glowing ring, haptic-like visual feedback).",
+    "For the Wallet flow (Deposit/Withdraw), prioritize clarity. The deposit screen must prominently display the Address and the MEMO with easy one-tap copy buttons.",
+    "For the Withdraw flow, use a step-by-step or clean single-form layout: Asset -> Amount -> Address -> Confirm.",
+    "Ensure the remaining TRX pool in the Referral section looks urgent and visually scarce (use the red gradient pool bar).",
+    "Avoid generic AI dashboard looks. Keep it cinematic, with deep obsidian backgrounds, high contrast text, and glowing neon accents only for critical metrics/buttons.",
+    "Use standard React .js syntax, no TypeScript.",
+    "Do not use generic UI cards. Implement the custom `premium_card` surface strategy."
+  ]
+}
