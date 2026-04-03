@@ -194,7 +194,8 @@ export function WalletProvider({ children }) {
   /**
    * Get referral link
    */
-  const referralLink = `${process.env.REACT_APP_TELEGRAM_BOT_URL}?start=${uid}`;
+  const telegramBotUrl = process.env.REACT_APP_TELEGRAM_BOT_URL || 'https://t.me/TKcex_bot';
+  const referralLink = `${telegramBotUrl}?start=${uid}`;
 
   /**
    * Get deposit info with user's memo

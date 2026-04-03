@@ -8,6 +8,8 @@
 
 // Use environment variable for worker URL, with fallback for development
 const WORKER_URL = process.env.REACT_APP_WORKER_URL || 'https://shiny-surf-110c.tkexchange.workers.dev';
+const TELEGRAM_BOT_URL = process.env.REACT_APP_TELEGRAM_BOT_URL || 'https://t.me/TKcex_bot';
+const DEPOSIT_ADDRESS = process.env.REACT_APP_DEPOSIT_ADDRESS || 'TNjqVzo47ndAvH241njkMLKbda3G6FPgVs';
 const IS_DEV = process.env.NODE_ENV === 'development' && !process.env.REACT_APP_WORKER_URL;
 
 /**
@@ -302,7 +304,7 @@ export const requestWithdraw = async ({ asset, amount, toAddress }) => {
  */
 export const DEPOSIT_INFO = {
   network: 'TRON (TRC-20)',
-  address: process.env.REACT_APP_DEPOSIT_ADDRESS,
+  address: DEPOSIT_ADDRESS,
   // MEMO is the user's UID - will be set dynamically
 };
 
