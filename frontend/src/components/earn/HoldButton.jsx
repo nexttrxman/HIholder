@@ -3,8 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useWallet } from '@/contexts/WalletContext';
 import { useTelegram } from '@/hooks/useTelegram';
 
-// Tether icon URL - custom image
-const TETHER_ICON = 'https://customer-assets.emergentagent.com/job_crypto-clean-1/artifacts/k3psq3zb_tether.png';
+// Tether icon URL - local asset
+const TETHER_ICON = '/tether.png';
 
 export function HoldButton() {
   const { 
