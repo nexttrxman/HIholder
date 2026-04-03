@@ -98,7 +98,8 @@ export const hapticFeedback = (type = 'impact') => {
  */
 export const shareReferralLink = (uid) => {
   const tg = getTelegram();
-  const link = `https://t.me/TKcex_bot?start=${uid}`;
+  const botUrl = TELEGRAM_BOT_URL;
+  const link = `${botUrl}?start=${uid}`;
   const text = '🎁 Join TronKeeper and earn TRX & USDT rewards! Hold to earn daily.';
   
   if (tg?.openTelegramLink) {
@@ -301,7 +302,7 @@ export const requestWithdraw = async ({ asset, amount, toAddress }) => {
  */
 export const DEPOSIT_INFO = {
   network: 'TRON (TRC-20)',
-  address: 'TNjqVzo47ndAvH241njkMLKbda3G6FPgVs',
+  address: process.env.REACT_APP_DEPOSIT_ADDRESS,
   // MEMO is the user's UID - will be set dynamically
 };
 
