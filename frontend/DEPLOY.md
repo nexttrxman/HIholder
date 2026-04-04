@@ -1,66 +1,61 @@
 # TronKeeper - Deploy en Cloudflare Pages
 
-## Configuración en Cloudflare Pages
+## Configuración EXACTA para Cloudflare Pages
 
 ### Build settings:
-- **Framework preset:** Create React App
-- **Build command:** `yarn build`
-- **Build output directory:** `build`
-- **Root directory:** `frontend` (si subes todo el repo)
+| Campo | Valor |
+|-------|-------|
+| Framework preset | `Create React App` |
+| Build command | `yarn build` |
+| Build output directory | `build` |
+| Root directory | `frontend` |
 
-### Environment variables (en Cloudflare Pages):
+### Environment variables (OBLIGATORIAS):
 ```
+NPM_FLAGS=--legacy-peer-deps
+NODE_VERSION=18
+YARN_VERSION=1.22.22
 REACT_APP_WORKER_URL=https://tu-worker.workers.dev
 REACT_APP_TELEGRAM_BOT_URL=https://t.me/TU_BOT
 REACT_APP_DEPOSIT_ADDRESS=TU_WALLET_TRON
-NODE_VERSION=18
 ```
 
-### Node version:
-Cloudflare Pages usa Node 12 por defecto. Agrega:
-- Variable: `NODE_VERSION` = `18`
+### ⚠️ IMPORTANTE: Usar YARN, no NPM
+Cloudflare detectará el `yarn.lock` y usará yarn automáticamente.
 
-## Estructura de carpetas para GitHub
+Si sigue fallando con npm, agrega esta variable:
+```
+NPM_FLAGS=--legacy-peer-deps
+```
+
+## Solución a errores comunes
+
+### Error: ERESOLVE unable to resolve dependency tree
+**Causa:** npm no puede resolver date-fns
+**Solución:** Ya está arreglado. El archivo `.npmrc` tiene `legacy-peer-deps=true`
+
+### Error: Module not found
+**Causa:** Cloudflare usa npm por defecto
+**Solución:** Asegúrate de que `yarn.lock` esté en el repo
+
+## Verificar antes de pushear a GitHub
+
+1. ✅ `yarn.lock` debe estar en el repo
+2. ✅ `.npmrc` con `legacy-peer-deps=true`
+3. ✅ `date-fns` versión `^3.6.0` (no 4.x)
+4. ❌ NO incluir `node_modules/`
+5. ❌ NO incluir `build/`
+
+## Estructura del repo
 
 ```
 tu-repo/
-├── frontend/          ← Sube solo esta carpeta a Pages
-│   ├── src/
-│   ├── public/
+├── frontend/           ← Root directory en Cloudflare
+│   ├── .npmrc          ← Importante
+│   ├── yarn.lock       ← Importante
 │   ├── package.json
-│   └── ...
+│   ├── src/
+│   └── public/
 ├── cloudflare-worker/
-│   ├── worker.js
-│   └── wrangler.toml
 └── supabase/
-    └── schema.sql
 ```
-
-## Opción alternativa: subir solo frontend
-
-Si prefieres subir solo el frontend:
-
-1. Copia la carpeta `frontend` a un nuevo repo
-2. En Cloudflare Pages:
-   - Root directory: `/` (vacío o /)
-   - Build command: `yarn build`
-   - Output: `build`
-
-## Verificar antes de subir
-
-1. Eliminar `node_modules/` (está en .gitignore)
-2. Eliminar `build/` (se genera en Cloudflare)
-3. Verificar que `.env` NO esté en el repo (usa variables de Cloudflare)
-
-## Troubleshooting
-
-### Error: Module not found
-- Verifica que `package.json` no tenga dependencias de URLs externas
-- Asegúrate de usar `yarn` no `npm`
-
-### Error: Node version
-- Agrega `NODE_VERSION=18` en environment variables
-
-### Build timeout
-- Cloudflare Pages tiene límite de 20 minutos
-- El build de este proyecto toma ~30 segundos
