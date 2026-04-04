@@ -2,15 +2,14 @@
  * TronKeeper API Service
  * Adapter layer for backend communication
  * 
- * Current backend: Cloudflare Worker (tkexchange.workers.dev)
- * This service abstracts the backend calls to make it easy to switch/mock
+ * Architecture: Telegram Mini App -> Cloudflare Worker -> Supabase
+ * Auth: Telegram initData (validated in Worker)
  */
 
-// Use environment variable for worker URL, with fallback for development
+// Configuration from environment
 const WORKER_URL = process.env.REACT_APP_WORKER_URL || 'https://shiny-surf-110c.tkexchange.workers.dev';
 const TELEGRAM_BOT_URL = process.env.REACT_APP_TELEGRAM_BOT_URL || 'https://t.me/TKcex_bot';
 const DEPOSIT_ADDRESS = process.env.REACT_APP_DEPOSIT_ADDRESS || 'TNjqVzo47ndAvH241njkMLKbda3G6FPgVs';
-const IS_DEV = process.env.NODE_ENV === 'development' && !process.env.REACT_APP_WORKER_URL;
 
 /**
  * Get Telegram WebApp instance
@@ -30,8 +29,7 @@ const getInitData = () => {
   if (tg?.initData) {
     return tg.initData;
   }
-  // Fallback for development
-  return 'dev_mode';
+  return null;
 };
 
 /**
@@ -42,14 +40,7 @@ export const getTelegramUser = () => {
   if (tg?.initDataUnsafe?.user) {
     return tg.initDataUnsafe.user;
   }
-  // Mock user for development
-  return {
-    id: 'dev_12345',
-    first_name: 'Dev',
-    last_name: 'User',
-    username: 'devuser',
-    photo_url: null,
-  };
+  return null;
 };
 
 /**
@@ -60,7 +51,6 @@ export const initTelegram = () => {
   if (tg) {
     tg.ready();
     tg.expand();
-    // Set theme
     if (tg.setHeaderColor) {
       tg.setHeaderColor('#050505');
     }
@@ -100,140 +90,66 @@ export const hapticFeedback = (type = 'impact') => {
  */
 export const shareReferralLink = (uid) => {
   const tg = getTelegram();
-  const botUrl = TELEGRAM_BOT_URL;
-  const link = `${botUrl}?start=${uid}`;
+  const link = `${TELEGRAM_BOT_URL}?start=${uid}`;
   const text = '🎁 Join TronKeeper and earn TRX & USDT rewards! Hold to earn daily.';
   
   if (tg?.openTelegramLink) {
     tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`);
   } else {
-    // Fallback for non-Telegram environment
     window.open(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`, '_blank');
   }
 };
 
 /**
- * Mock data for development/fallback
+ * API call wrapper with error handling
  */
-const MOCK_USER_DATA = {
-  uid: 'TK12345678',
-  total_earned: 12.50,
-  wins: 45,
-  holds_count: 2,
-  holds_reset_at: Date.now() + 3600000, // 1 hour from now
-  total_refs: 8,
-  trx_refs: 16.00,
-  trx_balance: 24.50,
-  usdt_balance: 12.50,
-};
+const apiCall = async (endpoint, body = {}) => {
+  const initData = getInitData();
+  
+  if (!initData) {
+    throw new Error('No Telegram initData available. Open in Telegram.');
+  }
 
-const MOCK_TRANSACTIONS = [
-  {
-    id: 'tx_001',
-    type: 'deposit',
-    asset: 'USDT',
-    amount: 50.00,
-    status: 'confirmed',
-    timestamp: Date.now() - 86400000,
-    txHash: 'abc123...',
-  },
-  {
-    id: 'tx_002',
-    type: 'reward',
-    asset: 'USDT',
-    amount: 0.05,
-    status: 'confirmed',
-    timestamp: Date.now() - 7200000,
-    description: 'Hold to Earn reward',
-  },
-  {
-    id: 'tx_003',
-    type: 'referral',
-    asset: 'TRX',
-    amount: 2.00,
-    status: 'confirmed',
-    timestamp: Date.now() - 3600000,
-    description: 'Referral bonus',
-  },
-  {
-    id: 'tx_004',
-    type: 'withdraw',
-    asset: 'USDT',
-    amount: 10.00,
-    status: 'pending',
-    timestamp: Date.now() - 1800000,
-    toAddress: 'TXyz...abc',
-  },
-];
+  const response = await fetch(`${WORKER_URL}${endpoint}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ initData, ...body }),
+  });
 
-const MOCK_POOL_DATA = {
-  total_pool: 50000,
-  remaining: 38450,
-  your_earnings: 16.00,
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(error.error || `Request failed: ${response.status}`);
+  }
+
+  return response.json();
 };
 
 /**
  * Authenticate user and load data
- * @returns {Promise<Object>} User data
+ * Endpoint: POST /auth
+ * Body: { initData }
+ * Response: { ok, user: { uid, usdt_balance, trx_balance, wins, holds_count, holds_reset_at, total_refs, trx_refs } }
  */
 export const authUser = async () => {
-  if (IS_DEV) {
-    // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 500));
-    return { ok: true, user: MOCK_USER_DATA };
-  }
-
   try {
-    const response = await fetch(`${WORKER_URL}/auth`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData: getInitData() }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Auth failed: ${response.status}`);
-    }
-
-    const result = await response.json();
+    const result = await apiCall('/auth');
     return result;
   } catch (error) {
     console.error('Auth error:', error);
-    // Return mock data as fallback
-    return { ok: true, user: MOCK_USER_DATA, fallback: true };
+    throw error;
   }
 };
 
 /**
  * Claim hold reward
- * @param {number} prize - Prize amount
- * @returns {Promise<Object>} Updated user data
+ * Endpoint: POST /claim
+ * Body: { initData, prize }
+ * Response: { ok, total, wins, holdsCount }
  */
 export const claimReward = async (prize) => {
-  if (IS_DEV) {
-    await new Promise(resolve => setTimeout(resolve, 300));
-    return {
-      ok: true,
-      total: MOCK_USER_DATA.total_earned + prize,
-      wins: MOCK_USER_DATA.wins + 1,
-      holdsCount: MOCK_USER_DATA.holds_count + 1,
-    };
-  }
-
   try {
-    const response = await fetch(`${WORKER_URL}/claim`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        initData: getInitData(),
-        prize: prize,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Claim failed: ${response.status}`);
-    }
-
-    return await response.json();
+    const result = await apiCall('/claim', { prize });
+    return result;
   } catch (error) {
     console.error('Claim error:', error);
     throw error;
@@ -242,61 +158,50 @@ export const claimReward = async (prize) => {
 
 /**
  * Get transaction history
- * NOTE: This endpoint may not exist in current backend
- * Returns mock data - ready to connect when backend implements it
- * @returns {Promise<Array>} Transaction list
+ * Endpoint: POST /transactions
+ * Body: { initData, limit?, offset?, type? }
+ * Response: { ok, transactions: [...] }
  */
-export const getTransactions = async () => {
-  // TODO: Replace with real endpoint when available
-  // try {
-  //   const response = await fetch(`${WORKER_URL}/transactions`, {
-  //     method: 'POST',
-  //     headers: { 'Content-Type': 'application/json' },
-  //     body: JSON.stringify({ initData: getInitData() }),
-  //   });
-  //   return await response.json();
-  // } catch (error) {
-  //   console.error('Transactions error:', error);
-  // }
-
-  await new Promise(resolve => setTimeout(resolve, 400));
-  return { ok: true, transactions: MOCK_TRANSACTIONS };
+export const getTransactions = async (options = {}) => {
+  try {
+    const result = await apiCall('/transactions', options);
+    return result;
+  } catch (error) {
+    console.error('Transactions error:', error);
+    throw error;
+  }
 };
 
 /**
  * Get referral pool stats
- * NOTE: This endpoint may not exist in current backend
- * Returns mock data - ready to connect when backend implements it
- * @returns {Promise<Object>} Pool data
+ * Endpoint: POST /referrals
+ * Body: { initData }
+ * Response: { ok, pool: { total_pool, remaining, your_earnings }, referrals: [...] }
  */
 export const getReferralPool = async () => {
-  // TODO: Replace with real endpoint when available
-  await new Promise(resolve => setTimeout(resolve, 200));
-  return { ok: true, pool: MOCK_POOL_DATA };
+  try {
+    const result = await apiCall('/referrals');
+    return result;
+  } catch (error) {
+    console.error('Referrals error:', error);
+    throw error;
+  }
 };
 
 /**
  * Request withdrawal
- * NOTE: Backend validation required - UI flow ready
- * @param {Object} params - Withdrawal parameters
- * @returns {Promise<Object>} Withdrawal result
+ * Endpoint: POST /withdraw
+ * Body: { initData, asset, amount, toAddress }
+ * Response: { ok, status, txId, message }
  */
 export const requestWithdraw = async ({ asset, amount, toAddress }) => {
-  // TODO: Implement when backend is ready
-  // This is where backend validation and blockchain tx would happen
-  
-  console.warn('Withdrawal requested - backend integration pending', { asset, amount, toAddress });
-  
-  // Simulate processing
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  
-  // Return pending state - actual confirmation comes from backend
-  return {
-    ok: true,
-    status: 'pending',
-    message: 'Withdrawal request submitted. Backend validation pending.',
-    txId: `pending_${Date.now()}`,
-  };
+  try {
+    const result = await apiCall('/withdraw', { asset, amount, toAddress });
+    return result;
+  } catch (error) {
+    console.error('Withdraw error:', error);
+    throw error;
+  }
 };
 
 /**
@@ -305,7 +210,6 @@ export const requestWithdraw = async ({ asset, amount, toAddress }) => {
 export const DEPOSIT_INFO = {
   network: 'TRON (TRC-20)',
   address: DEPOSIT_ADDRESS,
-  // MEMO is the user's UID - will be set dynamically
 };
 
 export default {

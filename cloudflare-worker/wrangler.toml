@@ -1,0 +1,11 @@
+name = "tronkeeper-api"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+# Non-sensitive variables (optional)
+
+# Secrets (set via wrangler secret put):
+# - BOT_TOKEN
+# - SUPA_URL  
+# - SUPA_SERVICE_KEY
