@@ -6,10 +6,10 @@
  * Auth: Telegram initData (validated in Worker)
  */
 
-// Configuration from environment
-const WORKER_URL = process.env.REACT_APP_WORKER_URL || 'https://shiny-surf-110c.tkexchange.workers.dev';
-const TELEGRAM_BOT_URL = process.env.REACT_APP_TELEGRAM_BOT_URL || 'https://t.me/TKcex_bot';
-const DEPOSIT_ADDRESS = process.env.REACT_APP_DEPOSIT_ADDRESS || 'TNjqVzo47ndAvH241njkMLKbda3G6FPgVs';
+// Configuration from environment (Vite uses import.meta.env)
+const WORKER_URL = import.meta.env.VITE_WORKER_URL || 'https://shiny-surf-110c.tkexchange.workers.dev';
+const TELEGRAM_BOT_URL = import.meta.env.VITE_TELEGRAM_BOT_URL || 'https://t.me/TKcex_bot';
+const DEPOSIT_ADDRESS = import.meta.env.VITE_DEPOSIT_ADDRESS || 'TNjqVzo47ndAvH241njkMLKbda3G6FPgVs';
 
 // Development mode: true when not in Telegram
 const IS_DEV = typeof window !== 'undefined' && !window.Telegram?.WebApp?.initData;
