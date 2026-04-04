@@ -11,6 +11,30 @@ const WORKER_URL = process.env.REACT_APP_WORKER_URL || 'https://shiny-surf-110c.
 const TELEGRAM_BOT_URL = process.env.REACT_APP_TELEGRAM_BOT_URL || 'https://t.me/TKcex_bot';
 const DEPOSIT_ADDRESS = process.env.REACT_APP_DEPOSIT_ADDRESS || 'TNjqVzo47ndAvH241njkMLKbda3G6FPgVs';
 
+// Development mode: true when not in Telegram
+const IS_DEV = typeof window !== 'undefined' && !window.Telegram?.WebApp?.initData;
+
+// Mock data for development/preview (outside Telegram)
+const MOCK_USER = {
+  uid: 'TK_DEV_12345',
+  usdt_balance: 12.50,
+  trx_balance: 24.50,
+  total_earned: 12.50,
+  wins: 45,
+  holds_count: 0,
+  holds_reset_at: null,
+  total_refs: 8,
+  trx_refs: 16.00,
+};
+
+const MOCK_TRANSACTIONS = [
+  { id: 'tx_1', type: 'reward', asset: 'USDT', amount: 0.05, status: 'confirmed', timestamp: Date.now() - 3600000, description: 'Hold to Earn' },
+  { id: 'tx_2', type: 'deposit', asset: 'USDT', amount: 50, status: 'confirmed', timestamp: Date.now() - 86400000, description: 'Deposit' },
+  { id: 'tx_3', type: 'referral', asset: 'TRX', amount: 2, status: 'confirmed', timestamp: Date.now() - 172800000, description: 'Referral bonus' },
+];
+
+const MOCK_POOL = { total_pool: 50000, remaining: 38450, your_earnings: 16.00 };
+
 /**
  * Get Telegram WebApp instance
  */
@@ -102,12 +126,15 @@ export const shareReferralLink = (uid) => {
 
 /**
  * API call wrapper with error handling
+ * Falls back to mock data in development mode
  */
 const apiCall = async (endpoint, body = {}) => {
   const initData = getInitData();
   
-  if (!initData) {
-    throw new Error('No Telegram initData available. Open in Telegram.');
+  // Development mode: return mock data
+  if (IS_DEV || !initData) {
+    console.warn(`[DEV MODE] ${endpoint} - Using mock data (not in Telegram)`);
+    return null; // Signal to use mock
   }
 
   const response = await fetch(`${WORKER_URL}${endpoint}`, {
@@ -126,30 +153,33 @@ const apiCall = async (endpoint, body = {}) => {
 
 /**
  * Authenticate user and load data
- * Endpoint: POST /auth
- * Body: { initData }
- * Response: { ok, user: { uid, usdt_balance, trx_balance, wins, holds_count, holds_reset_at, total_refs, trx_refs } }
  */
 export const authUser = async () => {
   try {
     const result = await apiCall('/auth');
-    return result;
+    if (result) return result;
+    // Dev mode fallback
+    return { ok: true, user: MOCK_USER };
   } catch (error) {
     console.error('Auth error:', error);
+    if (IS_DEV) return { ok: true, user: MOCK_USER };
     throw error;
   }
 };
 
 /**
  * Claim hold reward
- * Endpoint: POST /claim
- * Body: { initData, prize }
- * Response: { ok, total, wins, holdsCount }
  */
 export const claimReward = async (prize) => {
   try {
     const result = await apiCall('/claim', { prize });
-    return result;
+    if (result) return result;
+    // Dev mode fallback
+    MOCK_USER.total_earned += prize;
+    MOCK_USER.usdt_balance += prize;
+    MOCK_USER.wins += 1;
+    MOCK_USER.holds_count += 1;
+    return { ok: true, total: MOCK_USER.total_earned, wins: MOCK_USER.wins, holdsCount: MOCK_USER.holds_count };
   } catch (error) {
     console.error('Claim error:', error);
     throw error;
@@ -158,46 +188,45 @@ export const claimReward = async (prize) => {
 
 /**
  * Get transaction history
- * Endpoint: POST /transactions
- * Body: { initData, limit?, offset?, type? }
- * Response: { ok, transactions: [...] }
  */
 export const getTransactions = async (options = {}) => {
   try {
     const result = await apiCall('/transactions', options);
-    return result;
+    if (result) return result;
+    // Dev mode fallback
+    return { ok: true, transactions: MOCK_TRANSACTIONS };
   } catch (error) {
     console.error('Transactions error:', error);
+    if (IS_DEV) return { ok: true, transactions: MOCK_TRANSACTIONS };
     throw error;
   }
 };
 
 /**
  * Get referral pool stats
- * Endpoint: POST /referrals
- * Body: { initData }
- * Response: { ok, pool: { total_pool, remaining, your_earnings }, referrals: [...] }
  */
 export const getReferralPool = async () => {
   try {
     const result = await apiCall('/referrals');
-    return result;
+    if (result) return result;
+    // Dev mode fallback
+    return { ok: true, pool: MOCK_POOL };
   } catch (error) {
     console.error('Referrals error:', error);
+    if (IS_DEV) return { ok: true, pool: MOCK_POOL };
     throw error;
   }
 };
 
 /**
  * Request withdrawal
- * Endpoint: POST /withdraw
- * Body: { initData, asset, amount, toAddress }
- * Response: { ok, status, txId, message }
  */
 export const requestWithdraw = async ({ asset, amount, toAddress }) => {
   try {
     const result = await apiCall('/withdraw', { asset, amount, toAddress });
-    return result;
+    if (result) return result;
+    // Dev mode fallback
+    return { ok: true, status: 'pending', txId: `dev_${Date.now()}`, message: 'Dev mode - withdrawal simulated' };
   } catch (error) {
     console.error('Withdraw error:', error);
     throw error;
