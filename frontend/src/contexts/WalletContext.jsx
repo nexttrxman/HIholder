@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import {
   authUser,
   claimReward,
@@ -16,6 +16,14 @@ const HOLD_DURATION = 3000; // 3 seconds
 const MAX_HOLDS_PER_CYCLE = 3;
 const HOLD_RESET_HOURS = 6;
 
+// Helper: normaliza cualquier valor de fecha a timestamp ms (number)
+const toTimestamp = (val) => {
+  if (!val) return null;
+  if (typeof val === 'number') return val;
+  const ms = new Date(val).getTime();
+  return isNaN(ms) ? null : ms;
+};
+
 export function WalletProvider({ children }) {
   // User state
   const [user, setUser] = useState(null);
@@ -30,6 +38,7 @@ export function WalletProvider({ children }) {
   const [totalEarned, setTotalEarned] = useState(0);
   const [wins, setWins] = useState(0);
   const [holdsCount, setHoldsCount] = useState(0);
+  // Siempre guardado como timestamp ms (number) o null
   const [holdsResetAt, setHoldsResetAt] = useState(null);
   const [lastPrize, setLastPrize] = useState(null);
 
@@ -49,6 +58,22 @@ export function WalletProvider({ children }) {
   const [uid, setUid] = useState(null);
 
   /**
+   * Aplica datos de usuario al estado del contexto
+   */
+  const applyUserData = useCallback((userData) => {
+    setTotalEarned(userData.total_earned || 0);
+    setWins(userData.wins || 0);
+    setHoldsCount(userData.holds_count || 0);
+    // Normalizar a timestamp ms siempre
+    setHoldsResetAt(toTimestamp(userData.holds_reset_at));
+    setTotalRefs(userData.total_refs || 0);
+    setTrxFromRefs(userData.trx_refs || 0);
+    setTrxBalance(userData.trx_balance || 0);
+    setUsdtBalance(userData.usdt_balance || userData.total_earned || 0);
+    if (userData.uid) setUid(userData.uid);
+  }, []);
+
+  /**
    * Initialize app and load user data
    */
   const loadUserData = useCallback(async () => {
@@ -56,35 +81,17 @@ export function WalletProvider({ children }) {
     setError(null);
 
     try {
-      // Initialize Telegram
       initTelegram();
 
-      // Get Telegram user info
       const tgUser = getTelegramUser();
       setUser(tgUser);
       setUid(tgUser?.id?.toString() || 'guest');
 
-      // Auth and get user data from backend
       const result = await authUser();
-
       if (result.ok && result.user) {
-        const userData = result.user;
-        setTotalEarned(userData.total_earned || 0);
-        setWins(userData.wins || 0);
-        setHoldsCount(userData.holds_count || 0);
-        setHoldsResetAt(userData.holds_reset_at || null);
-        setTotalRefs(userData.total_refs || 0);
-        setTrxFromRefs(userData.trx_refs || 0);
-        setTrxBalance(userData.trx_balance || 0);
-        setUsdtBalance(userData.usdt_balance || userData.total_earned || 0);
-
-        // Set UID from backend if available
-        if (userData.uid) {
-          setUid(userData.uid);
-        }
+        applyUserData(result.user);
       }
 
-      // Load referral pool data
       const poolResult = await getReferralPool();
       if (poolResult.ok && poolResult.pool) {
         setReferralPool({
@@ -98,29 +105,25 @@ export function WalletProvider({ children }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [applyUserData]);
 
   /**
-   * Refresh user data
+   * Refresh user data — expuesto para HoldButton y otros componentes
    */
-  const refreshData = useCallback(async () => {
+  const refreshUser = useCallback(async () => {
     try {
       const result = await authUser();
       if (result.ok && result.user) {
-        const userData = result.user;
-        setTotalEarned(userData.total_earned || 0);
-        setWins(userData.wins || 0);
-        setHoldsCount(userData.holds_count || 0);
-        setHoldsResetAt(userData.holds_reset_at || null);
-        setTotalRefs(userData.total_refs || 0);
-        setTrxFromRefs(userData.trx_refs || 0);
-        setTrxBalance(userData.trx_balance || 0);
-        setUsdtBalance(userData.usdt_balance || userData.total_earned || 0);
+        applyUserData(result.user);
       }
+      return result;
     } catch (err) {
-      console.error('Failed to refresh data:', err);
+      console.error('Failed to refresh user:', err);
     }
-  }, []);
+  }, [applyUserData]);
+
+  // Alias para compatibilidad con código viejo que usa refreshData
+  const refreshData = refreshUser;
 
   /**
    * Load transaction history
@@ -140,16 +143,16 @@ export function WalletProvider({ children }) {
   }, []);
 
   /**
-   * Claim a hold reward
+   * Claim a hold reward — el prize viene del servidor vía HoldButton
    */
   const claim = useCallback(async (prize) => {
     try {
       const result = await claimReward(prize);
       if (result.ok) {
-        setTotalEarned(result.total || totalEarned + prize);
-        setWins(result.wins || wins + 1);
-        setHoldsCount(result.holdsCount || holdsCount + 1);
-        setUsdtBalance(result.total || usdtBalance + prize);
+        setTotalEarned(result.total ?? (totalEarned + (prize || 0)));
+        setWins(result.wins ?? (wins + 1));
+        setHoldsCount(result.holdsCount ?? (holdsCount + 1));
+        setUsdtBalance(result.total ?? (usdtBalance + (prize || 0)));
         setLastPrize(prize);
         return { success: true };
       }
@@ -161,26 +164,28 @@ export function WalletProvider({ children }) {
   }, [totalEarned, wins, holdsCount, usdtBalance]);
 
   /**
-   * Check if holds are available
+   * remainingHolds — REACTIVO con useMemo
+   * Cuando holdsResetAt ya pasó, trata holdsCount como 0
    */
-  const canHold = useCallback(() => {
-    if (holdsCount >= MAX_HOLDS_PER_CYCLE) {
-      if (holdsResetAt && Date.now() < holdsResetAt) {
-        return false;
-      }
-      // Reset if time has passed
-      setHoldsCount(0);
-    }
-    return true;
+  const remainingHolds = useMemo(() => {
+    const resetExpired = holdsResetAt ? Date.now() >= holdsResetAt : true;
+    const effectiveCount = (holdsCount >= MAX_HOLDS_PER_CYCLE && resetExpired)
+      ? 0
+      : holdsCount;
+    return Math.max(MAX_HOLDS_PER_CYCLE - effectiveCount, 0);
   }, [holdsCount, holdsResetAt]);
 
   /**
-   * Get remaining holds
+   * canHold — devuelve true si el usuario puede hacer hold ahora mismo
    */
-  const remainingHolds = MAX_HOLDS_PER_CYCLE - holdsCount;
+  const canHold = useCallback(() => {
+    if (holdsCount < MAX_HOLDS_PER_CYCLE) return true;
+    if (!holdsResetAt) return false;
+    return Date.now() >= holdsResetAt;
+  }, [holdsCount, holdsResetAt]);
 
   /**
-   * Get time until holds reset
+   * getResetTime — string "Xh Ym" o null si no hay reset pendiente
    */
   const getResetTime = useCallback(() => {
     if (!holdsResetAt) return null;
@@ -191,15 +196,9 @@ export function WalletProvider({ children }) {
     return `${hours}h ${minutes}m`;
   }, [holdsResetAt]);
 
-  /**
-   * Get referral link
-   */
   const telegramBotUrl = import.meta.env.VITE_TELEGRAM_BOT_URL || 'https://t.me/TKcex_bot';
   const referralLink = `${telegramBotUrl}?start=${uid}`;
 
-  /**
-   * Get deposit info with user's memo
-   */
   const depositInfo = {
     ...DEPOSIT_INFO,
     memo: uid || 'loading...',
@@ -213,6 +212,7 @@ export function WalletProvider({ children }) {
   const value = {
     // User
     user,
+    setUser,
     uid,
     loading,
     error,
@@ -248,6 +248,7 @@ export function WalletProvider({ children }) {
     depositInfo,
 
     // Actions
+    refreshUser,
     refreshData,
     loadUserData,
   };
