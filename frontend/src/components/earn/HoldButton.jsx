@@ -2,131 +2,179 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useWallet } from '@/contexts/WalletContext';
 import { useTelegram } from '@/hooks/useTelegram';
+import { startHold, claimReward } from '@/services/api';
 
 // Tether icon URL - local asset
 const TETHER_ICON = '/tether.png';
 
 export function HoldButton() {
   const { 
-    canHold, 
-    claim, 
-    HOLD_DURATION,
+    user,
+    setUser,
+    refreshUser,
     remainingHolds,
-    getResetTime 
+    getResetTime,
   } = useWallet();
   const { vibrate } = useTelegram();
 
-  const [isHolding, setIsHolding] = useState(false);
+  // Hold state
+  const [holdActive, setHoldActive] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [status, setStatus] = useState('hold');
+  const [countdown, setCountdown] = useState(0);
+  const [holdDuration, setHoldDuration] = useState(0);
+  const [expiresAt, setExpiresAt] = useState(null);
+  const [status, setStatus] = useState('hold'); // hold | holding | claimable | done | wait | blocked
   const [showPrize, setShowPrize] = useState(false);
   const [prizeAmount, setPrizeAmount] = useState(0);
   const [showRipple, setShowRipple] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const timerRef = useRef(null);
-  const startTimeRef = useRef(null);
   const frameRef = useRef(null);
+  const resetCheckRef = useRef(null);
 
-  // Calculate prize (random between 0.02 and 0.08)
-  const calculatePrize = () => {
-    return Math.floor(Math.random() * 7 + 2) / 100; // 0.02 to 0.08
-  };
-
-  // Animation frame for smooth progress
+  // Animation frame - actualiza progress y countdown cada 100ms
   const updateProgress = useCallback(() => {
-    if (!startTimeRef.current) return;
+    if (!expiresAt) return;
+    const now = Date.now();
+    const remaining = new Date(expiresAt).getTime() - now;
     
-    const elapsed = Date.now() - startTimeRef.current;
-    const newProgress = Math.min(elapsed / HOLD_DURATION, 1);
-    setProgress(newProgress);
-
-    // Update status
-    const remaining = Math.ceil((HOLD_DURATION - elapsed) / 1000);
-    if (remaining > 0 && elapsed < HOLD_DURATION) {
-      setStatus(`${remaining}s`);
+    if (remaining > 0) {
+      const pct = 1 - remaining / (holdDuration * 1000);
+      setProgress(Math.min(pct, 1));
+      setCountdown(Math.ceil(remaining / 1000));
+      frameRef.current = requestAnimationFrame(updateProgress);
+    } else {
+      // Hold expirado - listo para claim
+      setProgress(1);
+      setCountdown(0);
+      setStatus('claimable');
+      vibrate('success');
     }
+  }, [expiresAt, holdDuration, vibrate]);
 
-    if (elapsed < HOLD_DURATION) {
+  // Auto-reset check: cuando holds_reset_at pasa, refresca user
+  useEffect(() => {
+    if (user?.holds_count >= 3 && user?.holds_reset_at) {
+      const resetMs = new Date(user.holds_reset_at).getTime() - Date.now();
+      if (resetMs > 0) {
+        setStatus('blocked');
+        resetCheckRef.current = setTimeout(async () => {
+          await refreshUser();
+          setStatus('hold');
+        }, resetMs);
+      } else {
+        // Ya paso el reset, refrescar inmediatamente
+        refreshUser();
+        setStatus('hold');
+      }
+    } else if (status === 'blocked') {
+      setStatus('hold');
+    }
+    return () => {
+      if (resetCheckRef.current) clearTimeout(resetCheckRef.current);
+    };
+  }, [user?.holds_count, user?.holds_reset_at]);
+
+  // Arrancar progress animation cuando hay hold activo
+  useEffect(() => {
+    if (holdActive && expiresAt) {
       frameRef.current = requestAnimationFrame(updateProgress);
     }
-  }, [HOLD_DURATION]);
+    return () => {
+      if (frameRef.current) cancelAnimationFrame(frameRef.current);
+    };
+  }, [holdActive, expiresAt, updateProgress]);
 
-  // Handle hold complete
-  const onHoldComplete = useCallback(async () => {
-    vibrate('success');
-    setStatus('done');
-    setShowRipple(true);
-    
-    const prize = calculatePrize();
-    setPrizeAmount(prize);
-    
-    // Claim reward
-    await claim(prize);
-    
-    // Show prize animation
-    setTimeout(() => {
-      setShowPrize(true);
-      setTimeout(() => {
-        setShowPrize(false);
-        setShowRipple(false);
-        setProgress(0);
-        setStatus('hold');
-      }, 2000);
-    }, 300);
-  }, [claim, vibrate]);
-
-  // Start holding
-  const startHold = useCallback(() => {
-    if (!canHold() || remainingHolds <= 0) {
+  // START HOLD - llama al servidor que asigna duracion random
+  const handleStartHold = useCallback(async () => {
+    if (loading || remainingHolds <= 0) {
       vibrate('error');
       setStatus('wait');
-      setTimeout(() => setStatus('hold'), 1500);
+      setTimeout(() => setStatus(remainingHolds > 0 ? 'hold' : 'blocked'), 1500);
       return;
     }
 
-    vibrate('impact');
-    setIsHolding(true);
-    setStatus('holding');
-    startTimeRef.current = Date.now();
-    
-    // Start progress animation
-    frameRef.current = requestAnimationFrame(updateProgress);
+    try {
+      setLoading(true);
+      vibrate('impact');
+      setStatus('holding');
 
-    // Set completion timer
-    timerRef.current = setTimeout(() => {
-      onHoldComplete();
-      stopHold();
-    }, HOLD_DURATION);
-  }, [canHold, remainingHolds, vibrate, updateProgress, onHoldComplete, HOLD_DURATION]);
+      const result = await startHold();
 
-  // Stop holding
-  const stopHold = useCallback(() => {
-    setIsHolding(false);
-    
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-    
-    if (frameRef.current) {
-      cancelAnimationFrame(frameRef.current);
-      frameRef.current = null;
-    }
-    
-    startTimeRef.current = null;
-    
-    // Only reset if not completed
-    if (status !== 'done') {
-      setProgress(0);
+      if (!result.ok) throw new Error('startHold failed');
+
+      if (result.alreadyActive) {
+        // Ya habia un hold activo - retomar
+        setHoldDuration(result.duration);
+        setExpiresAt(result.expiresAt);
+        setHoldActive(true);
+        setCountdown(Math.ceil(result.remainingMs / 1000));
+      } else {
+        setHoldDuration(result.duration);
+        setExpiresAt(result.expiresAt);
+        setHoldActive(true);
+        setCountdown(result.duration);
+      }
+
+      // Refrescar user para actualizar holds_count en UI
+      await refreshUser();
+    } catch (err) {
+      console.error('startHold error:', err);
+      vibrate('error');
       setStatus('hold');
+    } finally {
+      setLoading(false);
     }
-  }, [status]);
+  }, [loading, remainingHolds, vibrate, refreshUser]);
+
+  // CLAIM - el servidor calcula el premio, NO lo mandamos nosotros
+  const handleClaim = useCallback(async () => {
+    if (status !== 'claimable' || loading) return;
+
+    try {
+      setLoading(true);
+      vibrate('impact');
+
+      const result = await claimReward();
+
+      if (!result.ok) throw new Error('claimReward failed');
+
+      const prize = result.prize || 0;
+      setPrizeAmount(prize);
+      setShowRipple(true);
+      setStatus('done');
+      vibrate('success');
+
+      // Mostrar animacion del premio
+      setTimeout(() => {
+        setShowPrize(true);
+        setTimeout(() => {
+          setShowPrize(false);
+          setShowRipple(false);
+          setProgress(0);
+          setHoldActive(false);
+          setExpiresAt(null);
+          setHoldDuration(0);
+          setStatus('hold');
+        }, 2000);
+      }, 300);
+
+      // Refrescar user (actualiza holds_count, total_earned, holds_reset_at)
+      await refreshUser();
+    } catch (err) {
+      console.error('claimReward error:', err);
+      vibrate('error');
+      setStatus('claimable');
+    } finally {
+      setLoading(false);
+    }
+  }, [status, loading, vibrate, refreshUser]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
       if (frameRef.current) cancelAnimationFrame(frameRef.current);
+      if (resetCheckRef.current) clearTimeout(resetCheckRef.current);
     };
   }, []);
 
@@ -136,14 +184,27 @@ export function HoldButton() {
   const strokeDashoffset = circumference * (1 - progress);
 
   const resetTime = getResetTime();
-  const isDisabled = remainingHolds <= 0 && resetTime;
+  const isBlocked = remainingHolds <= 0 && resetTime;
+  const isClaimable = status === 'claimable';
+  const isHolding = status === 'holding';
+
+  const handleButtonPress = () => {
+    if (isBlocked || loading) return;
+    if (isClaimable) {
+      handleClaim();
+    } else if (!holdActive) {
+      handleStartHold();
+    }
+  };
 
   return (
     <div className="relative flex flex-col items-center" data-testid="hold-section">
       {/* Title */}
       <div className="text-center mb-2">
         <h2 className="font-display text-lg font-semibold text-white">Hold to Earn</h2>
-        <p className="text-xs text-white/40 mt-1">Hold the button to get your prize</p>
+        <p className="text-xs text-white/40 mt-1">
+          {isClaimable ? 'Tap to claim your prize!' : 'Hold the button to get your prize'}
+        </p>
       </div>
 
       {/* Remaining holds indicator */}
@@ -170,10 +231,12 @@ export function HoldButton() {
         <div className={`
           absolute inset-0 rounded-full 
           transition-opacity duration-300
-          ${isHolding ? 'opacity-100' : 'opacity-0'}
+          ${isHolding || isClaimable ? 'opacity-100' : 'opacity-0'}
         `}
         style={{
-          background: 'radial-gradient(circle, rgba(0,230,118,0.15) 0%, transparent 70%)',
+          background: isClaimable
+            ? 'radial-gradient(circle, rgba(0,230,118,0.25) 0%, transparent 70%)'
+            : 'radial-gradient(circle, rgba(0,230,118,0.15) 0%, transparent 70%)',
         }}
         />
 
@@ -182,7 +245,6 @@ export function HoldButton() {
           className="absolute inset-0 w-full h-full progress-ring"
           viewBox="0 0 204 204"
         >
-          {/* Background ring */}
           <circle
             cx="102"
             cy="102"
@@ -191,20 +253,19 @@ export function HoldButton() {
             stroke="rgba(255,255,255,0.05)"
             strokeWidth="4"
           />
-          {/* Progress ring */}
           <circle
             cx="102"
             cy="102"
             r={radius}
             fill="none"
-            stroke={progress >= 1 ? '#00E676' : '#00E676'}
+            stroke="#00E676"
             strokeWidth="4"
             strokeLinecap="round"
             strokeDasharray={circumference}
             strokeDashoffset={strokeDashoffset}
             className="transition-all duration-75"
             style={{
-              filter: isHolding ? 'drop-shadow(0 0 8px rgba(0,230,118,0.5))' : 'none',
+              filter: (isHolding || isClaimable) ? 'drop-shadow(0 0 8px rgba(0,230,118,0.5))' : 'none',
             }}
           />
         </svg>
@@ -231,42 +292,40 @@ export function HoldButton() {
             select-none cursor-pointer
             transition-shadow duration-300
             overflow-hidden
-            ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}
+            ${isBlocked || loading ? 'opacity-50 cursor-not-allowed' : ''}
             ${isHolding ? 'shadow-[0_0_60px_rgba(0,230,118,0.3)]' : ''}
+            ${isClaimable ? 'shadow-[0_0_80px_rgba(0,230,118,0.5)]' : ''}
           `}
-          onMouseDown={!isDisabled ? startHold : undefined}
-          onMouseUp={stopHold}
-          onMouseLeave={stopHold}
-          onTouchStart={!isDisabled ? startHold : undefined}
-          onTouchEnd={stopHold}
-          whileTap={!isDisabled ? { scale: 0.92 } : {}}
-          disabled={isDisabled}
+          onClick={handleButtonPress}
+          onTouchStart={(!isBlocked && !loading && !holdActive) ? handleStartHold : undefined}
+          onTouchEnd={undefined}
+          whileTap={(!isBlocked && !loading) ? { scale: 0.92 } : {}}
+          disabled={isBlocked || loading}
         >
-          {/* Tether Button Image */}
           <img 
             src={TETHER_ICON} 
             alt="Hold to Earn"
             className="w-full h-full object-cover pointer-events-none"
             draggable={false}
           />
-          
         </motion.button>
 
-        {/* Status indicator below button */}
+        {/* Status indicator */}
         <div className="absolute -bottom-8 left-1/2 -translate-x-1/2">
           <span className={`
             text-sm font-semibold px-4 py-1 rounded-full
             ${status === 'done' ? 'bg-brand-green/20 text-brand-green' : ''}
-            ${status === 'wait' ? 'bg-brand-red/20 text-brand-red' : ''}
+            ${status === 'wait' || status === 'blocked' ? 'bg-brand-red/20 text-brand-red' : ''}
+            ${status === 'claimable' ? 'bg-brand-green/30 text-brand-green animate-pulse' : ''}
             ${status === 'hold' ? 'text-white/50' : ''}
             ${status === 'holding' ? 'text-white/70' : ''}
-            ${status !== 'hold' && status !== 'holding' && status !== 'done' && status !== 'wait' ? 'text-white/70' : ''}
           `}>
             {status === 'hold' && 'Hold to earn'}
-            {status === 'holding' && `${status}...`}
+            {status === 'holding' && (countdown > 0 ? `${countdown}s left` : 'Holding...')}
+            {status === 'claimable' && '⭐ Tap to claim!'}
             {status === 'done' && '✓ Done!'}
-            {status === 'wait' && 'Wait...'}
-            {status !== 'hold' && status !== 'holding' && status !== 'done' && status !== 'wait' && `${status}s left`}
+            {status === 'wait' && 'No holds left'}
+            {status === 'blocked' && `Resets in ${resetTime}`}
           </span>
         </div>
 
