@@ -4,6 +4,11 @@
  * 
  * Architecture: Telegram Mini App -> Cloudflare Worker -> Supabase
  * Auth: Telegram initData (validated in Worker)
+ * 
+ * CAMBIOS:
+ * - + startHold(): inicia hold, el servidor asigna duración random
+ * - claimReward(): ya NO manda prize, el servidor lo calcula
+ * - Auto-reset: cuando holds_reset_at pasa, el frontend refresca
  */
 
 // Configuration from environment (Vite uses import.meta.env)
@@ -23,6 +28,10 @@ const MOCK_USER = {
   wins: 45,
   holds_count: 0,
   holds_reset_at: null,
+  hold_active: false,
+  hold_started_at: null,
+  hold_expires_at: null,
+  hold_duration_seconds: null,
   total_refs: 8,
   trx_refs: 16.00,
 };
@@ -168,18 +177,58 @@ export const authUser = async () => {
 };
 
 /**
- * Claim hold reward
+ * Start new hold session - NUEVO
+ * El servidor asigna duración random (6-18s) y registra el inicio
+ * @returns {Promise} { ok, startedAt, duration, expiresAt, remainingMs, alreadyActive? }
  */
-export const claimReward = async (prize) => {
+export const startHold = async () => {
   try {
-    const result = await apiCall('/claim', { prize });
+    const result = await apiCall('/start-hold');
     if (result) return result;
     // Dev mode fallback
+    const duration = Math.floor(Math.random() * 13) + 6; // 6-18s
+    const now = Date.now();
+    return {
+      ok: true,
+      alreadyActive: false,
+      startedAt: new Date(now).toISOString(),
+      duration,
+      expiresAt: new Date(now + duration * 1000).toISOString(),
+      remainingMs: duration * 1000,
+    };
+  } catch (error) {
+    console.error('Start hold error:', error);
+    throw error;
+  }
+};
+
+/**
+ * Claim hold reward - CORREGIDO: ya NO manda prize
+ * El servidor calcula el premio basado en el hold registrado
+ * @returns {Promise} { ok, prize, total, wins, holdsCount, holdsResetAt }
+ */
+export const claimReward = async () => {
+  try {
+    // SIN prize - el servidor lo calcula desde el hold activo
+    const result = await apiCall('/claim');
+    if (result) return result;
+    // Dev mode fallback
+    const prize = Math.floor(Math.random() * 7 + 2) / 100; // 0.02-0.08
     MOCK_USER.total_earned += prize;
     MOCK_USER.usdt_balance += prize;
     MOCK_USER.wins += 1;
     MOCK_USER.holds_count += 1;
-    return { ok: true, total: MOCK_USER.total_earned, wins: MOCK_USER.wins, holdsCount: MOCK_USER.holds_count };
+    if (MOCK_USER.holds_count >= 3) {
+      MOCK_USER.holds_reset_at = new Date(Date.now() + 6 * 3600 * 1000).toISOString();
+    }
+    return {
+      ok: true,
+      prize,
+      total: MOCK_USER.total_earned,
+      wins: MOCK_USER.wins,
+      holdsCount: MOCK_USER.holds_count,
+      holdsResetAt: MOCK_USER.holds_reset_at,
+    };
   } catch (error) {
     console.error('Claim error:', error);
     throw error;
@@ -243,6 +292,7 @@ export const DEPOSIT_INFO = {
 
 export default {
   authUser,
+  startHold,     // NUEVO
   claimReward,
   getTransactions,
   getReferralPool,
