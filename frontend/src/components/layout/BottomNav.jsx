@@ -2,10 +2,10 @@ import { Home, Wallet, Target, Users, Clock } from 'lucide-react';
 
 const navItems = [
   { id: 'home', icon: Home, label: 'Home' },
-  { id: 'wallet', icon: Wallet, label: 'Wallet' },
   { id: 'missions', icon: Target, label: 'Missions' },
   { id: 'referrals', icon: Users, label: 'Invite' },
   { id: 'history', icon: Clock, label: 'History' },
+  { id: 'wallet', icon: Wallet, label: 'Wallet' },
 ];
 
 export function BottomNav({ activeTab, onTabChange }) {

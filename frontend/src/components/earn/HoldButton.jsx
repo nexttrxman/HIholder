@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useWallet } from '@/contexts/WalletContext';
 import { useTelegram } from '@/hooks/useTelegram';
 
-// Tether icon URL - local asset
 const TETHER_ICON = '/tether.png';
 
 export function HoldButton() {
@@ -26,80 +25,12 @@ export function HoldButton() {
   const timerRef = useRef(null);
   const startTimeRef = useRef(null);
   const frameRef = useRef(null);
+  const isCompletedRef = useRef(false);
 
-  // Calculate prize (random between 0.02 and 0.08)
   const calculatePrize = () => {
-    return Math.floor(Math.random() * 7 + 2) / 100; // 0.02 to 0.08
+    return Math.floor(Math.random() * 7 + 2) / 100;
   };
 
-  // Animation frame for smooth progress
-  const updateProgress = useCallback(() => {
-    if (!startTimeRef.current) return;
-    
-    const elapsed = Date.now() - startTimeRef.current;
-    const newProgress = Math.min(elapsed / HOLD_DURATION, 1);
-    setProgress(newProgress);
-
-    // Update status
-    const remaining = Math.ceil((HOLD_DURATION - elapsed) / 1000);
-    if (remaining > 0 && elapsed < HOLD_DURATION) {
-      setStatus(`${remaining}s`);
-    }
-
-    if (elapsed < HOLD_DURATION) {
-      frameRef.current = requestAnimationFrame(updateProgress);
-    }
-  }, [HOLD_DURATION]);
-
-  // Handle hold complete
-  const onHoldComplete = useCallback(async () => {
-    vibrate('success');
-    setStatus('done');
-    setShowRipple(true);
-    
-    const prize = calculatePrize();
-    setPrizeAmount(prize);
-    
-    // Claim reward
-    await claim(prize);
-    
-    // Show prize animation
-    setTimeout(() => {
-      setShowPrize(true);
-      setTimeout(() => {
-        setShowPrize(false);
-        setShowRipple(false);
-        setProgress(0);
-        setStatus('hold');
-      }, 2000);
-    }, 300);
-  }, [claim, vibrate]);
-
-  // Start holding
-  const startHold = useCallback(() => {
-    if (!canHold() || remainingHolds <= 0) {
-      vibrate('error');
-      setStatus('wait');
-      setTimeout(() => setStatus('hold'), 1500);
-      return;
-    }
-
-    vibrate('impact');
-    setIsHolding(true);
-    setStatus('holding');
-    startTimeRef.current = Date.now();
-    
-    // Start progress animation
-    frameRef.current = requestAnimationFrame(updateProgress);
-
-    // Set completion timer
-    timerRef.current = setTimeout(() => {
-      onHoldComplete();
-      stopHold();
-    }, HOLD_DURATION);
-  }, [canHold, remainingHolds, vibrate, updateProgress, onHoldComplete, HOLD_DURATION]);
-
-  // Stop holding
   const stopHold = useCallback(() => {
     setIsHolding(false);
     
@@ -115,14 +46,76 @@ export function HoldButton() {
     
     startTimeRef.current = null;
     
-    // Only reset if not completed
-    if (status !== 'done') {
+    if (!isCompletedRef.current) {
       setProgress(0);
       setStatus('hold');
     }
-  }, [status]);
+  }, []);
 
-  // Cleanup on unmount
+  const updateProgress = useCallback(() => {
+    if (!startTimeRef.current) return;
+    
+    const elapsed = Date.now() - startTimeRef.current;
+    const newProgress = Math.min(elapsed / HOLD_DURATION, 1);
+    setProgress(newProgress);
+
+    const remaining = Math.ceil((HOLD_DURATION - elapsed) / 1000);
+    if (remaining > 0 && elapsed < HOLD_DURATION) {
+      setStatus(`${remaining}`);
+    }
+
+    if (elapsed < HOLD_DURATION && !isCompletedRef.current) {
+      frameRef.current = requestAnimationFrame(updateProgress);
+    }
+  }, [HOLD_DURATION]);
+
+  const onHoldComplete = useCallback(async () => {
+    isCompletedRef.current = true;
+    vibrate('success');
+    setProgress(1);
+    setStatus('done');
+    setShowRipple(true);
+    
+    const prize = calculatePrize();
+    setPrizeAmount(prize);
+    
+    await claim(prize);
+    
+    setTimeout(() => {
+      setShowPrize(true);
+      setTimeout(() => {
+        setShowPrize(false);
+        setShowRipple(false);
+        setProgress(0);
+        setStatus('hold');
+        isCompletedRef.current = false;
+      }, 2000);
+    }, 300);
+  }, [claim, vibrate]);
+
+  const startHold = useCallback(() => {
+    if (!canHold() || remainingHolds <= 0) {
+      vibrate('error');
+      setStatus('wait');
+      setTimeout(() => setStatus('hold'), 1500);
+      return;
+    }
+
+    isCompletedRef.current = false;
+    vibrate('impact');
+    setIsHolding(true);
+    setStatus('3');
+    setProgress(0);
+    startTimeRef.current = Date.now();
+    
+    frameRef.current = requestAnimationFrame(updateProgress);
+
+    timerRef.current = setTimeout(() => {
+      onHoldComplete();
+      stopHold();
+    }, HOLD_DURATION);
+  }, [canHold, remainingHolds, vibrate, updateProgress, onHoldComplete, HOLD_DURATION, stopHold]);
+
   useEffect(() => {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
@@ -130,8 +123,7 @@ export function HoldButton() {
     };
   }, []);
 
-  // SVG arc calculations
-  const radius = 90;
+  const radius = 88;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference * (1 - progress);
 
@@ -140,14 +132,12 @@ export function HoldButton() {
 
   return (
     <div className="relative flex flex-col items-center" data-testid="hold-section">
-      {/* Title */}
       <div className="text-center mb-2">
         <h2 className="font-display text-lg font-semibold text-white">Hold to Earn</h2>
         <p className="text-xs text-white/40 mt-1">Hold the button to get your prize</p>
       </div>
 
-      {/* Remaining holds indicator */}
-      <div className="flex items-center gap-2 mb-6" data-testid="holds-remaining">
+      <div className="flex items-center gap-2 mb-4" data-testid="holds-remaining">
         <span className="text-xs text-white/50">Remaining</span>
         <div className="flex gap-1">
           {[...Array(3)].map((_, i) => (
@@ -164,9 +154,7 @@ export function HoldButton() {
         )}
       </div>
 
-      {/* Hold Button Container */}
-      <div className="relative w-56 h-56 flex items-center justify-center">
-        {/* Background glow */}
+      <div className="relative w-52 h-52 flex items-center justify-center">
         <div className={`
           absolute inset-0 rounded-full 
           transition-opacity duration-300
@@ -177,100 +165,73 @@ export function HoldButton() {
         }}
         />
 
-        {/* Progress Ring */}
         <svg 
-          className="absolute inset-0 w-full h-full progress-ring"
-          viewBox="0 0 204 204"
+          className="absolute inset-0 w-full h-full"
+          viewBox="0 0 200 200"
+          style={{ transform: 'rotate(-90deg)' }}
         >
-          {/* Background ring */}
           <circle
-            cx="102"
-            cy="102"
+            cx="100"
+            cy="100"
             r={radius}
             fill="none"
-            stroke="rgba(255,255,255,0.05)"
-            strokeWidth="4"
+            stroke="rgba(255,255,255,0.08)"
+            strokeWidth="6"
           />
-          {/* Progress ring */}
           <circle
-            cx="102"
-            cy="102"
+            cx="100"
+            cy="100"
             r={radius}
             fill="none"
-            stroke={progress >= 1 ? '#00E676' : '#00E676'}
-            strokeWidth="4"
+            stroke="#00E676"
+            strokeWidth="6"
             strokeLinecap="round"
             strokeDasharray={circumference}
             strokeDashoffset={strokeDashoffset}
-            className="transition-all duration-75"
             style={{
-              filter: isHolding ? 'drop-shadow(0 0 8px rgba(0,230,118,0.5))' : 'none',
+              transition: 'stroke-dashoffset 0.1s linear',
+              filter: isHolding ? 'drop-shadow(0 0 8px rgba(0,230,118,0.6))' : 'none',
             }}
           />
         </svg>
 
-        {/* Ripple Effect */}
         <AnimatePresence>
           {showRipple && (
             <motion.div
               className="absolute inset-0 rounded-full border-2 border-brand-green"
               initial={{ scale: 1, opacity: 1 }}
-              animate={{ scale: 2, opacity: 0 }}
+              animate={{ scale: 1.5, opacity: 0 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.6 }}
             />
           )}
         </AnimatePresence>
 
-        {/* Main Button */}
         <motion.button
           data-testid="hold-button"
           className={`
-            relative w-44 h-44 rounded-full
-            flex flex-col items-center justify-center
+            relative w-40 h-40 rounded-full
+            flex items-center justify-center
             select-none cursor-pointer
-            transition-shadow duration-300
             overflow-hidden
             ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}
-            ${isHolding ? 'shadow-[0_0_60px_rgba(0,230,118,0.3)]' : ''}
           `}
           onMouseDown={!isDisabled ? startHold : undefined}
           onMouseUp={stopHold}
           onMouseLeave={stopHold}
           onTouchStart={!isDisabled ? startHold : undefined}
           onTouchEnd={stopHold}
-          whileTap={!isDisabled ? { scale: 0.92 } : {}}
+          whileTap={!isDisabled ? { scale: 0.95 } : {}}
           disabled={isDisabled}
         >
-          {/* Tether Button Image */}
           <img 
             src={TETHER_ICON} 
             alt="Hold to Earn"
-            className="w-full h-full object-cover pointer-events-none"
+            className="w-full h-full object-cover pointer-events-none rounded-full"
             draggable={false}
           />
-          
         </motion.button>
 
-        {/* Status indicator below button */}
-        <div className="absolute -bottom-8 left-1/2 -translate-x-1/2">
-          <span className={`
-            text-sm font-semibold px-4 py-1 rounded-full
-            ${status === 'done' ? 'bg-brand-green/20 text-brand-green' : ''}
-            ${status === 'wait' ? 'bg-brand-red/20 text-brand-red' : ''}
-            ${status === 'hold' ? 'text-white/50' : ''}
-            ${status === 'holding' ? 'text-white/70' : ''}
-            ${status !== 'hold' && status !== 'holding' && status !== 'done' && status !== 'wait' ? 'text-white/70' : ''}
-          `}>
-            {status === 'hold' && 'Hold to earn'}
-            {status === 'holding' && `${status}...`}
-            {status === 'done' && '✓ Done!'}
-            {status === 'wait' && 'Wait...'}
-            {status !== 'hold' && status !== 'holding' && status !== 'done' && status !== 'wait' && `${status}s left`}
-          </span>
-        </div>
-
-        {/* Prize Animation */}
         <AnimatePresence>
           {showPrize && (
             <motion.div
@@ -288,6 +249,21 @@ export function HoldButton() {
             </motion.div>
           )}
         </AnimatePresence>
+      </div>
+
+      <div className="mt-3 text-center">
+        <span className={`
+          text-sm font-semibold px-4 py-1.5 rounded-full inline-block
+          ${status === 'done' ? 'bg-brand-green/20 text-brand-green' : ''}
+          ${status === 'wait' ? 'bg-brand-red/20 text-brand-red' : ''}
+          ${status === 'hold' ? 'text-white/50' : ''}
+          ${!isNaN(parseInt(status)) ? 'text-white/70' : ''}
+        `}>
+          {status === 'hold' && 'Hold to earn'}
+          {status === 'done' && '✓ Done!'}
+          {status === 'wait' && 'Wait...'}
+          {!isNaN(parseInt(status)) && `${status}s`}
+        </span>
       </div>
     </div>
   );

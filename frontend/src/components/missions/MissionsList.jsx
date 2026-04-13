@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { useWallet } from '@/contexts/WalletContext';
-import { Trophy, Users, Check, Clock } from 'lucide-react';
+import { useTelegram } from '@/hooks/useTelegram';
+import { Trophy, Users, Check, Clock, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 const missions = [
@@ -31,7 +33,7 @@ const missions = [
     rewardAsset: 'TRX',
     type: 'one_time',
     maxProgress: 1,
-    getProgress: () => 0, // Would need backend data
+    getProgress: () => 0,
   },
   {
     id: 'big_earner',
@@ -45,14 +47,23 @@ const missions = [
   },
 ];
 
-function MissionCard({ mission, context, index }) {
+function MissionCard({ mission, context, index, onClaim, claimedMissions }) {
+  const [isClaiming, setIsClaiming] = useState(false);
   const progress = mission.getProgress(context);
   const isComplete = progress >= mission.maxProgress;
+  const isClaimed = claimedMissions.includes(mission.id);
   const progressPercentage = (progress / mission.maxProgress) * 100;
+
+  const handleClaim = async () => {
+    if (!isComplete || isClaimed || isClaiming) return;
+    setIsClaiming(true);
+    await onClaim(mission);
+    setIsClaiming(false);
+  };
 
   return (
     <motion.div
-      className={`glass-card rounded-2xl p-4 ${isComplete ? 'border-brand-green/30' : ''}`}
+      className={`glass-card rounded-2xl p-4 ${isComplete && !isClaimed ? 'border-brand-green/30' : ''} ${isClaimed ? 'opacity-60' : ''}`}
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.1 }}
@@ -61,9 +72,9 @@ function MissionCard({ mission, context, index }) {
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-3">
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-            isComplete ? 'bg-brand-green/20' : 'bg-white/5'
+            isClaimed ? 'bg-brand-green/20' : isComplete ? 'bg-brand-green/20' : 'bg-white/5'
           }`}>
-            {isComplete ? (
+            {isClaimed ? (
               <Check className="w-5 h-5 text-brand-green" />
             ) : mission.type === 'daily' ? (
               <Trophy className="w-5 h-5 text-white/40" />
@@ -89,11 +100,10 @@ function MissionCard({ mission, context, index }) {
         </span>
       </div>
 
-      {/* Progress Bar */}
       <div className="mb-3">
         <div className="w-full h-2 rounded-full bg-white/5 overflow-hidden">
           <motion.div
-            className={`h-full rounded-full ${isComplete ? 'bg-brand-green' : 'bg-white/20'}`}
+            className={`h-full rounded-full ${isClaimed || isComplete ? 'bg-brand-green' : 'bg-white/20'}`}
             initial={{ width: 0 }}
             animate={{ width: `${progressPercentage}%` }}
             transition={{ duration: 0.5, delay: index * 0.1 }}
@@ -109,17 +119,33 @@ function MissionCard({ mission, context, index }) {
         </div>
       </div>
 
-      {/* Claim Button */}
       <button
-        disabled={!isComplete}
-        className={`w-full py-2.5 rounded-xl text-sm font-medium transition-all ${
-          isComplete
+        onClick={handleClaim}
+        disabled={!isComplete || isClaimed || isClaiming}
+        className={`w-full py-2.5 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+          isClaimed
+            ? 'bg-brand-green/20 text-brand-green cursor-default'
+            : isComplete
             ? 'bg-brand-green text-black hover:bg-brand-green/90 active:scale-95'
             : 'bg-white/5 text-white/30 cursor-not-allowed'
         }`}
         data-testid={`claim-${mission.id}`}
       >
-        {isComplete ? 'Claim Reward' : 'In Progress'}
+        {isClaiming ? (
+          <>
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Claiming...
+          </>
+        ) : isClaimed ? (
+          <>
+            <Check className="w-4 h-4" />
+            Claimed
+          </>
+        ) : isComplete ? (
+          'Claim Reward'
+        ) : (
+          'In Progress'
+        )}
       </button>
     </motion.div>
   );
@@ -127,10 +153,23 @@ function MissionCard({ mission, context, index }) {
 
 export function MissionsList() {
   const walletContext = useWallet();
+  const { vibrate } = useTelegram();
+  const [claimedMissions, setClaimedMissions] = useState([]);
+
+  const handleClaim = async (mission) => {
+    vibrate('success');
+    
+    // Simulate claim - in production this would call the backend
+    await new Promise(resolve => setTimeout(resolve, 800));
+    
+    setClaimedMissions(prev => [...prev, mission.id]);
+    
+    // Update balance in context (mock)
+    // In production: await claimMissionReward(mission.id)
+  };
 
   return (
     <div className="space-y-4" data-testid="missions-list">
-      {/* Info Banner */}
       <div className="flex items-center gap-3 p-4 rounded-2xl bg-gradient-to-r from-brand-green/10 to-transparent border border-brand-green/20">
         <Clock className="w-5 h-5 text-brand-green" />
         <div>
@@ -139,7 +178,6 @@ export function MissionsList() {
         </div>
       </div>
 
-      {/* Missions Grid */}
       <div className="space-y-3">
         {missions.map((mission, index) => (
           <MissionCard 
@@ -147,17 +185,10 @@ export function MissionsList() {
             mission={mission} 
             context={walletContext}
             index={index}
+            onClaim={handleClaim}
+            claimedMissions={claimedMissions}
           />
         ))}
-      </div>
-
-      {/* Note */}
-      <div className="p-3 rounded-xl bg-white/5 border border-white/10 text-center">
-        <p className="text-xs text-white/40">
-          Mission rewards are processed automatically.
-          <br />
-          <span className="text-white/30">Claim functionality pending backend integration.</span>
-        </p>
       </div>
     </div>
   );
