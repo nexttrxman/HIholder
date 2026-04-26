@@ -1,26 +1,29 @@
 /**
- * TronKeeper Cloudflare Worker - TON Claims System
- * 
+ * TronKeeper Cloudflare Worker - TON Claims System (v2.1)
+ *
  * Environment Variables (Secrets):
  * - BOT_TOKEN: Telegram Bot Token
  * - SUPA_URL: Supabase project URL
  * - SUPA_SERVICE_KEY: Supabase service role key
- * - TON_API_KEY: TON Center API key (optional)
- * 
+ * - TON_API_KEY: TON Center API key (recommended for higher rate limits)
+ *
  * Treasury Wallet (V5): UQCydneDGeAcamdCFS6e13Z2xoxwA5DsLkFONRdp-cavw-Th
+ *
+ * SECURITY: Payment verification queries the TON blockchain directly via
+ * TonCenter API. The frontend does NOT supply the tx_hash; the worker
+ * discovers it by searching incoming transactions to the treasury that
+ * match: sender_address, comment "CLAIM:<claim_id>", amount >= ton_fee.
  */
 
-const TREASURY_WALLET = 'UQCydneDGeAcamdCFS6e13Z2xoxwA5DsLkFONRdp-cavw-Th';
-const CLAIM_EXPIRY_MINUTES = 15;
-const CYCLE_DURATION_HOURS = 8;
-const MAX_HOLDS_PER_CYCLE = 3;
-const TON_FEE = 0.05; // 0.05 TON fee per claim
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-};
+import {
+  validateInitData,
+  jsonResponse,
+  generateClaimId,
+  normalizeTonAddress,
+  decodeTonComment,
+  findValidTonPayment,
+  CONFIG,
+} from './lib.js';
 
 // ============================================
 // SUPABASE HELPERS
@@ -48,7 +51,7 @@ const supabase = (env) => ({
 
     const res = await fetch(url, {
       method: method === 'select' ? 'GET' : method === 'insert' ? 'POST' : 'PATCH',
-      headers: method === 'upsert' 
+      headers: method === 'upsert'
         ? { ...headers, 'Prefer': 'resolution=merge-duplicates,return=representation' }
         : headers,
       body: options.body ? JSON.stringify(options.body) : undefined,
@@ -71,63 +74,11 @@ const supabase = (env) => ({
   },
 });
 
-// ============================================
-// TELEGRAM VALIDATION
-// ============================================
-async function validateInitData(initData, botToken) {
-  if (!initData) return null;
-  
-  try {
-    const params = new URLSearchParams(initData);
-    const hash = params.get('hash');
-    params.delete('hash');
-
-    const sortedParams = Array.from(params.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, value]) => `${key}=${value}`)
-      .join('\n');
-
-    const encoder = new TextEncoder();
-    const secretKey = await crypto.subtle.importKey(
-      'raw', encoder.encode('WebAppData'),
-      { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-    );
-    const secretKeyHash = await crypto.subtle.sign('HMAC', secretKey, encoder.encode(botToken));
-    
-    const dataKey = await crypto.subtle.importKey(
-      'raw', secretKeyHash,
-      { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-    );
-    const signature = await crypto.subtle.sign('HMAC', dataKey, encoder.encode(sortedParams));
-    
-    const calculatedHash = Array.from(new Uint8Array(signature))
-      .map(b => b.toString(16).padStart(2, '0')).join('');
-
-    if (calculatedHash !== hash) return null;
-    
-    const userStr = params.get('user');
-    return userStr ? JSON.parse(userStr) : null;
-  } catch (e) {
-    console.error('initData validation error:', e);
-    return null;
-  }
-}
-
-// ============================================
-// HELPERS
-// ============================================
-function generateClaimId() {
-  const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 8);
-  return `CLM_${timestamp}_${random}`.toUpperCase();
-}
-
-function jsonResponse(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders },
-  });
-}
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
 
 // ============================================
 // AUTH - Get or create user + active cycle
@@ -135,7 +86,7 @@ function jsonResponse(data, status = 200) {
 async function handleAuth(request, env) {
   const { initData } = await request.json();
   const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
-  
+
   if (!telegramUser) {
     return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
   }
@@ -160,7 +111,6 @@ async function handleAuth(request, env) {
     });
     user = users[0];
 
-    // Create internal wallet
     await db.query('internal_wallets', 'insert', {
       body: { user_id: tgId, usdt_balance: 0, trx_balance: 0, ton_balance: 0 }
     });
@@ -174,7 +124,6 @@ async function handleAuth(request, env) {
   });
   let cycle = cycles[0];
 
-  // Check if cycle expired
   if (cycle && new Date(cycle.ends_at) < new Date()) {
     await db.query('hold_cycles', 'patch', {
       filters: { id: cycle.id },
@@ -183,10 +132,9 @@ async function handleAuth(request, env) {
     cycle = null;
   }
 
-  // Create new cycle if needed
   if (!cycle) {
     const now = new Date();
-    const endsAt = new Date(now.getTime() + CYCLE_DURATION_HOURS * 60 * 60 * 1000);
+    const endsAt = new Date(now.getTime() + CONFIG.CYCLE_DURATION_HOURS * 60 * 60 * 1000);
     cycles = await db.query('hold_cycles', 'insert', {
       body: {
         user_id: tgId,
@@ -199,17 +147,14 @@ async function handleAuth(request, env) {
     cycle = cycles[0];
   }
 
-  // Get internal wallet balance
   const wallets = await db.query('internal_wallets', 'select', { filters: { user_id: tgId } });
   const wallet = wallets[0] || { usdt_balance: 0, trx_balance: 0, ton_balance: 0 };
 
-  // Check for pending claim
   const claims = await db.query('claims', 'select', {
     filters: { cycle_id: cycle.id, status: 'pending' }
   });
   const pendingClaim = claims[0];
 
-  // Get referral stats
   const referrals = await db.query('referrals', 'select', { filters: { referrer_id: tgId } });
   const totalRefs = referrals?.length || 0;
   const trxFromRefs = referrals?.reduce((sum, r) => sum + (parseFloat(r.reward_amount) || 0), 0) || 0;
@@ -228,7 +173,7 @@ async function handleAuth(request, env) {
       id: cycle.id,
       holds_completed: cycle.holds_completed,
       ends_at: cycle.ends_at,
-      remaining_holds: MAX_HOLDS_PER_CYCLE - cycle.holds_completed,
+      remaining_holds: CONFIG.MAX_HOLDS_PER_CYCLE - cycle.holds_completed,
     },
     pending_claim: pendingClaim ? {
       claim_id: pendingClaim.claim_id,
@@ -236,7 +181,7 @@ async function handleAuth(request, env) {
       ton_fee: parseFloat(pendingClaim.ton_fee),
       expires_at: pendingClaim.expires_at,
     } : null,
-    treasury_wallet: TREASURY_WALLET,
+    treasury_wallet: CONFIG.TREASURY_WALLET,
   });
 }
 
@@ -246,7 +191,7 @@ async function handleAuth(request, env) {
 async function handleHold(request, env) {
   const { initData, prize } = await request.json();
   const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
-  
+
   if (!telegramUser) {
     return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
   }
@@ -258,7 +203,6 @@ async function handleHold(request, env) {
   const db = supabase(env);
   const tgId = telegramUser.id.toString();
 
-  // Get active cycle
   const cycles = await db.query('hold_cycles', 'select', {
     filters: { user_id: tgId, status: 'active' },
     order: 'created_at.desc',
@@ -270,11 +214,10 @@ async function handleHold(request, env) {
     return jsonResponse({ ok: false, error: 'No active cycle' }, 400);
   }
 
-  if (cycle.holds_completed >= MAX_HOLDS_PER_CYCLE) {
+  if (cycle.holds_completed >= CONFIG.MAX_HOLDS_PER_CYCLE) {
     return jsonResponse({ ok: false, error: 'Cycle complete. Claim your reward!' }, 400);
   }
 
-  // Register hold
   const holdNumber = cycle.holds_completed + 1;
   await db.query('holds', 'insert', {
     body: {
@@ -285,21 +228,18 @@ async function handleHold(request, env) {
     }
   });
 
-  // Update cycle
   await db.query('hold_cycles', 'patch', {
     filters: { id: cycle.id },
     body: { holds_completed: holdNumber }
   });
 
-  // If 3 holds completed, create claim
   let claim = null;
-  if (holdNumber === 3) {
-    // Get total prize from all holds
+  if (holdNumber === CONFIG.MAX_HOLDS_PER_CYCLE) {
     const holds = await db.query('holds', 'select', { filters: { cycle_id: cycle.id } });
     const totalPrize = holds.reduce((sum, h) => sum + parseFloat(h.prize_amount), 0);
 
     const claimId = generateClaimId();
-    const expiresAt = new Date(Date.now() + CLAIM_EXPIRY_MINUTES * 60 * 1000);
+    const expiresAt = new Date(Date.now() + CONFIG.CLAIM_EXPIRY_MINUTES * 60 * 1000);
 
     const claims = await db.query('claims', 'insert', {
       body: {
@@ -307,7 +247,7 @@ async function handleHold(request, env) {
         user_id: tgId,
         cycle_id: cycle.id,
         total_prize: totalPrize,
-        ton_fee: TON_FEE,
+        ton_fee: CONFIG.TON_FEE,
         status: 'pending',
         expires_at: expiresAt.toISOString()
       }
@@ -318,14 +258,14 @@ async function handleHold(request, env) {
   return jsonResponse({
     ok: true,
     hold_number: holdNumber,
-    remaining_holds: MAX_HOLDS_PER_CYCLE - holdNumber,
-    cycle_complete: holdNumber === 3,
+    remaining_holds: CONFIG.MAX_HOLDS_PER_CYCLE - holdNumber,
+    cycle_complete: holdNumber === CONFIG.MAX_HOLDS_PER_CYCLE,
     claim: claim ? {
       claim_id: claim.claim_id,
       total_prize: parseFloat(claim.total_prize),
       ton_fee: parseFloat(claim.ton_fee),
       expires_at: claim.expires_at,
-      treasury_wallet: TREASURY_WALLET,
+      treasury_wallet: CONFIG.TREASURY_WALLET,
     } : null
   });
 }
@@ -336,7 +276,7 @@ async function handleHold(request, env) {
 async function handleGetClaim(request, env) {
   const { initData } = await request.json();
   const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
-  
+
   if (!telegramUser) {
     return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
   }
@@ -344,7 +284,6 @@ async function handleGetClaim(request, env) {
   const db = supabase(env);
   const tgId = telegramUser.id.toString();
 
-  // Get active cycle
   const cycles = await db.query('hold_cycles', 'select', {
     filters: { user_id: tgId, status: 'active' }
   });
@@ -354,7 +293,6 @@ async function handleGetClaim(request, env) {
     return jsonResponse({ ok: true, claim: null });
   }
 
-  // Get pending claim
   const claims = await db.query('claims', 'select', {
     filters: { cycle_id: cycle.id, status: 'pending' }
   });
@@ -364,7 +302,6 @@ async function handleGetClaim(request, env) {
     return jsonResponse({ ok: true, claim: null });
   }
 
-  // Check if expired
   if (new Date(claim.expires_at) < new Date()) {
     await db.query('claims', 'patch', {
       filters: { claim_id: claim.claim_id },
@@ -381,50 +318,55 @@ async function handleGetClaim(request, env) {
       ton_fee: parseFloat(claim.ton_fee),
       expires_at: claim.expires_at,
       seconds_remaining: Math.max(0, Math.floor((new Date(claim.expires_at) - new Date()) / 1000)),
-      treasury_wallet: TREASURY_WALLET,
+      treasury_wallet: CONFIG.TREASURY_WALLET,
       payment_comment: `CLAIM:${claim.claim_id}`,
     }
   });
 }
 
 // ============================================
-// VERIFY PAYMENT - Check TON payment and credit
+// VERIFY PAYMENT - Validate on-chain and credit
+// ============================================
+// SECURITY: This function does NOT trust any tx_hash from the client.
+// It queries TonCenter API for incoming transactions to the treasury and
+// finds one matching: sender_address, comment "CLAIM:<claim_id>",
+// amount >= ton_fee, recent (within claim window).
 // ============================================
 async function handleVerifyPayment(request, env) {
-  const { initData, claim_id, tx_hash } = await request.json();
+  const { initData, claim_id, sender_address } = await request.json();
   const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
-  
+
   if (!telegramUser) {
     return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
   }
 
-  if (!claim_id || !tx_hash) {
-    return jsonResponse({ ok: false, error: 'Missing claim_id or tx_hash' }, 400);
+  if (!claim_id || !sender_address) {
+    return jsonResponse({ ok: false, error: 'Missing claim_id or sender_address' }, 400);
   }
 
   const db = supabase(env);
   const tgId = telegramUser.id.toString();
 
-  // Get claim
+  // Load claim
   const claims = await db.query('claims', 'select', { filters: { claim_id } });
   const claim = claims[0];
 
   if (!claim) {
     return jsonResponse({ ok: false, error: 'Claim not found' }, 404);
   }
-
   if (claim.user_id !== tgId) {
     return jsonResponse({ ok: false, error: 'Unauthorized' }, 403);
   }
-
   if (claim.status === 'credited') {
-    return jsonResponse({ ok: true, already_credited: true });
+    return jsonResponse({
+      ok: true,
+      already_credited: true,
+      credited: parseFloat(claim.total_prize),
+    });
   }
-
   if (claim.status === 'expired_unclaimed') {
     return jsonResponse({ ok: false, error: 'Claim expired' }, 400);
   }
-
   if (new Date(claim.expires_at) < new Date()) {
     await db.query('claims', 'patch', {
       filters: { claim_id },
@@ -433,24 +375,61 @@ async function handleVerifyPayment(request, env) {
     return jsonResponse({ ok: false, error: 'Claim expired' }, 400);
   }
 
-  // Check if tx already processed
-  const existingPayments = await db.query('claim_payments', 'select', { filters: { tx_hash } });
-  if (existingPayments.length > 0) {
-    return jsonResponse({ ok: false, error: 'Transaction already processed' }, 400);
+  // ON-CHAIN VERIFICATION
+  const minAmountNano = Math.floor(parseFloat(claim.ton_fee) * 1e9);
+  // Earliest acceptable tx timestamp = claim creation - 60s (allow small clock drift)
+  const earliestTs = Math.floor(new Date(claim.created_at).getTime() / 1000) - 60;
+
+  let payment;
+  try {
+    payment = await findValidTonPayment({
+      tonApiKey: env.TON_API_KEY,
+      treasury: CONFIG.TREASURY_WALLET,
+      senderAddress: sender_address,
+      claimId: claim_id,
+      minAmountNano,
+      earliestUtime: earliestTs,
+      fetchImpl: fetch,
+    });
+  } catch (err) {
+    console.error('TON verify error:', err);
+    return jsonResponse({
+      ok: false,
+      pending: true,
+      error: 'TON network unreachable. Retry in a few seconds.',
+    }, 202);
   }
 
-  // TODO: In production, verify tx on TON blockchain using TON API
-  // For now, we trust the frontend to provide valid tx_hash
-  // This should be replaced with actual TON API verification:
-  // const txData = await verifyTonTransaction(tx_hash, env.TON_API_KEY);
-  // Validate: txData.to === TREASURY_WALLET, txData.comment === `CLAIM:${claim_id}`, txData.amount >= TON_FEE
+  if (!payment) {
+    return jsonResponse({
+      ok: false,
+      pending: true,
+      error: 'Payment not found on chain yet. The TON network can take up to 60s.',
+    }, 202);
+  }
 
-  // Credit the claim using the atomic function
+  // Idempotency: tx_hash already processed?
+  const existingPayments = await db.query('claim_payments', 'select', {
+    filters: { tx_hash: payment.tx_hash }
+  });
+  if (existingPayments.length > 0) {
+    // Same tx already processed for this claim?
+    if (existingPayments[0].claim_id === claim_id) {
+      return jsonResponse({
+        ok: true,
+        already_credited: true,
+        credited: parseFloat(claim.total_prize),
+      });
+    }
+    return jsonResponse({ ok: false, error: 'Transaction already used for another claim' }, 400);
+  }
+
+  // Atomic credit via stored procedure
   const result = await db.rpc('credit_claim', {
     p_claim_id: claim_id,
-    p_tx_hash: tx_hash,
-    p_amount: TON_FEE,
-    p_from_address: 'user_wallet' // In production, get from tx verification
+    p_tx_hash: payment.tx_hash,
+    p_amount: payment.amount_nano / 1e9,
+    p_from_address: payment.from_address,
   });
 
   if (result.ok) {
@@ -458,10 +437,10 @@ async function handleVerifyPayment(request, env) {
       ok: true,
       credited: parseFloat(result.credited),
       new_balance: parseFloat(result.new_balance),
+      tx_hash: payment.tx_hash,
     });
-  } else {
-    return jsonResponse({ ok: false, error: result.error }, 400);
   }
+  return jsonResponse({ ok: false, error: result.error || 'Credit failed' }, 400);
 }
 
 // ============================================
@@ -470,7 +449,7 @@ async function handleVerifyPayment(request, env) {
 async function handleTransactions(request, env) {
   const { initData, limit = 50 } = await request.json();
   const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
-  
+
   if (!telegramUser) {
     return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
   }
@@ -478,7 +457,6 @@ async function handleTransactions(request, env) {
   const db = supabase(env);
   const tgId = telegramUser.id.toString();
 
-  // Get from ledger
   const ledger = await db.query('wallet_ledger', 'select', {
     filters: { user_id: tgId },
     order: 'created_at.desc',
@@ -504,7 +482,7 @@ async function handleTransactions(request, env) {
 async function handleReferrals(request, env) {
   const { initData } = await request.json();
   const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
-  
+
   if (!telegramUser) {
     return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
   }
@@ -560,18 +538,18 @@ export default {
       }
 
       if (path === '/' || path === '/health') {
-        return jsonResponse({ 
-          ok: true, 
-          service: 'TronKeeper API', 
-          version: '2.0.0',
-          treasury: TREASURY_WALLET 
+        return jsonResponse({
+          ok: true,
+          service: 'TronKeeper API',
+          version: '2.1.0',
+          treasury: CONFIG.TREASURY_WALLET
         });
       }
 
       return jsonResponse({ error: 'Not found' }, 404);
     } catch (error) {
       console.error('Worker error:', error);
-      return jsonResponse({ error: 'Internal server error' }, 500);
+      return jsonResponse({ error: 'Internal server error', detail: error.message }, 500);
     }
   },
 };

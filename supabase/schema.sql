@@ -356,29 +356,41 @@ $$ LANGUAGE plpgsql;
 -- =============================================
 -- CRON JOB: Expirar claims vencidos (cada minuto)
 -- =============================================
--- Nota: Requiere pg_cron habilitado en Supabase
--- SELECT cron.schedule('expire-claims', '* * * * *', $$
---   UPDATE claims 
---   SET status = 'expired_unclaimed' 
---   WHERE status = 'pending' AND expires_at < NOW();
---   
---   UPDATE hold_cycles 
---   SET status = 'expired' 
---   WHERE status = 'active' AND ends_at < NOW();
--- $$);
+-- Requiere pg_cron habilitado en Supabase:
+--   Project Settings -> Database -> Extensions -> habilitar "pg_cron"
+-- (En Supabase ya está disponible; CREATE EXTENSION arriba lo activa.)
 
--- Para ejecutar manualmente:
+-- Función reutilizable (también ejecutable manualmente)
 CREATE OR REPLACE FUNCTION expire_claims_and_cycles() RETURNS void AS $$
 BEGIN
-  UPDATE claims 
-  SET status = 'expired_unclaimed' 
+  UPDATE claims
+  SET status = 'expired_unclaimed'
   WHERE status = 'pending' AND expires_at < NOW();
-  
-  UPDATE hold_cycles 
-  SET status = 'expired' 
+
+  UPDATE hold_cycles
+  SET status = 'expired'
   WHERE status = 'active' AND ends_at < NOW();
 END;
 $$ LANGUAGE plpgsql;
+
+-- Programa el job una sola vez (idempotente: borra el anterior si existe)
+DO $$
+BEGIN
+  -- Borra job previo si existe (evita duplicados al re-ejecutar el schema)
+  PERFORM cron.unschedule('tronkeeper-expire-claims')
+  WHERE EXISTS (
+    SELECT 1 FROM cron.job WHERE jobname = 'tronkeeper-expire-claims'
+  );
+
+  PERFORM cron.schedule(
+    'tronkeeper-expire-claims',
+    '* * * * *',  -- cada minuto
+    $cron$ SELECT expire_claims_and_cycles(); $cron$
+  );
+EXCEPTION WHEN undefined_table OR undefined_function THEN
+  -- pg_cron no disponible (entorno local). Skip silently.
+  RAISE NOTICE 'pg_cron not available; expire_claims_and_cycles() must be called manually.';
+END $$;
 
 -- =============================================
 -- DONE

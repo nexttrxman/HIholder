@@ -190,16 +190,21 @@ export const getClaim = async () => {
 // ============================================
 // VERIFY PAYMENT - After TON transfer
 // ============================================
-export const verifyPayment = async (claimId, txHash) => {
+// Backend verifies the TX on-chain via TonCenter using sender_address +
+// claim_id. The frontend never supplies the tx_hash.
+export const verifyPayment = async (claimId, senderAddress) => {
   try {
-    const result = await apiCall('/verify-payment', { claim_id: claimId, tx_hash: txHash });
+    const result = await apiCall('/verify-payment', {
+      claim_id: claimId,
+      sender_address: senderAddress,
+    });
     if (result) return result;
-    
+
     // Dev mode
     MOCK_USER.usdt_balance += 0.15;
     MOCK_CYCLE.holds_completed = 0;
     MOCK_CYCLE.remaining_holds = 3;
-    
+
     return {
       ok: true,
       credited: 0.15,

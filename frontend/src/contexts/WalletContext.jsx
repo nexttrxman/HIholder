@@ -171,29 +171,29 @@ export function WalletProvider({ children }) {
 
   /**
    * Verify TON payment and credit claim
+   * @param {string} claimId
+   * @param {string} senderAddress - TonConnect wallet address (raw "0:hex")
+   * @returns {Promise<{success:boolean, credited?:number, error?:string, pending?:boolean}>}
    */
-  const verifyClaim = useCallback(async (claimId, txHash) => {
+  const verifyClaim = useCallback(async (claimId, senderAddress) => {
     try {
-      const result = await verifyPayment(claimId, txHash);
-      
+      const result = await verifyPayment(claimId, senderAddress);
+
       if (result.ok) {
-        // Update balance
-        setUsdtBalance(result.new_balance || usdtBalance + result.credited);
-        
-        // Reset claim state
+        setUsdtBalance(result.new_balance ?? (usdtBalance + (result.credited || 0)));
         setPendingClaim(null);
         setClaimExpiresAt(null);
-        
-        // Reset holds for new cycle
         setHoldsCompleted(0);
         setRemainingHolds(MAX_HOLDS_PER_CYCLE);
-        
-        // Refresh to get new cycle
         await refreshData();
-        
         return { success: true, credited: result.credited };
       }
-      
+
+      // Backend says payment not on chain yet — caller should retry.
+      if (result.pending) {
+        return { success: false, pending: true, error: result.error };
+      }
+
       return { success: false, error: result.error };
     } catch (err) {
       console.error('Verify claim error:', err);
