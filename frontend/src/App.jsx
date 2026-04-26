@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
+import { TonConnectUIProvider } from '@tonconnect/ui-react';
 import { WalletProvider, useWallet } from '@/contexts/WalletContext';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { BottomNav } from '@/components/layout/BottomNav';
 import { WithdrawModal } from '@/components/wallet/WithdrawModal';
-import { LoadingState } from '@/components/shared/LoadingState';
+import { ClaimModal } from '@/components/earn/ClaimModal';
 import { AnimatePresence, motion } from 'framer-motion';
 
 // Pages
@@ -15,11 +16,23 @@ import { HistoryPage } from '@/pages/History';
 
 import '@/App.css';
 
+// TonConnect manifest - update with your app info
+const manifestUrl = 'https://raw.githubusercontent.com/AntipressTeam/TonConnectManifest/main/tonkeeper.json';
+
 function AppContent() {
-  const { loading, error } = useWallet();
+  const { loading, error, pendingClaim } = useWallet();
   const [activeTab, setActiveTab] = useState('home');
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [withdrawAsset, setWithdrawAsset] = useState('USDT');
+  const [claimModalOpen, setClaimModalOpen] = useState(false);
+  const [activeClaim, setActiveClaim] = useState(null);
+
+  // Open claim modal when pending claim exists
+  useEffect(() => {
+    if (pendingClaim && !claimModalOpen) {
+      setActiveClaim(pendingClaim);
+    }
+  }, [pendingClaim, claimModalOpen]);
 
   const handleOpenWithdraw = (asset = 'USDT') => {
     setWithdrawAsset(asset);
@@ -30,7 +43,19 @@ function AppContent() {
     setActiveTab(tab);
   };
 
-  // Show loading screen
+  const handleClaimReady = (claim) => {
+    setActiveClaim(claim);
+    setClaimModalOpen(true);
+  };
+
+  const handleOpenClaim = () => {
+    if (pendingClaim) {
+      setActiveClaim(pendingClaim);
+      setClaimModalOpen(true);
+    }
+  };
+
+  // Loading screen
   if (loading) {
     return (
       <PageContainer>
@@ -39,21 +64,16 @@ function AppContent() {
             <div className="w-16 h-16 mx-auto mb-6 relative">
               <div className="absolute inset-0 rounded-full border-2 border-white/10" />
               <div className="absolute inset-0 rounded-full border-2 border-t-brand-green border-r-transparent border-b-transparent border-l-transparent animate-spin" />
-              <img 
-                src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMzkuNDMgMjk1LjI3Ij48cGF0aCBmaWxsPSIjNTBBRjk1IiBkPSJNNjIuMTUgMS40NWwtNjIuMTUgMTE4LjIgNzIuMDMgNDAuNTRoMTk1LjI4bDcyLjA0LTQwLjU0TDI3Ny4xOSAxLjQ1SDYyLjE1eiIvPjxwYXRoIGZpbGw9IiNGRkYiIGQ9Ik0xOTEuMTkgMTQ0LjhjLTMuMTkuMjctMTkuNzYgMS40Ny0yMS41NSAxLjQ3cy0xOC4zNi0xLjItMjEuNTUtMS40N2MtNDIuNTEtMy41NS03NC40Ny0xNC45OS03NC40Ny0yOC43NXMzMS45Ni0yNS4yIDc0LjQ3LTI4Ljc1djQ1Ljc1YzMuMjMuMjMgMTguNTMgMS40NSAyMS42OCAxLjQ1czE4LjIzLTEuMjggMjEuNDItMS40NXYtNDUuNzVjNDIuNDYgMy41NSA3NC4zOCAxNS4wMiA3NC4zOCAyOC43NXMtMzEuOTIgMjUuMi03NC4zOCAyOC43NXptMC02MS41OHYtNDAuNTRoNTcuNzl2LTI4LjQ5aC0xNTguNnYyOC40OWg1Ny43OXY0MC41NGMtNDguMjUgNC4yLTg0LjQ5IDE4Ljg2LTg0LjQ5IDM2LjMyczM2LjI0IDMyLjEyIDg0LjQ5IDM2LjMydjExNS40Nmg0My4wMnYtMTE1LjQ2YzQ4LjE4LTQuMiA4NC4zNS0xOC44NSA4NC4zNS0zNi4zMnMtMzYuMTctMzIuMTItODQuMzUtMzYuMzJ6Ii8+PC9zdmc+" 
-                alt="Loading"
-                className="absolute inset-2 w-12 h-12"
-              />
             </div>
             <h1 className="font-display text-xl font-bold text-white mb-2">TronKeeper</h1>
-            <p className="text-sm text-white/40">Loading your wallet...</p>
+            <p className="text-sm text-white/40">Loading...</p>
           </div>
         </div>
       </PageContainer>
     );
   }
 
-  // Show error state
+  // Error screen
   if (error) {
     return (
       <PageContainer>
@@ -91,6 +111,8 @@ function AppContent() {
             <HomePage 
               onNavigate={handleNavigate} 
               onOpenWithdraw={() => handleOpenWithdraw()}
+              onClaimReady={handleClaimReady}
+              onOpenClaim={handleOpenClaim}
             />
           )}
           {activeTab === 'wallet' && (
@@ -115,15 +137,28 @@ function AppContent() {
           />
         )}
       </AnimatePresence>
+
+      {/* Claim Modal */}
+      <AnimatePresence>
+        {claimModalOpen && activeClaim && (
+          <ClaimModal
+            isOpen={claimModalOpen}
+            onClose={() => setClaimModalOpen(false)}
+            claim={activeClaim}
+          />
+        )}
+      </AnimatePresence>
     </PageContainer>
   );
 }
 
 function App() {
   return (
-    <WalletProvider>
-      <AppContent />
-    </WalletProvider>
+    <TonConnectUIProvider manifestUrl={manifestUrl}>
+      <WalletProvider>
+        <AppContent />
+      </WalletProvider>
+    </TonConnectUIProvider>
   );
 }
 

@@ -1,498 +1,538 @@
 /**
- * TronKeeper Cloudflare Worker
- * 
- * Architecture: Telegram Mini App -> This Worker -> Supabase
+ * TronKeeper Cloudflare Worker - TON Claims System
  * 
  * Environment Variables (Secrets):
- * - BOT_TOKEN: Telegram Bot Token (for initData validation)
+ * - BOT_TOKEN: Telegram Bot Token
  * - SUPA_URL: Supabase project URL
  * - SUPA_SERVICE_KEY: Supabase service role key
+ * - TON_API_KEY: TON Center API key (optional)
  * 
- * Endpoints:
- * - POST /auth         - Authenticate user, create if not exists
- * - POST /claim        - Claim hold reward
- * - POST /transactions - Get user transactions
- * - POST /withdraw     - Request withdrawal
- * - POST /referrals    - Get referral pool stats
+ * Treasury Wallet (V5): UQCydneDGeAcamdCFS6e13Z2xoxwA5DsLkFONRdp-cavw-Th
  */
 
-// CORS headers for Telegram Mini App
+const TREASURY_WALLET = 'UQCydneDGeAcamdCFS6e13Z2xoxwA5DsLkFONRdp-cavw-Th';
+const CLAIM_EXPIRY_MINUTES = 15;
+const CYCLE_DURATION_HOURS = 8;
+const MAX_HOLDS_PER_CYCLE = 3;
+const TON_FEE = 0.05; // 0.05 TON fee per claim
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
-// Supabase client helper
+// ============================================
+// SUPABASE HELPERS
+// ============================================
 const supabase = (env) => ({
-  url: env.SUPA_URL,
-  key: env.SUPA_SERVICE_KEY,
-  
-  async query(sql, params = []) {
-    const response = await fetch(`${this.url}/rest/v1/rpc/raw_sql`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': this.key,
-        'Authorization': `Bearer ${this.key}`,
-      },
-      body: JSON.stringify({ query: sql, params }),
+  async query(table, method, options = {}) {
+    let url = `${env.SUPA_URL}/rest/v1/${table}`;
+    const headers = {
+      'Content-Type': 'application/json',
+      'apikey': env.SUPA_SERVICE_KEY,
+      'Authorization': `Bearer ${env.SUPA_SERVICE_KEY}`,
+      'Prefer': 'return=representation',
+    };
+
+    if (options.select) url += `?select=${options.select}`;
+    if (options.filters) {
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(options.filters)) {
+        params.append(key, `eq.${value}`);
+      }
+      url += (url.includes('?') ? '&' : '?') + params.toString();
+    }
+    if (options.order) url += `${url.includes('?') ? '&' : '?'}order=${options.order}`;
+    if (options.limit) url += `${url.includes('?') ? '&' : '?'}limit=${options.limit}`;
+
+    const res = await fetch(url, {
+      method: method === 'select' ? 'GET' : method === 'insert' ? 'POST' : 'PATCH',
+      headers: method === 'upsert' 
+        ? { ...headers, 'Prefer': 'resolution=merge-duplicates,return=representation' }
+        : headers,
+      body: options.body ? JSON.stringify(options.body) : undefined,
     });
-    return response.json();
+
+    return res.json();
   },
 
-  async from(table) {
-    return {
-      url: `${env.SUPA_URL}/rest/v1/${table}`,
+  async rpc(fn, params) {
+    const res = await fetch(`${env.SUPA_URL}/rest/v1/rpc/${fn}`, {
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'apikey': env.SUPA_SERVICE_KEY,
         'Authorization': `Bearer ${env.SUPA_SERVICE_KEY}`,
-        'Prefer': 'return=representation',
       },
-
-      async select(columns = '*', filters = {}) {
-        let url = `${env.SUPA_URL}/rest/v1/${table}?select=${columns}`;
-        for (const [key, value] of Object.entries(filters)) {
-          url += `&${key}=eq.${value}`;
-        }
-        const res = await fetch(url, { headers: this.headers });
-        return res.json();
-      },
-
-      async insert(data) {
-        const res = await fetch(`${env.SUPA_URL}/rest/v1/${table}`, {
-          method: 'POST',
-          headers: this.headers,
-          body: JSON.stringify(data),
-        });
-        return res.json();
-      },
-
-      async update(data, filters = {}) {
-        let url = `${env.SUPA_URL}/rest/v1/${table}?`;
-        for (const [key, value] of Object.entries(filters)) {
-          url += `${key}=eq.${value}&`;
-        }
-        const res = await fetch(url, {
-          method: 'PATCH',
-          headers: this.headers,
-          body: JSON.stringify(data),
-        });
-        return res.json();
-      },
-
-      async upsert(data) {
-        const res = await fetch(`${env.SUPA_URL}/rest/v1/${table}`, {
-          method: 'POST',
-          headers: { ...this.headers, 'Prefer': 'resolution=merge-duplicates,return=representation' },
-          body: JSON.stringify(data),
-        });
-        return res.json();
-      },
-    };
+      body: JSON.stringify(params),
+    });
+    return res.json();
   },
 });
 
-/**
- * Validate Telegram initData
- * https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
- */
+// ============================================
+// TELEGRAM VALIDATION
+// ============================================
 async function validateInitData(initData, botToken) {
-  if (!initData || initData === 'dev_mode') {
-    return null; // Invalid in production
-  }
-
+  if (!initData) return null;
+  
   try {
     const params = new URLSearchParams(initData);
     const hash = params.get('hash');
     params.delete('hash');
 
-    // Sort params alphabetically
     const sortedParams = Array.from(params.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, value]) => `${key}=${value}`)
       .join('\n');
 
-    // Create HMAC-SHA256
     const encoder = new TextEncoder();
     const secretKey = await crypto.subtle.importKey(
-      'raw',
-      encoder.encode('WebAppData'),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['sign']
+      'raw', encoder.encode('WebAppData'),
+      { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
     );
     const secretKeyHash = await crypto.subtle.sign('HMAC', secretKey, encoder.encode(botToken));
     
     const dataKey = await crypto.subtle.importKey(
-      'raw',
-      secretKeyHash,
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['sign']
+      'raw', secretKeyHash,
+      { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
     );
     const signature = await crypto.subtle.sign('HMAC', dataKey, encoder.encode(sortedParams));
     
     const calculatedHash = Array.from(new Uint8Array(signature))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
+      .map(b => b.toString(16).padStart(2, '0')).join('');
 
-    if (calculatedHash !== hash) {
-      return null; // Invalid signature
-    }
-
-    // Parse user data
+    if (calculatedHash !== hash) return null;
+    
     const userStr = params.get('user');
-    if (userStr) {
-      return JSON.parse(userStr);
-    }
-    return null;
+    return userStr ? JSON.parse(userStr) : null;
   } catch (e) {
     console.error('initData validation error:', e);
     return null;
   }
 }
 
-/**
- * Get or create user
- */
-async function getOrCreateUser(env, telegramUser) {
-  const db = supabase(env);
-  const users = await db.from('users');
-  
-  // Try to find existing user
-  const existing = await users.select('*', { telegram_id: telegramUser.id.toString() });
-  
-  if (existing && existing.length > 0) {
-    return existing[0];
-  }
-
-  // Create new user
-  const uid = `TK${telegramUser.id}`;
-  const newUser = {
-    telegram_id: telegramUser.id.toString(),
-    uid: uid,
-    username: telegramUser.username || null,
-    first_name: telegramUser.first_name || null,
-    last_name: telegramUser.last_name || null,
-    usdt_balance: 0,
-    trx_balance: 0,
-    total_earned: 0,
-    wins: 0,
-    holds_count: 0,
-    holds_reset_at: null,
-    referred_by: null,
-    created_at: new Date().toISOString(),
-  };
-
-  const result = await users.insert(newUser);
-  return result[0] || newUser;
+// ============================================
+// HELPERS
+// ============================================
+function generateClaimId() {
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).substring(2, 8);
+  return `CLM_${timestamp}_${random}`.toUpperCase();
 }
 
-/**
- * POST /auth - Authenticate and get user data
- */
+function jsonResponse(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+  });
+}
+
+// ============================================
+// AUTH - Get or create user + active cycle
+// ============================================
 async function handleAuth(request, env) {
   const { initData } = await request.json();
-  
   const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
+  
   if (!telegramUser) {
     return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
   }
 
-  const user = await getOrCreateUser(env, telegramUser);
-  
-  // Get referral stats
   const db = supabase(env);
-  const referrals = await db.from('referrals');
-  const userReferrals = await referrals.select('*', { referrer_id: user.telegram_id });
-  const totalRefs = userReferrals?.length || 0;
-  const trxFromRefs = userReferrals?.reduce((sum, r) => sum + (r.reward_amount || 0), 0) || 0;
+  const tgId = telegramUser.id.toString();
+
+  // Get or create user
+  let users = await db.query('users', 'select', { filters: { telegram_id: tgId } });
+  let user = users[0];
+
+  if (!user) {
+    const uid = `TK${telegramUser.id}`;
+    users = await db.query('users', 'insert', {
+      body: {
+        telegram_id: tgId,
+        uid,
+        username: telegramUser.username || null,
+        first_name: telegramUser.first_name || null,
+        last_name: telegramUser.last_name || null,
+      }
+    });
+    user = users[0];
+
+    // Create internal wallet
+    await db.query('internal_wallets', 'insert', {
+      body: { user_id: tgId, usdt_balance: 0, trx_balance: 0, ton_balance: 0 }
+    });
+  }
+
+  // Get or create active cycle
+  let cycles = await db.query('hold_cycles', 'select', {
+    filters: { user_id: tgId, status: 'active' },
+    order: 'created_at.desc',
+    limit: 1
+  });
+  let cycle = cycles[0];
+
+  // Check if cycle expired
+  if (cycle && new Date(cycle.ends_at) < new Date()) {
+    await db.query('hold_cycles', 'patch', {
+      filters: { id: cycle.id },
+      body: { status: 'expired' }
+    });
+    cycle = null;
+  }
+
+  // Create new cycle if needed
+  if (!cycle) {
+    const now = new Date();
+    const endsAt = new Date(now.getTime() + CYCLE_DURATION_HOURS * 60 * 60 * 1000);
+    cycles = await db.query('hold_cycles', 'insert', {
+      body: {
+        user_id: tgId,
+        started_at: now.toISOString(),
+        ends_at: endsAt.toISOString(),
+        holds_completed: 0,
+        status: 'active'
+      }
+    });
+    cycle = cycles[0];
+  }
+
+  // Get internal wallet balance
+  const wallets = await db.query('internal_wallets', 'select', { filters: { user_id: tgId } });
+  const wallet = wallets[0] || { usdt_balance: 0, trx_balance: 0, ton_balance: 0 };
+
+  // Check for pending claim
+  const claims = await db.query('claims', 'select', {
+    filters: { cycle_id: cycle.id, status: 'pending' }
+  });
+  const pendingClaim = claims[0];
+
+  // Get referral stats
+  const referrals = await db.query('referrals', 'select', { filters: { referrer_id: tgId } });
+  const totalRefs = referrals?.length || 0;
+  const trxFromRefs = referrals?.reduce((sum, r) => sum + (parseFloat(r.reward_amount) || 0), 0) || 0;
 
   return jsonResponse({
     ok: true,
     user: {
       uid: user.uid,
-      usdt_balance: user.usdt_balance || 0,
-      trx_balance: user.trx_balance || 0,
-      total_earned: user.total_earned || 0,
-      wins: user.wins || 0,
-      holds_count: user.holds_count || 0,
-      holds_reset_at: user.holds_reset_at,
+      usdt_balance: parseFloat(wallet.usdt_balance) || 0,
+      trx_balance: parseFloat(wallet.trx_balance) || 0,
+      ton_balance: parseFloat(wallet.ton_balance) || 0,
       total_refs: totalRefs,
       trx_refs: trxFromRefs,
     },
+    cycle: {
+      id: cycle.id,
+      holds_completed: cycle.holds_completed,
+      ends_at: cycle.ends_at,
+      remaining_holds: MAX_HOLDS_PER_CYCLE - cycle.holds_completed,
+    },
+    pending_claim: pendingClaim ? {
+      claim_id: pendingClaim.claim_id,
+      total_prize: parseFloat(pendingClaim.total_prize),
+      ton_fee: parseFloat(pendingClaim.ton_fee),
+      expires_at: pendingClaim.expires_at,
+    } : null,
+    treasury_wallet: TREASURY_WALLET,
   });
 }
 
-/**
- * POST /claim - Claim hold reward
- */
-async function handleClaim(request, env) {
+// ============================================
+// HOLD - Register a hold (max 3 per cycle)
+// ============================================
+async function handleHold(request, env) {
   const { initData, prize } = await request.json();
-  
   const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
+  
   if (!telegramUser) {
     return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
   }
 
   if (!prize || prize <= 0 || prize > 0.10) {
-    return jsonResponse({ ok: false, error: 'Invalid prize amount' }, 400);
+    return jsonResponse({ ok: false, error: 'Invalid prize' }, 400);
   }
 
   const db = supabase(env);
-  const users = await db.from('users');
-  
-  // Get user
-  const existing = await users.select('*', { telegram_id: telegramUser.id.toString() });
-  if (!existing || existing.length === 0) {
-    return jsonResponse({ ok: false, error: 'User not found' }, 404);
-  }
+  const tgId = telegramUser.id.toString();
 
-  const user = existing[0];
-  const now = Date.now();
-  const sixHours = 6 * 60 * 60 * 1000;
-
-  // Check holds limit
-  let holdsCount = user.holds_count || 0;
-  let holdsResetAt = user.holds_reset_at ? new Date(user.holds_reset_at).getTime() : 0;
-
-  if (holdsResetAt && now > holdsResetAt) {
-    // Reset holds
-    holdsCount = 0;
-    holdsResetAt = 0;
-  }
-
-  if (holdsCount >= 3) {
-    return jsonResponse({ ok: false, error: 'Holds limit reached. Wait for reset.' }, 429);
-  }
-
-  // Update user
-  const newTotal = (user.total_earned || 0) + prize;
-  const newBalance = (user.usdt_balance || 0) + prize;
-  const newWins = (user.wins || 0) + 1;
-  const newHoldsCount = holdsCount + 1;
-  const newResetAt = newHoldsCount === 1 ? new Date(now + sixHours).toISOString() : user.holds_reset_at;
-
-  await users.update({
-    total_earned: newTotal,
-    usdt_balance: newBalance,
-    wins: newWins,
-    holds_count: newHoldsCount,
-    holds_reset_at: newResetAt,
-  }, { telegram_id: telegramUser.id.toString() });
-
-  // Record claim transaction
-  const transactions = await db.from('transactions');
-  await transactions.insert({
-    user_id: user.telegram_id,
-    type: 'reward',
-    asset: 'USDT',
-    amount: prize,
-    status: 'confirmed',
-    description: 'Hold to Earn reward',
-    created_at: new Date().toISOString(),
+  // Get active cycle
+  const cycles = await db.query('hold_cycles', 'select', {
+    filters: { user_id: tgId, status: 'active' },
+    order: 'created_at.desc',
+    limit: 1
   });
+  const cycle = cycles[0];
+
+  if (!cycle) {
+    return jsonResponse({ ok: false, error: 'No active cycle' }, 400);
+  }
+
+  if (cycle.holds_completed >= MAX_HOLDS_PER_CYCLE) {
+    return jsonResponse({ ok: false, error: 'Cycle complete. Claim your reward!' }, 400);
+  }
+
+  // Register hold
+  const holdNumber = cycle.holds_completed + 1;
+  await db.query('holds', 'insert', {
+    body: {
+      user_id: tgId,
+      cycle_id: cycle.id,
+      hold_number: holdNumber,
+      prize_amount: prize
+    }
+  });
+
+  // Update cycle
+  await db.query('hold_cycles', 'patch', {
+    filters: { id: cycle.id },
+    body: { holds_completed: holdNumber }
+  });
+
+  // If 3 holds completed, create claim
+  let claim = null;
+  if (holdNumber === 3) {
+    // Get total prize from all holds
+    const holds = await db.query('holds', 'select', { filters: { cycle_id: cycle.id } });
+    const totalPrize = holds.reduce((sum, h) => sum + parseFloat(h.prize_amount), 0);
+
+    const claimId = generateClaimId();
+    const expiresAt = new Date(Date.now() + CLAIM_EXPIRY_MINUTES * 60 * 1000);
+
+    const claims = await db.query('claims', 'insert', {
+      body: {
+        claim_id: claimId,
+        user_id: tgId,
+        cycle_id: cycle.id,
+        total_prize: totalPrize,
+        ton_fee: TON_FEE,
+        status: 'pending',
+        expires_at: expiresAt.toISOString()
+      }
+    });
+    claim = claims[0];
+  }
 
   return jsonResponse({
     ok: true,
-    total: newTotal,
-    wins: newWins,
-    holdsCount: newHoldsCount,
+    hold_number: holdNumber,
+    remaining_holds: MAX_HOLDS_PER_CYCLE - holdNumber,
+    cycle_complete: holdNumber === 3,
+    claim: claim ? {
+      claim_id: claim.claim_id,
+      total_prize: parseFloat(claim.total_prize),
+      ton_fee: parseFloat(claim.ton_fee),
+      expires_at: claim.expires_at,
+      treasury_wallet: TREASURY_WALLET,
+    } : null
   });
 }
 
-/**
- * POST /transactions - Get user transactions
- */
-async function handleTransactions(request, env) {
-  const { initData, limit = 50, offset = 0, type } = await request.json();
-  
+// ============================================
+// GET CLAIM - Get pending claim info
+// ============================================
+async function handleGetClaim(request, env) {
+  const { initData } = await request.json();
   const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
+  
   if (!telegramUser) {
     return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
   }
 
   const db = supabase(env);
-  
-  // Build query URL
-  let url = `${env.SUPA_URL}/rest/v1/transactions?user_id=eq.${telegramUser.id}&order=created_at.desc&limit=${limit}&offset=${offset}`;
-  if (type && type !== 'all') {
-    url += `&type=eq.${type}`;
+  const tgId = telegramUser.id.toString();
+
+  // Get active cycle
+  const cycles = await db.query('hold_cycles', 'select', {
+    filters: { user_id: tgId, status: 'active' }
+  });
+  const cycle = cycles[0];
+
+  if (!cycle) {
+    return jsonResponse({ ok: true, claim: null });
   }
 
-  const response = await fetch(url, {
-    headers: {
-      'apikey': env.SUPA_SERVICE_KEY,
-      'Authorization': `Bearer ${env.SUPA_SERVICE_KEY}`,
-    },
+  // Get pending claim
+  const claims = await db.query('claims', 'select', {
+    filters: { cycle_id: cycle.id, status: 'pending' }
+  });
+  const claim = claims[0];
+
+  if (!claim) {
+    return jsonResponse({ ok: true, claim: null });
+  }
+
+  // Check if expired
+  if (new Date(claim.expires_at) < new Date()) {
+    await db.query('claims', 'patch', {
+      filters: { claim_id: claim.claim_id },
+      body: { status: 'expired_unclaimed' }
+    });
+    return jsonResponse({ ok: true, claim: null, expired: true });
+  }
+
+  return jsonResponse({
+    ok: true,
+    claim: {
+      claim_id: claim.claim_id,
+      total_prize: parseFloat(claim.total_prize),
+      ton_fee: parseFloat(claim.ton_fee),
+      expires_at: claim.expires_at,
+      seconds_remaining: Math.max(0, Math.floor((new Date(claim.expires_at) - new Date()) / 1000)),
+      treasury_wallet: TREASURY_WALLET,
+      payment_comment: `CLAIM:${claim.claim_id}`,
+    }
+  });
+}
+
+// ============================================
+// VERIFY PAYMENT - Check TON payment and credit
+// ============================================
+async function handleVerifyPayment(request, env) {
+  const { initData, claim_id, tx_hash } = await request.json();
+  const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
+  
+  if (!telegramUser) {
+    return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
+  }
+
+  if (!claim_id || !tx_hash) {
+    return jsonResponse({ ok: false, error: 'Missing claim_id or tx_hash' }, 400);
+  }
+
+  const db = supabase(env);
+  const tgId = telegramUser.id.toString();
+
+  // Get claim
+  const claims = await db.query('claims', 'select', { filters: { claim_id } });
+  const claim = claims[0];
+
+  if (!claim) {
+    return jsonResponse({ ok: false, error: 'Claim not found' }, 404);
+  }
+
+  if (claim.user_id !== tgId) {
+    return jsonResponse({ ok: false, error: 'Unauthorized' }, 403);
+  }
+
+  if (claim.status === 'credited') {
+    return jsonResponse({ ok: true, already_credited: true });
+  }
+
+  if (claim.status === 'expired_unclaimed') {
+    return jsonResponse({ ok: false, error: 'Claim expired' }, 400);
+  }
+
+  if (new Date(claim.expires_at) < new Date()) {
+    await db.query('claims', 'patch', {
+      filters: { claim_id },
+      body: { status: 'expired_unclaimed' }
+    });
+    return jsonResponse({ ok: false, error: 'Claim expired' }, 400);
+  }
+
+  // Check if tx already processed
+  const existingPayments = await db.query('claim_payments', 'select', { filters: { tx_hash } });
+  if (existingPayments.length > 0) {
+    return jsonResponse({ ok: false, error: 'Transaction already processed' }, 400);
+  }
+
+  // TODO: In production, verify tx on TON blockchain using TON API
+  // For now, we trust the frontend to provide valid tx_hash
+  // This should be replaced with actual TON API verification:
+  // const txData = await verifyTonTransaction(tx_hash, env.TON_API_KEY);
+  // Validate: txData.to === TREASURY_WALLET, txData.comment === `CLAIM:${claim_id}`, txData.amount >= TON_FEE
+
+  // Credit the claim using the atomic function
+  const result = await db.rpc('credit_claim', {
+    p_claim_id: claim_id,
+    p_tx_hash: tx_hash,
+    p_amount: TON_FEE,
+    p_from_address: 'user_wallet' // In production, get from tx verification
   });
 
-  const transactions = await response.json();
+  if (result.ok) {
+    return jsonResponse({
+      ok: true,
+      credited: parseFloat(result.credited),
+      new_balance: parseFloat(result.new_balance),
+    });
+  } else {
+    return jsonResponse({ ok: false, error: result.error }, 400);
+  }
+}
 
-  // Format for frontend
-  const formatted = (transactions || []).map(tx => ({
-    id: tx.id,
-    type: tx.type,
-    asset: tx.asset,
-    amount: tx.amount,
-    status: tx.status,
-    timestamp: new Date(tx.created_at).getTime(),
-    description: tx.description,
-    txHash: tx.tx_hash,
-    toAddress: tx.to_address,
+// ============================================
+// TRANSACTIONS
+// ============================================
+async function handleTransactions(request, env) {
+  const { initData, limit = 50 } = await request.json();
+  const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
+  
+  if (!telegramUser) {
+    return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
+  }
+
+  const db = supabase(env);
+  const tgId = telegramUser.id.toString();
+
+  // Get from ledger
+  const ledger = await db.query('wallet_ledger', 'select', {
+    filters: { user_id: tgId },
+    order: 'created_at.desc',
+    limit
+  });
+
+  const transactions = ledger.map(l => ({
+    id: l.id,
+    type: l.operation === 'claim_credit' ? 'reward' : l.operation,
+    asset: l.asset,
+    amount: parseFloat(l.amount),
+    status: 'confirmed',
+    timestamp: new Date(l.created_at).getTime(),
+    description: l.description,
   }));
 
-  return jsonResponse({ ok: true, transactions: formatted });
+  return jsonResponse({ ok: true, transactions });
 }
 
-/**
- * POST /withdraw - Request withdrawal
- */
-async function handleWithdraw(request, env) {
-  const { initData, asset, amount, toAddress } = await request.json();
-  
-  const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
-  if (!telegramUser) {
-    return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
-  }
-
-  // Validate input
-  if (!asset || !['USDT', 'TRX'].includes(asset)) {
-    return jsonResponse({ ok: false, error: 'Invalid asset' }, 400);
-  }
-  if (!amount || amount <= 0) {
-    return jsonResponse({ ok: false, error: 'Invalid amount' }, 400);
-  }
-  if (!toAddress || !toAddress.startsWith('T') || toAddress.length !== 34) {
-    return jsonResponse({ ok: false, error: 'Invalid TRON address' }, 400);
-  }
-
-  const minWithdraw = asset === 'USDT' ? 5 : 10;
-  if (amount < minWithdraw) {
-    return jsonResponse({ ok: false, error: `Minimum withdrawal is ${minWithdraw} ${asset}` }, 400);
-  }
-
-  const db = supabase(env);
-  const users = await db.from('users');
-
-  // Get user and check balance
-  const existing = await users.select('*', { telegram_id: telegramUser.id.toString() });
-  if (!existing || existing.length === 0) {
-    return jsonResponse({ ok: false, error: 'User not found' }, 404);
-  }
-
-  const user = existing[0];
-  const balanceField = asset === 'USDT' ? 'usdt_balance' : 'trx_balance';
-  const currentBalance = user[balanceField] || 0;
-
-  if (currentBalance < amount) {
-    return jsonResponse({ ok: false, error: 'Insufficient balance' }, 400);
-  }
-
-  // Deduct balance
-  await users.update({
-    [balanceField]: currentBalance - amount,
-  }, { telegram_id: telegramUser.id.toString() });
-
-  // Create withdrawal record
-  const withdrawals = await db.from('withdrawals');
-  const withdrawal = await withdrawals.insert({
-    user_id: user.telegram_id,
-    asset: asset,
-    amount: amount,
-    to_address: toAddress,
-    status: 'pending',
-    created_at: new Date().toISOString(),
-  });
-
-  // Create transaction record
-  const transactions = await db.from('transactions');
-  await transactions.insert({
-    user_id: user.telegram_id,
-    type: 'withdraw',
-    asset: asset,
-    amount: amount,
-    status: 'pending',
-    to_address: toAddress,
-    description: `Withdrawal to ${toAddress.slice(0, 8)}...`,
-    created_at: new Date().toISOString(),
-  });
-
-  return jsonResponse({
-    ok: true,
-    status: 'pending',
-    txId: withdrawal[0]?.id || `wd_${Date.now()}`,
-    message: 'Withdrawal request submitted. Processing may take up to 24 hours.',
-  });
-}
-
-/**
- * POST /referrals - Get referral pool stats
- */
+// ============================================
+// REFERRALS
+// ============================================
 async function handleReferrals(request, env) {
   const { initData } = await request.json();
-  
   const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
+  
   if (!telegramUser) {
     return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
   }
 
   const db = supabase(env);
+  const tgId = telegramUser.id.toString();
 
-  // Get pool stats
-  const poolUrl = `${env.SUPA_URL}/rest/v1/referral_pool?select=*&limit=1`;
-  const poolRes = await fetch(poolUrl, {
-    headers: {
-      'apikey': env.SUPA_SERVICE_KEY,
-      'Authorization': `Bearer ${env.SUPA_SERVICE_KEY}`,
-    },
-  });
-  const poolData = await poolRes.json();
+  const poolData = await db.query('referral_pool', 'select', { limit: 1 });
   const pool = poolData[0] || { total_pool: 50000, distributed: 0 };
 
-  // Get user's referrals
-  const referrals = await db.from('referrals');
-  const userReferrals = await referrals.select('*', { referrer_id: telegramUser.id.toString() });
-  
-  const yourEarnings = userReferrals?.reduce((sum, r) => sum + (r.reward_amount || 0), 0) || 0;
+  const referrals = await db.query('referrals', 'select', { filters: { referrer_id: tgId } });
+  const yourEarnings = referrals?.reduce((sum, r) => sum + (parseFloat(r.reward_amount) || 0), 0) || 0;
 
   return jsonResponse({
     ok: true,
     pool: {
-      total_pool: pool.total_pool,
-      remaining: pool.total_pool - (pool.distributed || 0),
+      total_pool: parseFloat(pool.total_pool),
+      remaining: parseFloat(pool.total_pool) - parseFloat(pool.distributed),
       your_earnings: yourEarnings,
     },
-    referrals: (userReferrals || []).map(r => ({
-      id: r.id,
-      referred_user: r.referred_username || 'Anonymous',
-      reward: r.reward_amount,
-      date: r.created_at,
-    })),
   });
 }
 
-/**
- * JSON response helper
- */
-function jsonResponse(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      'Content-Type': 'application/json',
-      ...corsHeaders,
-    },
-  });
-}
-
-/**
- * Main request handler
- */
+// ============================================
+// MAIN HANDLER
+// ============================================
 export default {
   async fetch(request, env, ctx) {
-    // Handle CORS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });
     }
@@ -501,25 +541,31 @@ export default {
     const path = url.pathname;
 
     try {
-      // Route requests
       if (request.method === 'POST') {
         switch (path) {
           case '/auth':
             return handleAuth(request, env);
+          case '/hold':
+            return handleHold(request, env);
           case '/claim':
-            return handleClaim(request, env);
+          case '/get-claim':
+            return handleGetClaim(request, env);
+          case '/verify-payment':
+            return handleVerifyPayment(request, env);
           case '/transactions':
             return handleTransactions(request, env);
-          case '/withdraw':
-            return handleWithdraw(request, env);
           case '/referrals':
             return handleReferrals(request, env);
         }
       }
 
-      // Health check
       if (path === '/' || path === '/health') {
-        return jsonResponse({ ok: true, service: 'TronKeeper API', version: '1.0.0' });
+        return jsonResponse({ 
+          ok: true, 
+          service: 'TronKeeper API', 
+          version: '2.0.0',
+          treasury: TREASURY_WALLET 
+        });
       }
 
       return jsonResponse({ error: 'Not found' }, 404);

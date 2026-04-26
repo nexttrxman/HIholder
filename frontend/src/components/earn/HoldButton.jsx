@@ -2,16 +2,19 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useWallet } from '@/contexts/WalletContext';
 import { useTelegram } from '@/hooks/useTelegram';
+import { Clock, AlertTriangle } from 'lucide-react';
 
 const TETHER_ICON = '/tether.png';
 
-export function HoldButton() {
+export function HoldButton({ onClaimReady }) {
   const { 
     canHold, 
-    claim, 
+    doHold, 
     HOLD_DURATION,
     remainingHolds,
-    getResetTime 
+    holdsCompleted,
+    pendingClaim,
+    getCycleResetTime,
   } = useWallet();
   const { vibrate } = useTelegram();
 
@@ -79,7 +82,8 @@ export function HoldButton() {
     const prize = calculatePrize();
     setPrizeAmount(prize);
     
-    await claim(prize);
+    // Register hold with backend
+    const result = await doHold(prize);
     
     setTimeout(() => {
       setShowPrize(true);
@@ -89,14 +93,24 @@ export function HoldButton() {
         setProgress(0);
         setStatus('hold');
         isCompletedRef.current = false;
+        
+        // If claim ready, notify parent
+        if (result.success && result.claim) {
+          vibrate('success');
+          onClaimReady?.(result.claim);
+        }
       }, 2000);
     }, 300);
-  }, [claim, vibrate]);
+  }, [doHold, vibrate, onClaimReady]);
 
   const startHold = useCallback(() => {
     if (!canHold() || remainingHolds <= 0) {
       vibrate('error');
-      setStatus('wait');
+      if (pendingClaim) {
+        setStatus('claim!');
+      } else {
+        setStatus('wait');
+      }
       setTimeout(() => setStatus('hold'), 1500);
       return;
     }
@@ -114,7 +128,7 @@ export function HoldButton() {
       onHoldComplete();
       stopHold();
     }, HOLD_DURATION);
-  }, [canHold, remainingHolds, vibrate, updateProgress, onHoldComplete, HOLD_DURATION, stopHold]);
+  }, [canHold, remainingHolds, pendingClaim, vibrate, updateProgress, onHoldComplete, HOLD_DURATION, stopHold]);
 
   useEffect(() => {
     return () => {
@@ -127,33 +141,52 @@ export function HoldButton() {
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference * (1 - progress);
 
-  const resetTime = getResetTime();
-  const isDisabled = remainingHolds <= 0 && resetTime;
+  const resetTime = getCycleResetTime();
+  const isDisabled = !canHold() || (remainingHolds <= 0 && !pendingClaim);
+  const hasPendingClaim = !!pendingClaim;
 
   return (
     <div className="relative flex flex-col items-center" data-testid="hold-section">
       <div className="text-center mb-2">
         <h2 className="font-display text-lg font-semibold text-white">Hold to Earn</h2>
-        <p className="text-xs text-white/40 mt-1">Hold the button to get your prize</p>
+        <p className="text-xs text-white/40 mt-1">
+          {hasPendingClaim 
+            ? 'Cycle complete! Claim your reward below' 
+            : 'Complete 3 holds to unlock your reward'}
+        </p>
       </div>
 
-      <div className="flex items-center gap-2 mb-4" data-testid="holds-remaining">
-        <span className="text-xs text-white/50">Remaining</span>
-        <div className="flex gap-1">
-          {[...Array(3)].map((_, i) => (
+      {/* Progress dots */}
+      <div className="flex items-center gap-3 mb-4" data-testid="holds-remaining">
+        <div className="flex gap-2">
+          {[1, 2, 3].map((num) => (
             <div
-              key={i}
-              className={`w-2 h-2 rounded-full transition-colors ${
-                i < remainingHolds ? 'bg-brand-green' : 'bg-white/10'
+              key={num}
+              className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                num <= holdsCompleted 
+                  ? 'bg-brand-green text-black' 
+                  : 'bg-white/10 text-white/40'
               }`}
-            />
+            >
+              {num}
+            </div>
           ))}
         </div>
-        {resetTime && (
-          <span className="text-xs text-brand-red ml-2">Resets in {resetTime}</span>
-        )}
       </div>
 
+      {/* Pending claim warning */}
+      {hasPendingClaim && (
+        <motion.div
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-yellow-500/10 border border-yellow-500/30 mb-4"
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <AlertTriangle className="w-4 h-4 text-yellow-500" />
+          <span className="text-xs text-yellow-500">Claim before time expires!</span>
+        </motion.div>
+      )}
+
+      {/* Hold button container */}
       <div className="relative w-52 h-52 flex items-center justify-center">
         <div className={`
           absolute inset-0 rounded-full 
@@ -183,7 +216,7 @@ export function HoldButton() {
             cy="100"
             r={radius}
             fill="none"
-            stroke="#00E676"
+            stroke={hasPendingClaim ? '#EAB308' : '#00E676'}
             strokeWidth="6"
             strokeLinecap="round"
             strokeDasharray={circumference}
@@ -214,7 +247,8 @@ export function HoldButton() {
             flex items-center justify-center
             select-none cursor-pointer
             overflow-hidden
-            ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}
+            ${isDisabled && !hasPendingClaim ? 'opacity-50 cursor-not-allowed' : ''}
+            ${hasPendingClaim ? 'ring-4 ring-yellow-500/50 animate-pulse' : ''}
           `}
           onMouseDown={!isDisabled ? startHold : undefined}
           onMouseUp={stopHold}
@@ -222,7 +256,7 @@ export function HoldButton() {
           onTouchStart={!isDisabled ? startHold : undefined}
           onTouchEnd={stopHold}
           whileTap={!isDisabled ? { scale: 0.95 } : {}}
-          disabled={isDisabled}
+          disabled={isDisabled && !hasPendingClaim}
         >
           <img 
             src={TETHER_ICON} 
@@ -251,20 +285,30 @@ export function HoldButton() {
         </AnimatePresence>
       </div>
 
+      {/* Status text */}
       <div className="mt-3 text-center">
         <span className={`
           text-sm font-semibold px-4 py-1.5 rounded-full inline-block
           ${status === 'done' ? 'bg-brand-green/20 text-brand-green' : ''}
-          ${status === 'wait' ? 'bg-brand-red/20 text-brand-red' : ''}
+          ${status === 'wait' || status === 'claim!' ? 'bg-yellow-500/20 text-yellow-500' : ''}
           ${status === 'hold' ? 'text-white/50' : ''}
           ${!isNaN(parseInt(status)) ? 'text-white/70' : ''}
         `}>
-          {status === 'hold' && 'Hold to earn'}
+          {status === 'hold' && (hasPendingClaim ? 'Claim your reward!' : 'Hold to earn')}
           {status === 'done' && '✓ Done!'}
           {status === 'wait' && 'Wait...'}
+          {status === 'claim!' && 'Claim first!'}
           {!isNaN(parseInt(status)) && `${status}s`}
         </span>
       </div>
+
+      {/* Cycle reset timer */}
+      {resetTime && !hasPendingClaim && holdsCompleted === 0 && (
+        <div className="flex items-center gap-1 mt-2 text-xs text-white/40">
+          <Clock className="w-3 h-3" />
+          <span>New cycle in {resetTime}</span>
+        </div>
+      )}
     </div>
   );
 }

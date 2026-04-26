@@ -1,20 +1,21 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import {
   authUser,
-  claimReward,
+  registerHold,
+  getClaim,
+  verifyPayment,
   getTransactions,
   getReferralPool,
   getTelegramUser,
   initTelegram,
   DEPOSIT_INFO,
+  TON_CONFIG,
 } from '@/services/api';
 
 const WalletContext = createContext(null);
 
-// Hold configuration
-const HOLD_DURATION = 3000; // 3 seconds
+const HOLD_DURATION = 3000; // 3 seconds to hold
 const MAX_HOLDS_PER_CYCLE = 3;
-const HOLD_RESET_HOURS = 6;
 
 export function WalletProvider({ children }) {
   // User state
@@ -22,24 +23,26 @@ export function WalletProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Balances
+  // Balances (internal wallet)
   const [usdtBalance, setUsdtBalance] = useState(0);
   const [trxBalance, setTrxBalance] = useState(0);
+  const [tonBalance, setTonBalance] = useState(0);
 
-  // Hold to Earn state
-  const [totalEarned, setTotalEarned] = useState(0);
-  const [wins, setWins] = useState(0);
-  const [holdsCount, setHoldsCount] = useState(0);
-  const [holdsResetAt, setHoldsResetAt] = useState(null);
+  // Cycle state
+  const [cycle, setCycle] = useState(null);
+  const [holdsCompleted, setHoldsCompleted] = useState(0);
+  const [remainingHolds, setRemainingHolds] = useState(3);
+  const [cycleEndsAt, setCycleEndsAt] = useState(null);
+
+  // Claim state
+  const [pendingClaim, setPendingClaim] = useState(null);
+  const [claimExpiresAt, setClaimExpiresAt] = useState(null);
   const [lastPrize, setLastPrize] = useState(null);
 
   // Referral state
   const [totalRefs, setTotalRefs] = useState(0);
   const [trxFromRefs, setTrxFromRefs] = useState(0);
-  const [referralPool, setReferralPool] = useState({
-    total: 50000,
-    remaining: 50000,
-  });
+  const [referralPool, setReferralPool] = useState({ total: 50000, remaining: 50000 });
 
   // Transactions
   const [transactions, setTransactions] = useState([]);
@@ -49,48 +52,58 @@ export function WalletProvider({ children }) {
   const [uid, setUid] = useState(null);
 
   /**
-   * Initialize app and load user data
+   * Load user data and cycle info
    */
   const loadUserData = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      // Initialize Telegram
       initTelegram();
-
-      // Get Telegram user info
+      
       const tgUser = getTelegramUser();
       setUser(tgUser);
       setUid(tgUser?.id?.toString() || 'guest');
 
-      // Auth and get user data from backend
       const result = await authUser();
 
-      if (result.ok && result.user) {
-        const userData = result.user;
-        setTotalEarned(userData.total_earned || 0);
-        setWins(userData.wins || 0);
-        setHoldsCount(userData.holds_count || 0);
-        setHoldsResetAt(userData.holds_reset_at || null);
+      if (result.ok) {
+        const { user: userData, cycle: cycleData, pending_claim } = result;
+        
+        // Set balances
+        setUsdtBalance(userData.usdt_balance || 0);
+        setTrxBalance(userData.trx_balance || 0);
+        setTonBalance(userData.ton_balance || 0);
         setTotalRefs(userData.total_refs || 0);
         setTrxFromRefs(userData.trx_refs || 0);
-        setTrxBalance(userData.trx_balance || 0);
-        setUsdtBalance(userData.usdt_balance || userData.total_earned || 0);
+        
+        if (userData.uid) setUid(userData.uid);
 
-        // Set UID from backend if available
-        if (userData.uid) {
-          setUid(userData.uid);
+        // Set cycle
+        if (cycleData) {
+          setCycle(cycleData);
+          setHoldsCompleted(cycleData.holds_completed || 0);
+          setRemainingHolds(cycleData.remaining_holds ?? (MAX_HOLDS_PER_CYCLE - cycleData.holds_completed));
+          setCycleEndsAt(cycleData.ends_at);
+        }
+
+        // Set pending claim
+        if (pending_claim) {
+          setPendingClaim(pending_claim);
+          setClaimExpiresAt(pending_claim.expires_at);
         }
       }
 
-      // Load referral pool data
+      // Load referral pool
       const poolResult = await getReferralPool();
       if (poolResult.ok && poolResult.pool) {
         setReferralPool({
           total: poolResult.pool.total_pool,
           remaining: poolResult.pool.remaining,
         });
+        if (poolResult.pool.your_earnings) {
+          setTrxFromRefs(poolResult.pool.your_earnings);
+        }
       }
     } catch (err) {
       console.error('Failed to load user data:', err);
@@ -106,21 +119,87 @@ export function WalletProvider({ children }) {
   const refreshData = useCallback(async () => {
     try {
       const result = await authUser();
-      if (result.ok && result.user) {
-        const userData = result.user;
-        setTotalEarned(userData.total_earned || 0);
-        setWins(userData.wins || 0);
-        setHoldsCount(userData.holds_count || 0);
-        setHoldsResetAt(userData.holds_reset_at || null);
-        setTotalRefs(userData.total_refs || 0);
-        setTrxFromRefs(userData.trx_refs || 0);
+      if (result.ok) {
+        const { user: userData, cycle: cycleData, pending_claim } = result;
+        
+        setUsdtBalance(userData.usdt_balance || 0);
         setTrxBalance(userData.trx_balance || 0);
-        setUsdtBalance(userData.usdt_balance || userData.total_earned || 0);
+        setTonBalance(userData.ton_balance || 0);
+        
+        if (cycleData) {
+          setCycle(cycleData);
+          setHoldsCompleted(cycleData.holds_completed || 0);
+          setRemainingHolds(cycleData.remaining_holds ?? (MAX_HOLDS_PER_CYCLE - cycleData.holds_completed));
+          setCycleEndsAt(cycleData.ends_at);
+        }
+
+        setPendingClaim(pending_claim || null);
+        setClaimExpiresAt(pending_claim?.expires_at || null);
       }
     } catch (err) {
       console.error('Failed to refresh data:', err);
     }
   }, []);
+
+  /**
+   * Register a hold
+   */
+  const doHold = useCallback(async (prize) => {
+    try {
+      const result = await registerHold(prize);
+      
+      if (result.ok) {
+        setHoldsCompleted(result.hold_number);
+        setRemainingHolds(result.remaining_holds);
+        setLastPrize(prize);
+
+        // If cycle complete, set pending claim
+        if (result.cycle_complete && result.claim) {
+          setPendingClaim(result.claim);
+          setClaimExpiresAt(result.claim.expires_at);
+        }
+
+        return { success: true, claim: result.claim };
+      }
+      
+      return { success: false, error: result.error || 'Hold failed' };
+    } catch (err) {
+      console.error('Hold error:', err);
+      return { success: false, error: err.message };
+    }
+  }, []);
+
+  /**
+   * Verify TON payment and credit claim
+   */
+  const verifyClaim = useCallback(async (claimId, txHash) => {
+    try {
+      const result = await verifyPayment(claimId, txHash);
+      
+      if (result.ok) {
+        // Update balance
+        setUsdtBalance(result.new_balance || usdtBalance + result.credited);
+        
+        // Reset claim state
+        setPendingClaim(null);
+        setClaimExpiresAt(null);
+        
+        // Reset holds for new cycle
+        setHoldsCompleted(0);
+        setRemainingHolds(MAX_HOLDS_PER_CYCLE);
+        
+        // Refresh to get new cycle
+        await refreshData();
+        
+        return { success: true, credited: result.credited };
+      }
+      
+      return { success: false, error: result.error };
+    } catch (err) {
+      console.error('Verify claim error:', err);
+      return { success: false, error: err.message };
+    }
+  }, [usdtBalance, refreshData]);
 
   /**
    * Load transaction history
@@ -140,65 +219,45 @@ export function WalletProvider({ children }) {
   }, []);
 
   /**
-   * Claim a hold reward
-   */
-  const claim = useCallback(async (prize) => {
-    try {
-      const result = await claimReward(prize);
-      if (result.ok) {
-        setTotalEarned(result.total || totalEarned + prize);
-        setWins(result.wins || wins + 1);
-        setHoldsCount(result.holdsCount || holdsCount + 1);
-        setUsdtBalance(result.total || usdtBalance + prize);
-        setLastPrize(prize);
-        return { success: true };
-      }
-      return { success: false, error: 'Claim failed' };
-    } catch (err) {
-      console.error('Claim error:', err);
-      return { success: false, error: err.message };
-    }
-  }, [totalEarned, wins, holdsCount, usdtBalance]);
-
-  /**
-   * Check if holds are available
+   * Check if can hold
    */
   const canHold = useCallback(() => {
-    if (holdsCount >= MAX_HOLDS_PER_CYCLE) {
-      if (holdsResetAt && Date.now() < holdsResetAt) {
-        return false;
-      }
-      // Reset if time has passed
-      setHoldsCount(0);
-    }
+    // Can't hold if there's a pending claim
+    if (pendingClaim) return false;
+    // Can't hold if all 3 completed
+    if (holdsCompleted >= MAX_HOLDS_PER_CYCLE) return false;
     return true;
-  }, [holdsCount, holdsResetAt]);
+  }, [pendingClaim, holdsCompleted]);
 
   /**
-   * Get remaining holds
+   * Get time until cycle ends
    */
-  const remainingHolds = MAX_HOLDS_PER_CYCLE - holdsCount;
-
-  /**
-   * Get time until holds reset
-   */
-  const getResetTime = useCallback(() => {
-    if (!holdsResetAt) return null;
-    const diff = holdsResetAt - Date.now();
+  const getCycleResetTime = useCallback(() => {
+    if (!cycleEndsAt) return null;
+    const diff = new Date(cycleEndsAt) - new Date();
     if (diff <= 0) return null;
     const hours = Math.floor(diff / 3600000);
     const minutes = Math.floor((diff % 3600000) / 60000);
     return `${hours}h ${minutes}m`;
-  }, [holdsResetAt]);
+  }, [cycleEndsAt]);
 
   /**
-   * Get referral link
+   * Get seconds until claim expires
+   */
+  const getClaimSecondsRemaining = useCallback(() => {
+    if (!claimExpiresAt) return 0;
+    const diff = new Date(claimExpiresAt) - new Date();
+    return Math.max(0, Math.floor(diff / 1000));
+  }, [claimExpiresAt]);
+
+  /**
+   * Referral link
    */
   const telegramBotUrl = import.meta.env.VITE_TELEGRAM_BOT_URL || 'https://t.me/TKcex_bot';
   const referralLink = `${telegramBotUrl}?start=${uid}`;
 
   /**
-   * Get deposit info with user's memo
+   * Deposit info with memo
    */
   const depositInfo = {
     ...DEPOSIT_INFO,
@@ -210,6 +269,23 @@ export function WalletProvider({ children }) {
     loadUserData();
   }, [loadUserData]);
 
+  // Check claim expiry
+  useEffect(() => {
+    if (!claimExpiresAt) return;
+    
+    const checkExpiry = () => {
+      const remaining = getClaimSecondsRemaining();
+      if (remaining <= 0) {
+        setPendingClaim(null);
+        setClaimExpiresAt(null);
+        refreshData();
+      }
+    };
+
+    const interval = setInterval(checkExpiry, 1000);
+    return () => clearInterval(interval);
+  }, [claimExpiresAt, getClaimSecondsRemaining, refreshData]);
+
   const value = {
     // User
     user,
@@ -220,18 +296,25 @@ export function WalletProvider({ children }) {
     // Balances
     usdtBalance,
     trxBalance,
+    tonBalance,
 
-    // Hold to Earn
-    totalEarned,
-    wins,
-    holdsCount,
+    // Hold/Cycle
+    holdsCompleted,
     remainingHolds,
     canHold,
-    getResetTime,
-    claim,
+    doHold,
+    getCycleResetTime,
     lastPrize,
     HOLD_DURATION,
     MAX_HOLDS_PER_CYCLE,
+
+    // Claim
+    pendingClaim,
+    claimExpiresAt,
+    getClaimSecondsRemaining,
+    verifyClaim,
+    treasuryWallet: TON_CONFIG.treasury_wallet,
+    tonFee: TON_CONFIG.fee,
 
     // Referrals
     totalRefs,

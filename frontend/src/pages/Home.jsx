@@ -1,14 +1,30 @@
 import { Header } from '@/components/layout/Header';
+import { HoldButton } from '@/components/earn/HoldButton';
 import { HoldSection } from '@/components/earn/HoldSection';
 import { useWallet } from '@/contexts/WalletContext';
-import { ArrowDownLeft, ArrowUpRight, Clock } from 'lucide-react';
+import { ArrowDownLeft, ArrowUpRight, Gift, Clock, Wallet } from 'lucide-react';
 import { motion } from 'framer-motion';
 
-export function HomePage({ onNavigate, onOpenWithdraw }) {
-  const { transactions, usdtBalance, trxBalance } = useWallet();
+export function HomePage({ onNavigate, onOpenWithdraw, onClaimReady, onOpenClaim }) {
+  const { 
+    transactions, 
+    usdtBalance, 
+    trxBalance,
+    pendingClaim,
+    getClaimSecondsRemaining,
+    holdsCompleted,
+    remainingHolds,
+    totalRefs,
+  } = useWallet();
 
-  // Get last 3 transactions
   const recentTx = transactions.slice(0, 3);
+  const claimSeconds = getClaimSecondsRemaining();
+
+  const formatClaimTime = (secs) => {
+    const mins = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${mins}:${s.toString().padStart(2, '0')}`;
+  };
 
   return (
     <div className="pb-4" data-testid="home-page">
@@ -38,8 +54,68 @@ export function HomePage({ onNavigate, onOpenWithdraw }) {
         </div>
       </div>
 
+      {/* Pending Claim Banner */}
+      {pendingClaim && claimSeconds > 0 && (
+        <motion.div
+          className="mx-4 mb-4"
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <button
+            onClick={onOpenClaim}
+            className="w-full p-4 rounded-2xl bg-gradient-to-r from-brand-green/20 to-yellow-500/20 border border-brand-green/30 flex items-center justify-between"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-brand-green/20 flex items-center justify-center">
+                <Gift className="w-6 h-6 text-brand-green" />
+              </div>
+              <div className="text-left">
+                <p className="font-semibold text-white">Reward Ready!</p>
+                <p className="text-sm text-brand-green font-bold">${pendingClaim.total_prize.toFixed(2)} USDT</p>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="flex items-center gap-1 text-yellow-500">
+                <Clock className="w-4 h-4" />
+                <span className="font-mono font-bold">{formatClaimTime(claimSeconds)}</span>
+              </div>
+              <p className="text-xs text-white/40">Tap to claim</p>
+            </div>
+          </button>
+        </motion.div>
+      )}
+
       {/* Hold to Earn Section */}
-      <HoldSection />
+      <div className="px-4 py-4">
+        <HoldButton onClaimReady={onClaimReady} />
+      </div>
+
+      {/* Stats Row */}
+      <div className="px-4 py-2">
+        <div className="flex justify-center gap-6">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-full bg-brand-green/10 flex items-center justify-center">
+              <Wallet className="w-4 h-4 text-brand-green" />
+            </div>
+            <div>
+              <p className="text-xs text-white/40">Balance</p>
+              <p className="text-sm font-semibold text-white">${usdtBalance.toFixed(2)}</p>
+            </div>
+          </div>
+          
+          <div className="w-px h-10 bg-white/10" />
+          
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-full bg-brand-red/10 flex items-center justify-center">
+              <Gift className="w-4 h-4 text-brand-red" />
+            </div>
+            <div>
+              <p className="text-xs text-white/40">Invites</p>
+              <p className="text-sm font-semibold text-white">{totalRefs}</p>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Recent Activity */}
       {recentTx.length > 0 && (
