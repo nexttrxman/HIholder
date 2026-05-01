@@ -1,5 +1,5 @@
 /**
- * TronKeeper Cloudflare Worker - TON Claims System (v2.1)
+ * TronKeeper Cloudflare Worker - TON Claims System (v2.2)
  *
  * Environment Variables (Secrets):
  * - BOT_TOKEN: Telegram Bot Token
@@ -8,11 +8,6 @@
  * - TON_API_KEY: TON Center API key (recommended for higher rate limits)
  *
  * Treasury Wallet (V5): UQCydneDGeAcamdCFS6e13Z2xoxwA5DsLkFONRdp-cavw-Th
- *
- * SECURITY: Payment verification queries the TON blockchain directly via
- * TonCenter API. The frontend does NOT supply the tx_hash; the worker
- * discovers it by searching incoming transactions to the treasury that
- * match: sender_address, comment "CLAIM:<claim_id>", amount >= ton_fee.
  */
 
 import {
@@ -94,7 +89,6 @@ async function handleAuth(request, env) {
   const db = supabase(env);
   const tgId = telegramUser.id.toString();
 
-  // Get or create user
   let users = await db.query('users', 'select', { filters: { telegram_id: tgId } });
   let user = users[0];
 
@@ -116,7 +110,6 @@ async function handleAuth(request, env) {
     });
   }
 
-  // Get or create active cycle
   let cycles = await db.query('hold_cycles', 'select', {
     filters: { user_id: tgId, status: 'active' },
     order: 'created_at.desc',
@@ -156,8 +149,10 @@ async function handleAuth(request, env) {
   const pendingClaim = claims[0];
 
   const referrals = await db.query('referrals', 'select', { filters: { referrer_id: tgId } });
-  const totalRefs = referrals?.length || 0;
-  const trxFromRefs = referrals?.reduce((sum, r) => sum + (parseFloat(r.reward_amount) || 0), 0) || 0;
+  const totalRefs = Array.isArray(referrals) ? referrals.length : 0;
+  const trxFromRefs = Array.isArray(referrals)
+    ? referrals.reduce((sum, r) => sum + (parseFloat(r.reward_amount) || 0), 0)
+    : 0;
 
   return jsonResponse({
     ok: true,
@@ -236,12 +231,12 @@ async function handleHold(request, env) {
   let claim = null;
   if (holdNumber === CONFIG.MAX_HOLDS_PER_CYCLE) {
     const holds = await db.query('holds', 'select', { filters: { cycle_id: cycle.id } });
-    const totalPrize = holds.reduce((sum, h) => sum + parseFloat(h.prize_amount), 0);
+    const totalPrize = (Array.isArray(holds) ? holds : []).reduce((sum, h) => sum + parseFloat(h.prize_amount), 0);
 
     const claimId = generateClaimId();
     const expiresAt = new Date(Date.now() + CONFIG.CLAIM_EXPIRY_MINUTES * 60 * 1000);
 
-    const claims = await db.query('claims', 'insert', {
+    const claimsInsert = await db.query('claims', 'insert', {
       body: {
         claim_id: claimId,
         user_id: tgId,
@@ -252,7 +247,7 @@ async function handleHold(request, env) {
         expires_at: expiresAt.toISOString()
       }
     });
-    claim = claims[0];
+    claim = claimsInsert[0];
   }
 
   return jsonResponse({
@@ -325,12 +320,7 @@ async function handleGetClaim(request, env) {
 }
 
 // ============================================
-// VERIFY PAYMENT - Validate on-chain and credit
-// ============================================
-// SECURITY: This function does NOT trust any tx_hash from the client.
-// It queries TonCenter API for incoming transactions to the treasury and
-// finds one matching: sender_address, comment "CLAIM:<claim_id>",
-// amount >= ton_fee, recent (within claim window).
+// VERIFY PAYMENT
 // ============================================
 async function handleVerifyPayment(request, env) {
   const { initData, claim_id, sender_address } = await request.json();
@@ -347,37 +337,23 @@ async function handleVerifyPayment(request, env) {
   const db = supabase(env);
   const tgId = telegramUser.id.toString();
 
-  // Load claim
   const claims = await db.query('claims', 'select', { filters: { claim_id } });
   const claim = claims[0];
 
-  if (!claim) {
-    return jsonResponse({ ok: false, error: 'Claim not found' }, 404);
-  }
-  if (claim.user_id !== tgId) {
-    return jsonResponse({ ok: false, error: 'Unauthorized' }, 403);
-  }
+  if (!claim) return jsonResponse({ ok: false, error: 'Claim not found' }, 404);
+  if (claim.user_id !== tgId) return jsonResponse({ ok: false, error: 'Unauthorized' }, 403);
   if (claim.status === 'credited') {
-    return jsonResponse({
-      ok: true,
-      already_credited: true,
-      credited: parseFloat(claim.total_prize),
-    });
+    return jsonResponse({ ok: true, already_credited: true, credited: parseFloat(claim.total_prize) });
   }
   if (claim.status === 'expired_unclaimed') {
     return jsonResponse({ ok: false, error: 'Claim expired' }, 400);
   }
   if (new Date(claim.expires_at) < new Date()) {
-    await db.query('claims', 'patch', {
-      filters: { claim_id },
-      body: { status: 'expired_unclaimed' }
-    });
+    await db.query('claims', 'patch', { filters: { claim_id }, body: { status: 'expired_unclaimed' } });
     return jsonResponse({ ok: false, error: 'Claim expired' }, 400);
   }
 
-  // ON-CHAIN VERIFICATION
   const minAmountNano = Math.floor(parseFloat(claim.ton_fee) * 1e9);
-  // Earliest acceptable tx timestamp = claim creation - 60s (allow small clock drift)
   const earliestTs = Math.floor(new Date(claim.created_at).getTime() / 1000) - 60;
 
   let payment;
@@ -393,38 +369,21 @@ async function handleVerifyPayment(request, env) {
     });
   } catch (err) {
     console.error('TON verify error:', err);
-    return jsonResponse({
-      ok: false,
-      pending: true,
-      error: 'TON network unreachable. Retry in a few seconds.',
-    }, 202);
+    return jsonResponse({ ok: false, pending: true, error: 'TON network unreachable. Retry in a few seconds.' }, 202);
   }
 
   if (!payment) {
-    return jsonResponse({
-      ok: false,
-      pending: true,
-      error: 'Payment not found on chain yet. The TON network can take up to 60s.',
-    }, 202);
+    return jsonResponse({ ok: false, pending: true, error: 'Payment not found on chain yet. The TON network can take up to 60s.' }, 202);
   }
 
-  // Idempotency: tx_hash already processed?
-  const existingPayments = await db.query('claim_payments', 'select', {
-    filters: { tx_hash: payment.tx_hash }
-  });
-  if (existingPayments.length > 0) {
-    // Same tx already processed for this claim?
+  const existingPayments = await db.query('claim_payments', 'select', { filters: { tx_hash: payment.tx_hash } });
+  if (Array.isArray(existingPayments) && existingPayments.length > 0) {
     if (existingPayments[0].claim_id === claim_id) {
-      return jsonResponse({
-        ok: true,
-        already_credited: true,
-        credited: parseFloat(claim.total_prize),
-      });
+      return jsonResponse({ ok: true, already_credited: true, credited: parseFloat(claim.total_prize) });
     }
     return jsonResponse({ ok: false, error: 'Transaction already used for another claim' }, 400);
   }
 
-  // Atomic credit via stored procedure
   const result = await db.rpc('credit_claim', {
     p_claim_id: claim_id,
     p_tx_hash: payment.tx_hash,
@@ -463,7 +422,7 @@ async function handleTransactions(request, env) {
     limit
   });
 
-  const transactions = ledger.map(l => ({
+  const transactions = (Array.isArray(ledger) ? ledger : []).map(l => ({
     id: l.id,
     type: l.operation === 'claim_credit' ? 'reward' : l.operation,
     asset: l.asset,
@@ -494,13 +453,14 @@ async function handleReferrals(request, env) {
   const pool = poolData[0] || { total_pool: 50000, distributed: 0 };
 
   const referrals = await db.query('referrals', 'select', { filters: { referrer_id: tgId } });
-  const yourEarnings = referrals?.reduce((sum, r) => sum + (parseFloat(r.reward_amount) || 0), 0) || 0;
+  const yourEarnings = (Array.isArray(referrals) ? referrals : [])
+    .reduce((sum, r) => sum + (parseFloat(r.reward_amount) || 0), 0);
 
   return jsonResponse({
     ok: true,
     pool: {
       total_pool: parseFloat(pool.total_pool),
-      remaining: parseFloat(pool.total_pool) - parseFloat(pool.distributed),
+      remaining: parseFloat(pool.total_pool) - parseFloat(pool.distributed || 0),
       your_earnings: yourEarnings,
     },
   });
@@ -521,35 +481,36 @@ export default {
     try {
       if (request.method === 'POST') {
         switch (path) {
-          case '/auth':
-            return handleAuth(request, env);
-          case '/hold':
-            return handleHold(request, env);
+          case '/auth':           return handleAuth(request, env);
+          case '/hold':           return handleHold(request, env);
           case '/claim':
-          case '/get-claim':
-            return handleGetClaim(request, env);
-          case '/verify-payment':
-            return handleVerifyPayment(request, env);
-          case '/transactions':
-            return handleTransactions(request, env);
-          case '/referrals':
-            return handleReferrals(request, env);
+          case '/get-claim':      return handleGetClaim(request, env);
+          case '/verify-payment': return handleVerifyPayment(request, env);
+          case '/transactions':   return handleTransactions(request, env);
+          case '/referrals':      return handleReferrals(request, env);
         }
       }
 
       if (path === '/' || path === '/health') {
-        return jsonResponse({
-          ok: true,
-          service: 'TronKeeper API',
-          version: '2.1.0',
-          treasury: CONFIG.TREASURY_WALLET
-        });
+        return jsonResponse({ ok: true, service: 'TronKeeper API', version: '2.2.0', treasury: CONFIG.TREASURY_WALLET });
       }
 
       return jsonResponse({ error: 'Not found' }, 404);
+
     } catch (error) {
       console.error('Worker error:', error);
-      return jsonResponse({ error: 'Internal server error', detail: error.message }, 500);
+      return new Response(
+        JSON.stringify({ error: 'Internal server error', detail: error.message }),
+        {
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type',
+          }
+        }
+      );
     }
   },
 };
