@@ -4,7 +4,7 @@
  * Architecture: Telegram Mini App -> Cloudflare Worker -> Supabase
  */
 
-const WORKER_URL = import.meta.env.VITE_WORKER_URL || 'https://shiny-surf-110c.tkexchange.workers.dev';
+const WORKER_URL = import.meta.env.VITE_WORKER_URL || 'https://tkworker.tkexchange.workers.dev';
 const TELEGRAM_BOT_URL = import.meta.env.VITE_TELEGRAM_BOT_URL || 'https://t.me/TKcex_bot';
 const DEPOSIT_ADDRESS = import.meta.env.VITE_DEPOSIT_ADDRESS || 'TNjqVzo47ndAvH241njkMLKbda3G6FPgVs';
 const TREASURY_WALLET = 'UQCydneDGeAcamdCFS6e13Z2xoxwA5DsLkFONRdp-cavw-Th';
