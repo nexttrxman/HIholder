@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 
-import { describeApiError } from '../services/api';
+import { describeApiError, normalizeBaseUrl } from '../services/api';
 
 describe('describeApiError', () => {
   it('un fallo de red dice que no llega al backend y recuerda revisar la URL', () => {
@@ -36,5 +36,24 @@ describe('describeApiError', () => {
     expect(typeof describeApiError(null)).toBe('string');
     expect(typeof describeApiError({})).toBe('string');
     expect(describeApiError('algo pasó')).toBe('Backend error: algo pasó');
+  });
+});
+
+describe('normalizeBaseUrl', () => {
+  // `${WORKER_URL}/auth` con una barra final arma '//auth', que el Worker no
+  // reconoce: 404 "Not found" mientras /health responde perfecto.
+  it.each([
+    ['https://w.dev/', 'https://w.dev'],
+    ['https://w.dev///', 'https://w.dev'],
+    ['https://w.dev', 'https://w.dev'],
+    ['https://w.dev/api/', 'https://w.dev/api'],
+  ])('quita las barras finales de %s', (input, expected) => {
+    expect(normalizeBaseUrl(input)).toBe(expected);
+  });
+
+  it('devuelve vacío para valores ausentes', () => {
+    expect(normalizeBaseUrl(undefined)).toBe('');
+    expect(normalizeBaseUrl(null)).toBe('');
+    expect(normalizeBaseUrl('')).toBe('');
   });
 });

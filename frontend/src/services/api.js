@@ -4,7 +4,22 @@
  * Architecture: Telegram Mini App -> Cloudflare Worker -> Supabase
  */
 
-const WORKER_URL = import.meta.env.VITE_WORKER_URL || 'https://tkworker.tkexchange.workers.dev';
+/**
+ * Le saca las barras finales a una URL base.
+ *
+ * `apiCall` concatena `${WORKER_URL}${endpoint}` con endpoints que ya empiezan
+ * en '/', así que un VITE_WORKER_URL terminado en '/' produce '//auth'. El
+ * Worker matchea el pathname exacto (switch sobre url.pathname), por lo que
+ * eso cae al 404 `{"error":"Not found"}` mientras /health sigue respondiendo
+ * bien. Error facilísimo de cometer al pegar la variable en el dashboard.
+ *
+ * @param {string} url
+ * @returns {string}
+ */
+export const normalizeBaseUrl = (url) => String(url ?? '').replace(/\/+$/, '');
+
+const WORKER_URL =
+  normalizeBaseUrl(import.meta.env.VITE_WORKER_URL) || 'https://tkworker.tkexchange.workers.dev';
 const TELEGRAM_BOT_URL = import.meta.env.VITE_TELEGRAM_BOT_URL || 'https://t.me/TKcex_bot';
 const DEPOSIT_ADDRESS = import.meta.env.VITE_DEPOSIT_ADDRESS || 'TNjqVzo47ndAvH241njkMLKbda3G6FPgVs';
 const TREASURY_WALLET = 'UQCydneDGeAcamdCFS6e13Z2xoxwA5DsLkFONRdp-cavw-Th';
