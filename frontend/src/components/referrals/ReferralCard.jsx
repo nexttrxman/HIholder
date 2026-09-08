@@ -29,7 +29,7 @@ export function ReferralCard() {
         className={`p-4 rounded-2xl border ${
           isPoolLow 
             ? 'bg-brand-red/10 border-brand-red/30' 
-            : 'bg-white/5 border-white/10'
+            : 'glass-card'
         }`}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -116,7 +116,7 @@ export function ReferralCard() {
         </p>
 
         {/* Link Display */}
-        <div className="p-3 rounded-xl bg-white/5 border border-white/10 mb-4">
+        <div className="p-3 rounded-2xl bg-white/[0.05] border border-white/[0.09] mb-4">
           <p className="text-xs text-white/40 mb-1">Your referral link</p>
           <code className="text-sm text-brand-green break-all" data-testid="referral-link">
             {referralLink}

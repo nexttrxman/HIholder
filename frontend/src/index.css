@@ -65,7 +65,8 @@ body {
     radial-gradient(120% 80% at 85% -10%, rgba(87, 214, 200, 0.10) 0%, transparent 55%),
     radial-gradient(100% 70% at 0% 100%, rgba(131, 167, 233, 0.10) 0%, transparent 55%),
     linear-gradient(165deg, #07161d 0%, #06131a 40%, #041016 100%);
-  background-attachment: fixed;
+  background-color: #06131a;
+  background-repeat: no-repeat;
   color: #e9fffb;
   overflow-x: hidden;
 }
@@ -135,22 +136,44 @@ html {
 .orb {
   position: fixed;
   border-radius: 9999px;
-  filter: blur(70px);
+  /* No filter: blur() here on purpose. A 70px blur on four viewport-fixed
+     layers is the most expensive paint in the app and mobile compositors
+     (Telegram WebView) can drop it to blank tiles. The radial gradients
+     already fall off to transparent, so the diffusion is free. */
   pointer-events: none;
   z-index: 0;
   animation: orb-drift 16s ease-in-out infinite;
+  will-change: transform, opacity;
 }
 
 .orb-teal {
-  background: radial-gradient(circle, rgba(87, 214, 200, 0.32) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(87, 214, 200, 0.3) 0%,
+    rgba(87, 214, 200, 0.16) 38%,
+    rgba(87, 214, 200, 0.05) 62%,
+    transparent 78%
+  );
 }
 
 .orb-blue {
-  background: radial-gradient(circle, rgba(131, 167, 233, 0.26) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(131, 167, 233, 0.24) 0%,
+    rgba(131, 167, 233, 0.13) 38%,
+    rgba(131, 167, 233, 0.04) 62%,
+    transparent 78%
+  );
 }
 
 .orb-gold {
-  background: radial-gradient(circle, rgba(255, 209, 102, 0.16) 0%, transparent 70%);
+  background: radial-gradient(
+    circle,
+    rgba(255, 209, 102, 0.15) 0%,
+    rgba(255, 209, 102, 0.08) 38%,
+    rgba(255, 209, 102, 0.02) 62%,
+    transparent 78%
+  );
 }
 
 @keyframes orb-drift {

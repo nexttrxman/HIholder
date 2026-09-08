@@ -6,6 +6,7 @@ import { PageContainer } from '@/components/layout/PageContainer';
 import { BottomNav } from '@/components/layout/BottomNav';
 import { WithdrawModal } from '@/components/wallet/WithdrawModal';
 import { ClaimModal } from '@/components/earn/ClaimModal';
+import { ErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { AnimatePresence, motion } from 'framer-motion';
 
 // Pages
@@ -101,7 +102,8 @@ export function AppContent() {
 
   return (
     <PageContainer>
-      {/* Page Content */}
+      {/* Page Content — a crashing tab must not take the shell down with it */}
+      <ErrorBoundary key={activeTab}>
       <AnimatePresence mode="wait">
         <motion.div
           key={activeTab}
@@ -125,6 +127,7 @@ export function AppContent() {
           {activeTab === 'referrals' && <ReferralsPage />}
         </motion.div>
       </AnimatePresence>
+      </ErrorBoundary>
 
       {/* Bottom Navigation */}
       <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />

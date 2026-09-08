@@ -52,7 +52,7 @@ export function TradePage() {
             key={id}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex-1 rounded-2xl bg-white/[0.03] border border-white/[0.06] px-3 py-2.5"
+            className="flex-1 rounded-2xl glass-card px-3 py-2.5"
           >
             <div className="flex items-center gap-1.5 mb-1">
               <Icon className="w-3 h-3 text-white/35" />
