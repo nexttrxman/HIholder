@@ -39,10 +39,12 @@ function writeMockBalance(value) {
   }
 }
 
-/** Dev-only: restore the demo wallet (used by tests and to restart the demo). */
+/** Dev-only: restore the demo wallet + cycle (used by tests and to restart the demo). */
 export const resetMockWallet = () => {
   MOCK_USER.usdt_balance = MOCK_START_BALANCE;
   MOCK_USER.trx_balance = 5.0;
+  MOCK_CYCLE.holds_completed = 0;
+  MOCK_CYCLE.remaining_holds = MAX_HOLDS_PER_CYCLE_MOCK;
   writeMockBalance(MOCK_START_BALANCE);
 };
 
@@ -63,11 +65,13 @@ const MOCK_USER = {
   trx_refs: 6.00,
 };
 
+const MAX_HOLDS_PER_CYCLE_MOCK = 3;
+
 const MOCK_CYCLE = {
   id: 'mock_cycle_1',
   holds_completed: 0,
   ends_at: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(),
-  remaining_holds: 3,
+  remaining_holds: MAX_HOLDS_PER_CYCLE_MOCK,
 };
 
 // ============================================
@@ -193,7 +197,7 @@ export const registerHold = async (prize) => {
     MOCK_CYCLE.holds_completed++;
     MOCK_CYCLE.remaining_holds--;
     
-    const isThird = MOCK_CYCLE.holds_completed === 3;
+    const isThird = MOCK_CYCLE.holds_completed === MAX_HOLDS_PER_CYCLE_MOCK;
     
     return {
       ok: true,
@@ -244,7 +248,7 @@ export const verifyPayment = async (claimId, senderAddress) => {
     // Dev mode
     MOCK_USER.usdt_balance += 0.15;
     MOCK_CYCLE.holds_completed = 0;
-    MOCK_CYCLE.remaining_holds = 3;
+    MOCK_CYCLE.remaining_holds = MAX_HOLDS_PER_CYCLE_MOCK;
 
     return {
       ok: true,
