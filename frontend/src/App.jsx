@@ -11,6 +11,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 // Pages
 import { HomePage } from '@/pages/Home';
 import { WalletPage } from '@/pages/Wallet';
+import { TradePage } from '@/pages/Trade';
 import { MissionsPage } from '@/pages/Missions';
 import { ReferralsPage } from '@/pages/Referrals';
 
@@ -19,7 +20,7 @@ import '@/App.css';
 // TonConnect manifest - update with your app info
 const manifestUrl = 'https://raw.githubusercontent.com/AntipressTeam/TonConnectManifest/main/tonkeeper.json';
 
-function AppContent() {
+export function AppContent() {
   const { loading, error, pendingClaim } = useWallet();
   const [activeTab, setActiveTab] = useState('home');
   const [walletSection, setWalletSection] = useState('balance');
@@ -110,9 +111,8 @@ function AppContent() {
           transition={{ duration: 0.15 }}
         >
           {activeTab === 'home' && (
-            <HomePage 
-              onNavigate={handleNavigate} 
-              onOpenWithdraw={() => handleOpenWithdraw()}
+            <HomePage
+              onNavigate={handleNavigate}
               onClaimReady={handleClaimReady}
               onOpenClaim={handleOpenClaim}
             />
@@ -120,6 +120,7 @@ function AppContent() {
           {activeTab === 'wallet' && (
             <WalletPage onOpenWithdraw={handleOpenWithdraw} initialSection={walletSection} />
           )}
+          {activeTab === 'trade' && <TradePage />}
           {activeTab === 'missions' && <MissionsPage />}
           {activeTab === 'referrals' && <ReferralsPage />}
         </motion.div>

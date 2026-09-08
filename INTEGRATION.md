@@ -271,8 +271,10 @@ curl -X POST https://tu-worker.workers.dev/auth \
 
 ## Trade Panel (v2.3)
 
-El panel de Trade vive en **Home** (versión compacta, en el medio de la página) y en
-**Wallet → Balance** (versión completa, entre los balances y los datos de depósito).
+El Trade tiene su **propia pestaña en el medio de la barra inferior**:
+`Home · Missions · TRADE · Invite · Wallet` (`src/pages/Trade.jsx`).
+No hay panel de trading ni en Home ni en Wallet; Home tampoco tiene los accesos
+rápidos de Deposit/Withdraw (quedan dentro de Wallet).
 
 ### Nuevos endpoints del Worker
 
@@ -317,11 +319,11 @@ persistido en `localStorage`, así que se puede probar el flujo completo sin bac
 
 La pestaña **History** desapareció de la barra inferior. Su contenido está en
 **Wallet → Activity** (`WalletPage` recibe `initialSection`). La navegación inferior queda
-en 4 tabs: Home, Missions, Invite, Wallet.
+en 5 tabs: Home, Missions, **Trade**, Invite, Wallet.
 
 ### Tests
 
 ```bash
-cd frontend && npx vitest run          # 11 tests (flujo de compra/cierre, UI, maths)
+cd frontend && npx vitest run          # 13 tests (navegacion, flujo compra/cierre, maths)
 cd cloudflare-worker && node --test tests/lib.test.mjs tests/trade.test.mjs   # 40 tests
 ```

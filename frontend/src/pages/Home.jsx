@@ -1,7 +1,6 @@
 import { Header } from '@/components/layout/Header';
 import { HoldButton } from '@/components/earn/HoldButton';
 import { HoldSection } from '@/components/earn/HoldSection';
-import { TradePanel } from '@/components/trade/TradePanel';
 import { useWallet } from '@/contexts/WalletContext';
 import { useTrade } from '@/contexts/TradeContext';
 import { ArrowDownLeft, ArrowUpRight, Gift, Clock, Wallet, TrendingUp, TrendingDown } from 'lucide-react';
@@ -16,7 +15,7 @@ const ACTIVITY_STYLE = {
   withdraw: { icon: ArrowUpRight, tone: 'text-brand-red', bg: 'bg-brand-red/10', sign: '-' },
 };
 
-export function HomePage({ onNavigate, onOpenWithdraw, onClaimReady, onOpenClaim }) {
+export function HomePage({ onNavigate, onClaimReady, onOpenClaim }) {
   const { 
     transactions, 
     usdtBalance, 
@@ -41,30 +40,6 @@ export function HomePage({ onNavigate, onOpenWithdraw, onClaimReady, onOpenClaim
   return (
     <div className="pb-4" data-testid="home-page">
       <Header />
-
-      {/* Quick Actions */}
-      <div className="px-4 py-3">
-        <div className="flex gap-3">
-          <motion.button
-            onClick={() => onNavigate('wallet')}
-            data-testid="quick-deposit"
-            className="flex-1 py-3 rounded-2xl bg-brand-green/10 border border-brand-green/20 flex items-center justify-center gap-2 text-brand-green font-semibold active:scale-95 transition-all"
-            whileTap={{ scale: 0.95 }}
-          >
-            <ArrowDownLeft className="w-4 h-4" />
-            Deposit
-          </motion.button>
-          <motion.button
-            onClick={onOpenWithdraw}
-            data-testid="quick-withdraw"
-            className="flex-1 py-3 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center gap-2 text-white/80 font-semibold active:scale-95 transition-all"
-            whileTap={{ scale: 0.95 }}
-          >
-            <ArrowUpRight className="w-4 h-4" />
-            Withdraw
-          </motion.button>
-        </div>
-      </div>
 
       {/* Pending Claim Banner */}
       {pendingClaim && claimSeconds > 0 && (
@@ -130,11 +105,6 @@ export function HomePage({ onNavigate, onOpenWithdraw, onClaimReady, onOpenClaim
             </div>
           </div>
         </div>
-      </div>
-
-      {/* Trade panel - between the earn loop and the activity feed */}
-      <div className="px-4 mt-5 mb-2">
-        <TradePanel variant="compact" />
       </div>
 
       {/* Recent Activity */}

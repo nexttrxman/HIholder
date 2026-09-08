@@ -29,8 +29,8 @@ import { resetMockWallet } from '@/services/api';
 import { WalletProvider } from '@/contexts/WalletContext';
 import { TradeProvider } from '@/contexts/TradeContext';
 import { TradePanel } from '@/components/trade/TradePanel';
-import { WalletPage } from '@/pages/Wallet';
-import { BottomNav } from '@/components/layout/BottomNav';
+import { TradePage } from '@/pages/Trade';
+import { AppContent } from '@/App';
 import { syntheticCandles, advanceSynthetic } from '@/services/market';
 import {
   TRADE_CONFIG,
@@ -109,88 +109,83 @@ describe('synthetic market fallback', () => {
 });
 
 // ============================================
-// NAVIGATION: History merged into Wallet
+// NAVIGATION
 // ============================================
 describe('navigation', () => {
-  it('drops the History tab now that it lives inside Wallet', () => {
-    render(<BottomNav activeTab="home" onTabChange={() => {}} />);
-    expect(screen.getByTestId('nav-home')).toBeInTheDocument();
-    expect(screen.getByTestId('nav-wallet')).toBeInTheDocument();
-    expect(screen.queryByTestId('nav-history')).not.toBeInTheDocument();
+  it('puts Trade in the middle of the bottom bar', async () => {
+    renderWithProviders(<AppContent />);
+    await waitFor(() => expect(screen.getByTestId('home-page')).toBeInTheDocument());
+    const labels = screen.getAllByTestId(/^nav-/).map((el) => el.getAttribute('data-testid'));
+    expect(labels).toEqual(['nav-home', 'nav-missions', 'nav-trade', 'nav-referrals', 'nav-wallet']);
+  });
+
+  it('no longer hosts Deposit/Withdraw or the trade panel on Home', async () => {
+    renderWithProviders(<AppContent />);
+
+    await waitFor(() => expect(screen.getByTestId('home-page')).toBeInTheDocument());
+    expect(screen.queryByTestId('quick-deposit')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('quick-withdraw')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('trade-panel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('hold-button')).toBeInTheDocument();
   });
 });
 
 // ============================================
-// UI FLOW: chart -> buy -> positions -> close -> activity
+// UI FLOW: Trade tab -> buy -> positions -> close
 // ============================================
-describe('Trade panel in the Wallet page', () => {
+describe('Trade page', () => {
   beforeEach(() => {
     localStorage.clear();
     resetMockWallet(); // the mock wallet is module state; put it back to 250 USDT
   });
 
-  it('renders the chart, buys with the wallet balance and logs the trade in Activity', async () => {
-    renderWithProviders(<WalletPage initialSection="balance" />);
+  it('buys with the wallet balance and closes the position', async () => {
+    renderWithProviders(<TradePage />);
 
-    // Boot: mock user (250 demo USDT) + market feed
     await waitFor(() => expect(screen.getByTestId('trade-last-price')).toHaveTextContent('3.500'));
+    await waitFor(() => expect(screen.getByTestId('trade-stat-cash')).toHaveTextContent('$250.00'));
     expect(screen.getByTestId('candle-chart')).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByTestId('wallet-total-balance')).toHaveTextContent('$250.00'));
 
-    // Size an order
+    // Size and send the order
     fireEvent.change(screen.getByTestId('trade-amount-input'), { target: { value: '50' } });
     await waitFor(() => expect(screen.getByTestId('trade-preview-qty')).toHaveTextContent('14.29 TON'));
-
-    // Buy
     fireEvent.click(screen.getByTestId('trade-buy-submit'));
-    await waitFor(() => expect(screen.getByTestId('position-TONUSDT')).toBeInTheDocument());
 
-    // Balance debited: 250 - (50 + 0.05 fee)
-    await waitFor(() => expect(screen.getByTestId('wallet-total-balance')).toHaveTextContent('$199.95'));
+    await waitFor(() => expect(screen.getByTestId('position-TONUSDT')).toBeInTheDocument());
+    // 250 - (50 + 0.05 fee)
+    await waitFor(() => expect(screen.getByTestId('trade-stat-cash')).toHaveTextContent('$199.95'));
+    expect(screen.getByTestId('trade-stat-exposure')).toHaveTextContent('$50.00');
     expect(screen.getByTestId('position-TONUSDT')).toHaveTextContent('@ 3.500');
 
     // Close (tap to arm, tap again to confirm)
-    const closeBtn = screen.getByTestId('close-position-TONUSDT');
-    fireEvent.click(closeBtn);
+    fireEvent.click(screen.getByTestId('close-position-TONUSDT'));
     await waitFor(() => expect(screen.getByTestId('close-position-TONUSDT')).toHaveTextContent('Confirm close'));
     fireEvent.click(screen.getByTestId('close-position-TONUSDT'));
 
     await waitFor(() => expect(screen.getByTestId('positions-empty')).toBeInTheDocument());
-    // 199.95 + (49.95 credit) = 249.90  -> the round trip cost the two fees
-    await waitFor(() => expect(screen.getByTestId('wallet-total-balance')).toHaveTextContent('$249.90'));
-
-    // Activity section (the old History tab) shows both legs
-    fireEvent.click(screen.getByTestId('wallet-section-activity'));
-    await waitFor(() => expect(screen.getByTestId('transaction-list')).toBeInTheDocument());
-    expect(screen.getByTestId('filter-trades')).toBeInTheDocument();
-    expect(screen.getByText('Trade Buy')).toBeInTheDocument();
-    expect(screen.getByText('Trade Sell')).toBeInTheDocument();
+    // 199.95 + 49.95 credit = 249.90 -> the round trip cost the two fees
+    await waitFor(() => expect(screen.getByTestId('trade-stat-cash')).toHaveTextContent('$249.90'));
+    expect(screen.getByTestId('trade-stat-pnl')).toHaveTextContent('-$0.10');
   });
 
-  it('blocks an order larger than the balance', async () => {
-    renderWithProviders(<TradePanel />);
-
-    await waitFor(() => expect(screen.getByTestId('trade-last-price')).toHaveTextContent('3.500'));
+  it('blocks orders outside the allowed size', async () => {
+    renderWithProviders(<TradePage />);
 
     await waitFor(() => expect(screen.getByTestId('trade-available-balance')).toHaveTextContent('$250.00'));
 
-    // Above the balance, below the cap
     fireEvent.change(screen.getByTestId('trade-amount-input'), { target: { value: '500' } });
     await waitFor(() => expect(screen.getByText(/Insufficient USDT balance/)).toBeInTheDocument());
     expect(screen.getByTestId('trade-buy-submit')).toBeDisabled();
 
-    // Above the hard cap
     fireEvent.change(screen.getByTestId('trade-amount-input'), { target: { value: '200000' } });
     await waitFor(() => expect(screen.getByText(/Maximum order size/)).toBeInTheDocument());
 
-    // Below the minimum notional
     fireEvent.change(screen.getByTestId('trade-amount-input'), { target: { value: '0.10' } });
     await waitFor(() => expect(screen.getByText(/Minimum order size/)).toBeInTheDocument());
   });
 
   it('fills the order from the MAX preset using the available balance', async () => {
-    renderWithProviders(<TradePanel />);
-    await waitFor(() => expect(screen.getByTestId('trade-last-price')).toHaveTextContent('3.500'));
+    renderWithProviders(<TradePage />);
     await waitFor(() => expect(screen.getByTestId('trade-available-balance')).toHaveTextContent('$250.00'));
 
     fireEvent.click(screen.getByTestId('trade-preset-100'));
@@ -199,5 +194,40 @@ describe('Trade panel in the Wallet page', () => {
 
     fireEvent.click(screen.getByTestId('trade-buy-submit'));
     await waitFor(() => expect(screen.getByTestId('position-TONUSDT')).toBeInTheDocument());
+  });
+});
+
+// ============================================
+// History lives inside Wallet
+// ============================================
+describe('Wallet page', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetMockWallet();
+  });
+
+  it('logs a trade made on the Trade tab into Wallet -> Activity', async () => {
+    renderWithProviders(<AppContent />);
+
+    // Home -> Trade tab
+    await waitFor(() => expect(screen.getByTestId('home-page')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('nav-trade'));
+    await waitFor(() => expect(screen.getByTestId('trade-page')).toBeInTheDocument());
+
+    await waitFor(() => expect(screen.getByTestId('trade-available-balance')).toHaveTextContent('$250.00'));
+    fireEvent.change(screen.getByTestId('trade-amount-input'), { target: { value: '25' } });
+    fireEvent.click(screen.getByTestId('trade-buy-submit'));
+    await waitFor(() => expect(screen.getByTestId('position-TONUSDT')).toBeInTheDocument());
+
+    // Trade -> Wallet: no panel here anymore, and the trade shows in Activity
+    fireEvent.click(screen.getByTestId('nav-wallet'));
+    await waitFor(() => expect(screen.getByTestId('wallet-page')).toBeInTheDocument());
+    expect(screen.queryByTestId('trade-panel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('wallet-total-balance')).toHaveTextContent('$224.97'); // 250 - 25.025
+
+    fireEvent.click(screen.getByTestId('wallet-section-activity'));
+    await waitFor(() => expect(screen.getByTestId('transaction-list')).toBeInTheDocument());
+    expect(screen.getByTestId('filter-trades')).toBeInTheDocument();
+    expect(screen.getByText('Trade Buy')).toBeInTheDocument();
   });
 });

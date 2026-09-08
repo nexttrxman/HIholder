@@ -4,7 +4,6 @@ import { useTrade } from '@/contexts/TradeContext';
 import { BalanceCard } from '@/components/wallet/BalanceCard';
 import { DepositInfo } from '@/components/wallet/DepositInfo';
 import { TransactionList } from '@/components/transactions/TransactionList';
-import { TradePanel } from '@/components/trade/TradePanel';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, ChevronUp, Wallet as WalletIcon, History as HistoryIcon } from 'lucide-react';
 import { formatUsd } from '@/lib/trade';
@@ -130,9 +129,6 @@ export function WalletPage({ onOpenWithdraw, initialSection = 'balance' }) {
                 onWithdraw={() => onOpenWithdraw('TRX')}
               />
             </div>
-
-            {/* Trade panel sits between the balances and the deposit data */}
-            <TradePanel variant="full" className="mb-5" />
 
             {/* Deposit Section Toggle */}
             <button
