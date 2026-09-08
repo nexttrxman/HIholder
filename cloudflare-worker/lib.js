@@ -482,7 +482,10 @@ export const TRADE_CONFIG = {
   MAX_NOTIONAL: 100000, // USDT
   PRICE_TOLERANCE: 0.02, // client price must be within 2% of the mark price
   BINANCE_TICKER_URL: 'https://api.binance.com/api/v3/ticker/price',
-  ALLOWED_PAIRS: ['TONUSDT', 'BTCUSDT', 'ETHUSDT', 'TRXUSDT', 'DOGEUSDT'],
+  ALLOWED_PAIRS: [
+    'TONUSDT', 'BTCUSDT', 'ETHUSDT', 'SOLUSDT',
+    'HYPEUSDT', 'UNIUSDT', 'TRXUSDT', 'DOGEUSDT',
+  ],
 };
 
 /**
@@ -658,14 +661,50 @@ export function isPriceWithinTolerance(clientPrice, markPrice, tolerance = TRADE
  * el viejo.
  */
 export const PAIR_ALIASES = {
-  TONUSDT: ['GRAMUSDT', 'TONUSDT'],
+  TONUSDT: {
+    symbols: ['GRAMUSDT', 'TONUSDT'],
+    // Último precio real conocido de GRAM (08/09/2026). Sirve para descartar
+    // listados homónimos: hay tokens "Gram" que no son este activo.
+    seed: 1.39,
+  },
 };
 
+/**
+ * Último precio real conocido por par, para la guarda de plausibilidad.
+ * Espejo de `seedPrice` en frontend/src/services/market.js (08/09/2026).
+ */
+export const MARK_SEEDS = {
+  TONUSDT: 1.39,
+  GRAMUSDT: 1.39,
+  BTCUSDT: 79000,
+  ETHUSDT: 2490,
+  SOLUSDT: 103,
+  HYPEUSDT: 65,
+  UNIUSDT: 6.9,
+  TRXUSDT: 0.312,
+  DOGEUSDT: 0.09,
+};
+
+export const MAX_SEED_RATIO = 10;
+
+/** Un precio solo se acepta dentro de un orden de magnitud del último conocido. */
+export function isPlausiblePrice(price, seedPrice) {
+  const p = Number(price);
+  if (!Number.isFinite(p) || p <= 0) return false;
+  const s = Number(seedPrice);
+  if (!Number.isFinite(s) || s <= 0) return true;
+  const ratio = p / s;
+  return ratio >= 1 / MAX_SEED_RATIO && ratio <= MAX_SEED_RATIO;
+}
+
 export function pairSymbols(pair) {
-  return PAIR_ALIASES[pair] || [pair];
+  const alias = PAIR_ALIASES[pair];
+  return alias ? alias.symbols : [pair];
 }
 
 export async function fetchMarkPrice(pair, { fetchImpl = fetch } = {}) {
+  const seed = PAIR_ALIASES[pair]?.seed ?? MARK_SEEDS[pair];
+
   for (const symbol of pairSymbols(pair)) {
     try {
       const res = await fetchImpl(
@@ -674,9 +713,9 @@ export async function fetchMarkPrice(pair, { fetchImpl = fetch } = {}) {
       if (!res.ok) continue;
       const data = await res.json();
       const price = Number(data?.price);
-      if (Number.isFinite(price) && price > 0) return price;
+      if (isPlausiblePrice(price, seed ?? MARK_SEEDS[symbol])) return price;
     } catch (e) {
-      /* ticker no disponible: probar el siguiente */
+      /* ticker no disponible o implausible: probar el siguiente */
     }
   }
   return null;

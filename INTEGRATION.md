@@ -346,7 +346,9 @@ rápidos de Deposit/Withdraw (quedan dentro de Wallet).
 | `POST /trade/levels` | `{ initData, position_id, take_profit, stop_loss }` | `{ ok, take_profit, stop_loss }` |
 
 - `pair` debe ser uno de `TRADE_CONFIG.ALLOWED_PAIRS` (`TONUSDT`, `BTCUSDT`, `ETHUSDT`,
-  `TRXUSDT`, `DOGEUSDT`).
+  `SOLUSDT`, `HYPEUSDT`, `UNIUSDT`, `TRXUSDT`, `DOGEUSDT`). `TONUSDT` es el id interno del
+  par que en la UI se muestra como **GRAM/USDT**: el token se renombró a Gram el 15/06/2026
+  pero cambiar el id dejaría huérfanas las posiciones ya guardadas.
 - El worker **ignora el precio del cliente** y usa el ticker público de Binance
   (`fetchMarkPrice`). Si Binance no responde, acepta el precio del chart dentro de un 2%
   de tolerancia (`isPriceWithinTolerance`).

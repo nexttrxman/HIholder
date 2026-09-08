@@ -20,12 +20,19 @@ export const PAIRS = [
    * dejaría huérfanas las posiciones ya abiertas. `symbols` son los tickers de
    * mercado a probar, por si el exchange ya migró el par.
    */
-  { id: 'TONUSDT', base: 'GRAM', label: 'GRAM/USDT', symbols: ['GRAMUSDT', 'TONUSDT'], color: '#0098EA', priceDecimals: 3, qtyDecimals: 2, seedPrice: 1.37, vol: 0.0042 },
-  { id: 'BTCUSDT', base: 'BTC', label: 'BTC/USDT', color: '#F7931A', priceDecimals: 2, qtyDecimals: 5, seedPrice: 108500, vol: 0.0022 },
-  { id: 'ETHUSDT', base: 'ETH', label: 'ETH/USDT', color: '#627EEA', priceDecimals: 2, qtyDecimals: 4, seedPrice: 4180, vol: 0.0031 },
+  { id: 'TONUSDT', base: 'GRAM', label: 'GRAM/USDT', symbols: ['GRAMUSDT', 'TONUSDT'], color: '#0098EA', priceDecimals: 3, qtyDecimals: 2, seedPrice: 1.39, vol: 0.0042 },
+  { id: 'BTCUSDT', base: 'BTC', label: 'BTC/USDT', color: '#F7931A', priceDecimals: 2, qtyDecimals: 5, seedPrice: 79000, vol: 0.0022 },
+  { id: 'ETHUSDT', base: 'ETH', label: 'ETH/USDT', color: '#627EEA', priceDecimals: 2, qtyDecimals: 4, seedPrice: 2490, vol: 0.0031 },
+  { id: 'SOLUSDT', base: 'SOL', label: 'SOL/USDT', color: '#14F195', priceDecimals: 2, qtyDecimals: 3, seedPrice: 103, vol: 0.0035 },
+  { id: 'HYPEUSDT', base: 'HYPE', label: 'HYPE/USDT', color: '#97FCE4', priceDecimals: 2, qtyDecimals: 3, seedPrice: 65, vol: 0.0045 },
+  { id: 'UNIUSDT', base: 'UNI', label: 'UNI/USDT', color: '#FF007A', priceDecimals: 3, qtyDecimals: 2, seedPrice: 6.9, vol: 0.0038 },
   { id: 'TRXUSDT', base: 'TRX', label: 'TRX/USDT', color: '#EF0027', priceDecimals: 5, qtyDecimals: 1, seedPrice: 0.312, vol: 0.0018 },
-  { id: 'DOGEUSDT', base: 'DOGE', label: 'DOGE/USDT', color: '#C2A633', priceDecimals: 5, qtyDecimals: 1, seedPrice: 0.238, vol: 0.0052 },
+  { id: 'DOGEUSDT', base: 'DOGE', label: 'DOGE/USDT', color: '#C2A633', priceDecimals: 5, qtyDecimals: 1, seedPrice: 0.09, vol: 0.0052 },
 ];
+
+// seedPrice es el último precio real conocido de cada par (08/09/2026): solo se
+// usa cuando el exchange no responde, y cumple doble función de "precio
+// razonable" para descartar listados homónimos. Ver isPlausiblePrice.
 
 export const TIMEFRAMES = [
   { id: '15m', label: '15m', ms: 15 * 60 * 1000, binance: '15m' },
@@ -42,7 +49,29 @@ export const getPair = (id) => PAIRS.find((p) => p.id === id) || PAIRS[0];
  */
 export function pairSymbols(pairOrId) {
   const pair = typeof pairOrId === 'string' ? getPair(pairOrId) : pairOrId;
-  return [...new Set([pair.id, ...(pair.symbols || [])])];
+  // `symbols` primero: ahí va el ticker actual antes que el anterior. pair.id
+  // queda al final como red. Este orden tiene que coincidir con PAIR_ALIASES en
+  // cloudflare-worker/lib.js, o el gráfico y el precio de ejecución divergen.
+  return [...new Set([...(pair.symbols || []), pair.id])];
+}
+
+/**
+ * Un precio de exchange se acepta solo si cae dentro de un orden de magnitud
+ * del último precio conocido.
+ *
+ * No es paranoia: hay tokens llamados "Gram" que no son el de The Open Network
+ * y cotizan a fracciones de centavo. Sin esta guarda, el primer ticker que
+ * responda gana y un homónimo secuestra el precio del par.
+ */
+export const MAX_SEED_RATIO = 10;
+
+export function isPlausiblePrice(price, seedPrice) {
+  const p = Number(price);
+  if (!Number.isFinite(p) || p <= 0) return false;
+  const s = Number(seedPrice);
+  if (!Number.isFinite(s) || s <= 0) return true;
+  const ratio = p / s;
+  return ratio >= 1 / MAX_SEED_RATIO && ratio <= MAX_SEED_RATIO;
 }
 export const getTimeframe = (id) => TIMEFRAMES.find((t) => t.id === id) || TIMEFRAMES[1];
 
@@ -200,7 +229,8 @@ export async function fetchKlines(pairId, timeframeId, limit = 60) {
         const res = await fetchJson(
           `${BINANCE_BASE}/klines?symbol=${symbol}&interval=${tf.binance}&limit=${limit}`
         );
-        if (Array.isArray(res) && res.length > 0) {
+        const lastClose = Array.isArray(res) ? Number(res[res.length - 1]?.[4]) : NaN;
+        if (Array.isArray(res) && res.length > 0 && isPlausiblePrice(lastClose, pair.seedPrice)) {
           raw = res;
           break;
         }
@@ -237,7 +267,7 @@ export async function fetch24h(pairId) {
     for (const symbol of pairSymbols(pair)) {
       try {
         const res = await fetchJson(`${BINANCE_BASE}/ticker/24hr?symbol=${symbol}`);
-        if (Number.isFinite(Number(res?.lastPrice)) && Number(res.lastPrice) > 0) {
+        if (isPlausiblePrice(res?.lastPrice, pair.seedPrice)) {
           data = res;
           break;
         }

@@ -12,7 +12,10 @@ export const TRADE_CONFIG = {
   FEE_RATE: 0.001, // 0.1% per side, simulated exchange fee
   MIN_NOTIONAL: 1, // USDT
   MAX_NOTIONAL: 100000, // USDT
-  ALLOWED_PAIRS: ['TONUSDT', 'BTCUSDT', 'ETHUSDT', 'TRXUSDT', 'DOGEUSDT'],
+  ALLOWED_PAIRS: [
+    'TONUSDT', 'BTCUSDT', 'ETHUSDT', 'SOLUSDT',
+    'HYPEUSDT', 'UNIUSDT', 'TRXUSDT', 'DOGEUSDT',
+  ],
 };
 
 /** Quick percentage chips shown in the order form. */

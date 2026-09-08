@@ -24,6 +24,9 @@ const TradeContext = createContext(null);
 const POSITIONS_KEY = 'tk_positions_v1';
 const REALIZED_KEY = 'tk_realized_v1';
 const DEFAULT_MARK_POLL_MS = 10000;
+// Se cotiza siempre, aunque no haya posiciones abiertas: el TRX de la wallet se
+// convierte a USD para el total del portafolio.
+const TRX_PAIR = 'TRXUSDT';
 const TRIGGER_BANNER_MS = 6000;
 
 function readJson(key, fallback) {
@@ -53,6 +56,7 @@ const toNumberOrNull = (value) => {
 export function TradeProvider({ children, markPollMs = DEFAULT_MARK_POLL_MS }) {
   const {
     usdtBalance,
+    trxBalance,
     applyUsdtDelta,
     applyAssetDelta,
     pushLocalTransaction,
@@ -104,11 +108,7 @@ export function TradeProvider({ children, markPollMs = DEFAULT_MARK_POLL_MS }) {
   );
 
   useEffect(() => {
-    const pairs = openPairsKey ? openPairsKey.split('|') : [];
-    if (pairs.length === 0) {
-      setMarks({});
-      return undefined;
-    }
+    const pairs = [...new Set([...(openPairsKey ? openPairsKey.split('|') : []), TRX_PAIR])];
 
     let active = true;
 
@@ -517,9 +517,11 @@ export function TradeProvider({ children, markPollMs = DEFAULT_MARK_POLL_MS }) {
    * PnL). Se calcula acá porque los marks viven en este contexto, y lo consumen
    * Home y Wallet para que los dos muestren el mismo número.
    */
+  const trxPrice = marks[TRX_PAIR] ?? null;
+
   const portfolio = useMemo(
-    () => computePortfolio({ usdtBalance, positionsValue, unrealizedPnl }),
-    [usdtBalance, positionsValue, unrealizedPnl]
+    () => computePortfolio({ usdtBalance, trxBalance, trxPrice, positionsValue, unrealizedPnl }),
+    [usdtBalance, trxBalance, trxPrice, positionsValue, unrealizedPnl]
   );
 
   const clearError = useCallback(() => setError(null), []);
@@ -532,6 +534,7 @@ export function TradeProvider({ children, markPollMs = DEFAULT_MARK_POLL_MS }) {
     unrealizedPnl,
     positionsValue,
     portfolio,
+    trxPrice,
     source,
     busy,
     error,

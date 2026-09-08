@@ -21,6 +21,8 @@ import {
   validateWalletSale,
   walletAssetForPair,
   pairForWalletAsset,
+  isPlausiblePrice,
+  MARK_SEEDS,
   priceFromPercent,
   validateLevels,
   checkLevelTrigger,
@@ -377,4 +379,49 @@ test('validateWalletSale: rechaza montos inválidos y wallets vacías', () => {
   assert.equal(validateWalletSale({ asset: 'TRX', amount: -1, balance: 5 }).ok, false);
   assert.equal(validateWalletSale({ asset: 'TRX', amount: 'abc', balance: 5 }).ok, false);
   assert.equal(validateWalletSale({ asset: 'TRX', amount: 1, balance: 0 }).error, 'No TRX available to sell');
+});
+
+// ============================================
+// Pares nuevos y guarda de plausibilidad
+// ============================================
+test('ALLOWED_PAIRS incluye SOL, HYPE y UNI', () => {
+  for (const pair of ['SOLUSDT', 'HYPEUSDT', 'UNIUSDT']) {
+    assert.equal(validateTradeRequest({ pair, amount: 50, balance: 100 }).ok, true, pair);
+    assert.ok(Number.isFinite(MARK_SEEDS[pair]) && MARK_SEEDS[pair] > 0, `seed de ${pair}`);
+  }
+});
+
+test('isPlausiblePrice: acepta el rango real y descarta homónimos', () => {
+  // GRAM cotiza ~1.39; su ATH fue 8.25 y su ATL 0.52.
+  assert.equal(isPlausiblePrice(1.39, 1.39), true);
+  assert.equal(isPlausiblePrice(8.25, 1.39), true);
+  assert.equal(isPlausiblePrice(0.52, 1.39), true);
+  // Un token "Gram" que no es el de The Open Network cotiza a fracciones de centavo.
+  assert.equal(isPlausiblePrice(0.0009, 1.39), false);
+  assert.equal(isPlausiblePrice(900, 1.39), false);
+  assert.equal(isPlausiblePrice(0, 1.39), false);
+  assert.equal(isPlausiblePrice('x', 1.39), false);
+  // Sin semilla conocida no se filtra nada.
+  assert.equal(isPlausiblePrice(42, null), true);
+});
+
+test('fetchMarkPrice: un ticker implausible no gana, se prueba el siguiente', async () => {
+  const asked = [];
+  const price = await fetchMarkPrice('TONUSDT', {
+    fetchImpl: async (url) => {
+      asked.push(url.includes('GRAMUSDT') ? 'GRAM' : 'TON');
+      // GRAMUSDT responde con un homónimo a $0.0009; TONUSDT con el precio real.
+      if (url.includes('GRAMUSDT')) return { ok: true, json: async () => ({ price: '0.0009' }) };
+      return { ok: true, json: async () => ({ price: '1.3900' }) };
+    },
+  });
+  assert.equal(price, 1.39);
+  assert.deepEqual(asked, ['GRAM', 'TON']);
+});
+
+test('fetchMarkPrice: si ningún ticker es plausible devuelve null, no un precio falso', async () => {
+  const price = await fetchMarkPrice('TONUSDT', {
+    fetchImpl: async () => ({ ok: true, json: async () => ({ price: '0.0009' }) }),
+  });
+  assert.equal(price, null);
 });

@@ -30,6 +30,7 @@ import { resetMockWallet } from '@/services/api';
 import { WalletProvider } from '@/contexts/WalletContext';
 import { TradeProvider } from '@/contexts/TradeContext';
 import { WalletPage } from '@/pages/Wallet';
+import { AppContent } from '@/App';
 
 /**
  * Layout de Wallet: Deposit Information arriba y expandido, y UNA tarjeta por
@@ -114,17 +115,48 @@ describe('Wallet — total balance', () => {
   beforeEach(() => resetMockWallet());
   afterEach(() => localStorage.clear());
 
-  it('el total es el saldo USDT y el desglose no muestra el TRX', async () => {
+  it('el total suma el saldo USDT y el TRX valorado en USD', async () => {
     renderWallet();
 
-    // Sin posiciones abiertas el total es el saldo libre: 250 USDT.
+    // 250 USDT + (5 TRX × 0.30) = 251.50. Sin posiciones abiertas.
     await waitFor(() =>
-      expect(screen.getByTestId('wallet-total-balance-amount')).toHaveTextContent('$250.00')
+      expect(screen.getByTestId('wallet-total-balance-amount')).toHaveTextContent('$251.50')
     );
 
+    // El desglose tiene que sumar exactamente lo que muestra el total.
     const breakdown = screen.getByTestId('portfolio-breakdown');
     expect(breakdown).toHaveTextContent('$250.00 USDT');
-    // El TRX vive en su tarjeta de saldo, no debajo del total.
-    expect(breakdown.textContent).not.toContain('TRX');
+    expect(breakdown).toHaveTextContent('$1.50');
+  });
+});
+
+describe('Home y Wallet muestran el mismo total', () => {
+  beforeEach(() => resetMockWallet());
+  afterEach(() => localStorage.clear());
+
+  it('el Total Balance de Wallet es idéntico al del Home', async () => {
+    render(
+      <WalletProvider>
+        <TradeProvider>
+          <AppContent />
+        </TradeProvider>
+      </WalletProvider>
+    );
+
+    await waitFor(() => expect(screen.getByTestId('home-page')).toBeInTheDocument());
+    const home = screen.getByTestId('home-total-balance');
+    await waitFor(() => {
+      // 250 USDT + 5 TRX × 0.30
+      expect(home).toHaveTextContent('$251.50');
+    });
+    const homeTotal = Number(home.textContent.replace(/[^0-9.]/g, ''));
+
+    fireEvent.click(screen.getByTestId('nav-wallet'));
+    await waitFor(() => expect(screen.getByTestId('wallet-page')).toBeInTheDocument());
+    const walletTotal = Number(
+      screen.getByTestId('wallet-total-balance-amount').textContent.replace(/[^0-9.]/g, '')
+    );
+
+    expect(Math.abs(walletTotal - homeTotal)).toBeLessThan(0.005);
   });
 });

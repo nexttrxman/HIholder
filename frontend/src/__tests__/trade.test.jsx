@@ -45,6 +45,7 @@ import {
   calcWalletSale,
   walletAssetForPair,
 } from '@/lib/trade';
+import { PAIRS, isPlausiblePrice, pairSymbols } from '@/services/market';
 
 const close = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
 
@@ -257,12 +258,12 @@ describe('Wallet page', () => {
     await waitFor(() => expect(screen.getByTestId('wallet-page')).toBeInTheDocument());
     expect(screen.queryByTestId('trade-panel')).not.toBeInTheDocument();
     // El total no es solo el saldo libre: suma la posición a mercado (PnL 0 acá,
-    // el mark del mock es el mismo precio de entrada).
-    //   224.975 saldo  +  25.00 posición  =  249.975  (los 0.025 fueron de fee)
+    // el mark del mock es el mismo precio de entrada) y el TRX valorado.
+    //   224.975 saldo + 25.00 posición + (5 TRX × 3.50) = 267.475
     const headline = screen.getByTestId('wallet-total-balance-amount');
     await waitFor(() => {
       const total = Number(headline.textContent.replace(/[^0-9.]/g, ''));
-      expect(close(total, 250 - 25.025 + 25, 0.01)).toBe(true);
+      expect(close(total, 250 - 25.025 + 25 + 5 * 3.5, 0.01)).toBe(true);
     });
     // El saldo libre y la posición quedan a la vista en el desglose.
     expect(screen.getByTestId('portfolio-breakdown')).toHaveTextContent('1 open position');
@@ -593,5 +594,68 @@ describe('selling the wallet TRX balance', () => {
     fireEvent.click(screen.getByTestId('trade-side-sell'));
     await waitFor(() => expect(screen.getByTestId('trade-sell-empty')).toBeInTheDocument());
     expect(screen.getByTestId('trade-buy-submit')).toBeDisabled();
+  });
+});
+
+// ============================================
+// MERCADOS Y PRECIOS
+// ============================================
+describe('markets', () => {
+  it('ofrece SOL, HYPE y UNI además de los que ya estaban', () => {
+    const ids = PAIRS.map((p) => p.id);
+    for (const id of ['SOLUSDT', 'HYPEUSDT', 'UNIUSDT']) {
+      expect(ids).toContain(id);
+      expect(TRADE_CONFIG.ALLOWED_PAIRS).toContain(id);
+    }
+  });
+
+  it('cada par tiene una semilla coherente con su precio real', () => {
+    // 08/09/2026: GRAM 1.39, BTC 79k, ETH 2490, SOL 103, HYPE 65, UNI 6.90,
+    // TRX 0.312, DOGE 0.09. Si alguien cambia una semilla, este test pregunta
+    // si fue a propósito.
+    const expected = {
+      TONUSDT: 1.39, BTCUSDT: 79000, ETHUSDT: 2490, SOLUSDT: 103,
+      HYPEUSDT: 65, UNIUSDT: 6.9, TRXUSDT: 0.312, DOGEUSDT: 0.09,
+    };
+    for (const pair of PAIRS) {
+      expect(pair.seedPrice, pair.id).toBe(expected[pair.id]);
+    }
+  });
+
+  it('GRAM prueba primero el ticker actual, igual que el Worker', () => {
+    // Si este orden diverge del PAIR_ALIASES del Worker, el gráfico y el precio
+    // de ejecución dejan de coincidir.
+    expect(pairSymbols('TONUSDT')).toEqual(['GRAMUSDT', 'TONUSDT']);
+    expect(pairSymbols('BTCUSDT')).toEqual(['BTCUSDT']);
+  });
+
+  it('descarta precios implausibles para que un homónimo no secuestre el par', () => {
+    expect(isPlausiblePrice(1.39, 1.39)).toBe(true);
+    expect(isPlausiblePrice(0.0009, 1.39)).toBe(false);
+    expect(isPlausiblePrice(900, 1.39)).toBe(false);
+    expect(isPlausiblePrice(42, null)).toBe(true);
+  });
+});
+
+describe('pair selector', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetMockWallet();
+    market.price = 3.5;
+  });
+
+  it('lista los pares nuevos en el menú', async () => {
+    renderWithProviders(<TradePage />);
+    await waitFor(() => expect(screen.getByTestId('trade-last-price')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('pair-selector-trigger'));
+    await waitFor(() => expect(screen.getByTestId('pair-selector-menu')).toBeInTheDocument());
+
+    expect(screen.getByTestId('pair-option-SOLUSDT')).toHaveTextContent('SOL/USDT');
+    expect(screen.getByTestId('pair-option-HYPEUSDT')).toHaveTextContent('HYPE/USDT');
+    expect(screen.getByTestId('pair-option-UNIUSDT')).toHaveTextContent('UNI/USDT');
+
+    fireEvent.click(screen.getByTestId('pair-option-HYPEUSDT'));
+    await waitFor(() => expect(screen.getByTestId('pair-selector-label')).toHaveTextContent('HYPE/USDT'));
   });
 });

@@ -103,6 +103,16 @@ export function WalletPage({ onOpenWithdraw, initialSection = 'balance' }) {
               >
                 <span className="text-white/40">{formatUsd(portfolio.usdt)} USDT</span>
 
+                {portfolio.trxAmount > 0 && (
+                  <>
+                    <span className="w-1 h-1 rounded-full bg-white/20" />
+                    <span className="text-white/40">
+                      {formatUsd(portfolio.trxUsd)}
+                      {portfolio.trxPrice ? '' : ' (TRX sin precio)'}
+                    </span>
+                  </>
+                )}
+
                 {portfolio.trades > 0 && (
                   <>
                     <span className="w-1 h-1 rounded-full bg-white/20" />
