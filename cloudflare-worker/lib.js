@@ -12,6 +12,9 @@ export const CONFIG = {
   MAX_HOLDS_PER_CYCLE: 3,
   TON_FEE: 0.05, // TON per claim
   TONCENTER_BASE: 'https://toncenter.com/api/v2',
+  // Un initData de Telegram se acepta durante 24 h. La Mini App manda uno
+  // fresco en cada apertura, así que un usuario real nunca queda afuera.
+  AUTH_MAX_AGE_SECONDS: 24 * 60 * 60,
 };
 
 // ============================================
@@ -42,8 +45,13 @@ export function generateClaimId() {
 // ============================================
 // TELEGRAM initData VALIDATION (HMAC-SHA256)
 // ============================================
-export async function validateInitData(initData, botToken) {
+export async function validateInitData(initData, botToken, options = {}) {
   if (!initData || !botToken) return null;
+
+  const {
+    now = Date.now(),
+    maxAgeSeconds = CONFIG.AUTH_MAX_AGE_SECONDS,
+  } = options;
 
   try {
     const params = new URLSearchParams(initData);
@@ -73,6 +81,16 @@ export async function validateInitData(initData, botToken) {
       .map(b => b.toString(16).padStart(2, '0')).join('');
 
     if (calculatedHash !== hash) return null;
+
+    // Freshness: sin esto, un initData capturado sirve para siempre. La firma
+    // demuestra que el payload viene de Telegram, pero no que sea reciente; el
+    // que lo intercepte podría hacerse pasar por ese usuario indefinidamente.
+    // auth_date son segundos unix que Telegram incluye siempre.
+    const authDateRaw = params.get('auth_date');
+    const authDateSec = Number(authDateRaw);
+    if (!authDateRaw || !Number.isFinite(authDateSec)) return null;
+    const ageSeconds = now / 1000 - authDateSec;
+    if (ageSeconds > maxAgeSeconds) return null;
 
     const userStr = params.get('user');
     return userStr ? JSON.parse(userStr) : null;

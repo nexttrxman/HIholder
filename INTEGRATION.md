@@ -373,6 +373,14 @@ Verificado en `supabase/tests/schema.test.mjs` con roles reales: uno sin
 `permission denied for function daily_checkin`; uno con `BYPASSRLS` (como
 `service_role`) sigue viendo todo.
 
+**Anti-replay en `initData`.** La firma HMAC demuestra que el payload viene de
+Telegram, pero no que sea reciente: un `initData` interceptado servía para
+siempre. `validateInitData` ahora rechaza los que tengan más de
+`CONFIG.AUTH_MAX_AGE_SECONDS` (24 h) según su `auth_date`, y también los que no
+lo traigan. La Mini App manda un `initData` fresco en cada apertura, así que un
+usuario real nunca queda afuera. Cubierto por `cloudflare-worker/tests/auth.test.mjs`
+(antes `validateInitData` no tenía ningún test).
+
 ### Frontend
 
 | Archivo | Rol |
