@@ -1,11 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { closeTradePosition, getPositions, placeTrade } from '@/services/api';
+import { closeTradePosition, getPositions, placeTrade, setTradeLevels } from '@/services/api';
 import { useWallet } from '@/contexts/WalletContext';
 import { fetch24h, getPair } from '@/services/market';
 import {
   calcCloseTrade,
   calcOpenTrade,
   calcUnrealizedPnl,
+  checkLevelTrigger,
+  validateLevels,
   validateTradeRequest,
 } from '@/lib/trade';
 
@@ -13,7 +15,8 @@ const TradeContext = createContext(null);
 
 const POSITIONS_KEY = 'tk_positions_v1';
 const REALIZED_KEY = 'tk_realized_v1';
-const MARK_POLL_MS = 10000;
+const DEFAULT_MARK_POLL_MS = 10000;
+const TRIGGER_BANNER_MS = 6000;
 
 function readJson(key, fallback) {
   if (typeof window === 'undefined') return fallback;
@@ -33,7 +36,13 @@ function writeJson(key, value) {
   }
 }
 
-export function TradeProvider({ children }) {
+const toNumberOrNull = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
+
+export function TradeProvider({ children, markPollMs = DEFAULT_MARK_POLL_MS }) {
   const { usdtBalance, applyUsdtDelta, pushLocalTransaction, refreshData } = useWallet();
 
   const [positions, setPositions] = useState([]);
@@ -42,6 +51,7 @@ export function TradeProvider({ children }) {
   const [source, setSource] = useState('local'); // 'backend' | 'local'
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [lastTrigger, setLastTrigger] = useState(null);
 
   const balanceRef = useRef(usdtBalance);
   balanceRef.current = usdtBalance;
@@ -72,7 +82,7 @@ export function TradeProvider({ children }) {
   }, [load]);
 
   // ============================================
-  // MARK PRICES for open positions (may be any pair)
+  // MARK PRICES for open positions (any pair)
   // ============================================
   const openPairsKey = useMemo(
     () => [...new Set(positions.filter((p) => p.status === 'open').map((p) => p.pair))].join('|'),
@@ -110,13 +120,13 @@ export function TradeProvider({ children }) {
     };
 
     loadMarks();
-    const interval = setInterval(loadMarks, MARK_POLL_MS);
+    const interval = setInterval(loadMarks, markPollMs);
     return () => {
       active = false;
       clearInterval(interval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openPairsKey]);
+  }, [openPairsKey, markPollMs]);
 
   const persistLocal = useCallback((nextPositions, nextRealized) => {
     writeJson(POSITIONS_KEY, nextPositions);
@@ -127,7 +137,7 @@ export function TradeProvider({ children }) {
   // OPEN
   // ============================================
   const openTrade = useCallback(
-    async ({ pair, amountUsdt, price }) => {
+    async ({ pair, amountUsdt, price, takeProfit = null, stopLoss = null }) => {
       const validation = validateTradeRequest({ pair, amount: amountUsdt, balance: balanceRef.current });
       if (!validation.ok) {
         setError(validation.error);
@@ -140,12 +150,24 @@ export function TradeProvider({ children }) {
         return { ok: false, error: fill.error };
       }
 
+      const levels = validateLevels({ entryPrice: price, takeProfit, stopLoss });
+      if (!levels.ok) {
+        setError(levels.error);
+        return { ok: false, error: levels.error };
+      }
+
       setBusy(true);
       setError(null);
 
       try {
         if (source === 'backend') {
-          const res = await placeTrade({ pair, amount: validation.amount, price });
+          const res = await placeTrade({
+            pair,
+            amount: validation.amount,
+            price,
+            takeProfit: levels.takeProfit,
+            stopLoss: levels.stopLoss,
+          });
           if (!res || !res.ok) {
             const message = res?.error || 'Order rejected';
             setError(message);
@@ -165,6 +187,8 @@ export function TradeProvider({ children }) {
           entry_price: fillPrice,
           cost_basis: validation.amount,
           fee_paid: fill.fee,
+          take_profit: levels.takeProfit,
+          stop_loss: levels.stopLoss,
           status: 'open',
           opened_at: new Date().toISOString(),
         };
@@ -201,7 +225,7 @@ export function TradeProvider({ children }) {
   // CLOSE
   // ============================================
   const closeTrade = useCallback(
-    async (positionId, price) => {
+    async (positionId, price, reason = 'manual') => {
       const position = positions.find((p) => String(p.id) === String(positionId));
       if (!position) return { ok: false, error: 'Position not found' };
 
@@ -241,6 +265,7 @@ export function TradeProvider({ children }) {
         applyUsdtDelta(result.credit);
 
         const pairMeta = getPair(position.pair);
+        const suffix = reason === 'tp' ? ' · Take Profit' : reason === 'sl' ? ' · Stop Loss' : '';
         pushLocalTransaction({
           id: `${position.id}_close`,
           type: 'sell',
@@ -248,7 +273,7 @@ export function TradeProvider({ children }) {
           amount: result.credit,
           status: 'confirmed',
           timestamp: Date.now(),
-          description: `Sell ${pairMeta.base} @ ${exitPrice} · PnL ${result.pnl >= 0 ? '+' : ''}${result.pnl.toFixed(2)} USDT`,
+          description: `Sell ${pairMeta.base} @ ${exitPrice} · PnL ${result.pnl >= 0 ? '+' : ''}${result.pnl.toFixed(2)} USDT${suffix}`,
         });
 
         return { ok: true, pnl: result.pnl };
@@ -264,12 +289,106 @@ export function TradeProvider({ children }) {
   );
 
   // ============================================
+  // EDIT LIMITS
+  // ============================================
+  const updateLevels = useCallback(
+    async (positionId, { takeProfit = null, stopLoss = null }) => {
+      const position = positions.find((p) => String(p.id) === String(positionId));
+      if (!position) return { ok: false, error: 'Position not found' };
+
+      const levels = validateLevels({
+        entryPrice: position.entry_price,
+        takeProfit,
+        stopLoss,
+      });
+      // Errors here belong to the levels editor, not to the order form.
+      if (!levels.ok) {
+        return { ok: false, error: levels.error };
+      }
+
+      setBusy(true);
+
+      try {
+        if (source === 'backend') {
+          const res = await setTradeLevels({
+            positionId,
+            takeProfit: levels.takeProfit,
+            stopLoss: levels.stopLoss,
+          });
+          if (!res || !res.ok) {
+            const message = res?.error || 'Update rejected';
+            setError(message);
+            return { ok: false, error: message };
+          }
+        }
+
+        const next = positions.map((p) =>
+          String(p.id) === String(positionId)
+            ? { ...p, take_profit: levels.takeProfit, stop_loss: levels.stopLoss }
+            : p
+        );
+        setPositions(next);
+        if (source === 'local') persistLocal(next, realizedPnl);
+        return { ok: true, takeProfit: levels.takeProfit, stopLoss: levels.stopLoss };
+      } catch (err) {
+        return { ok: false, error: err?.message || 'Update failed' };
+      } finally {
+        setBusy(false);
+      }
+    },
+    [positions, source, realizedPnl, persistLocal]
+  );
+
+  // ============================================
+  // LIMIT MONITOR - auto close on TP / SL
+  // ============================================
+  const closeTradeRef = useRef(closeTrade);
+  closeTradeRef.current = closeTrade;
+  const triggeredRef = useRef(new Set());
+
+  useEffect(() => {
+    positions.forEach((position) => {
+      if (position.status !== 'open') return;
+      const tp = toNumberOrNull(position.take_profit);
+      const sl = toNumberOrNull(position.stop_loss);
+      if (!tp && !sl) return;
+
+      const id = String(position.id);
+      if (triggeredRef.current.has(id)) return;
+
+      const mark = marks[position.pair];
+      if (!mark) return;
+
+      const hit = checkLevelTrigger({
+        entryPrice: position.entry_price,
+        markPrice: mark,
+        takeProfit: tp,
+        stopLoss: sl,
+      });
+      if (!hit) return;
+
+      triggeredRef.current.add(id);
+      (async () => {
+        const res = await closeTradeRef.current(id, mark, hit);
+        if (res.ok) {
+          setLastTrigger({ pair: position.pair, kind: hit, pnl: res.pnl, at: Date.now() });
+        } else {
+          triggeredRef.current.delete(id);
+        }
+      })();
+    });
+  }, [positions, marks]);
+
+  useEffect(() => {
+    if (!lastTrigger) return undefined;
+    const timer = setTimeout(() => setLastTrigger(null), TRIGGER_BANNER_MS);
+    return () => clearTimeout(timer);
+  }, [lastTrigger]);
+
+  // ============================================
   // DERIVED
   // ============================================
-  const markFor = useCallback(
-    (pair, fallback) => marks[pair] ?? fallback ?? null,
-    [marks]
-  );
+  const markFor = useCallback((pair, fallback) => marks[pair] ?? fallback ?? null, [marks]);
 
   const enrichedPositions = useMemo(
     () =>
@@ -282,6 +401,8 @@ export function TradeProvider({ children }) {
         });
         return {
           ...p,
+          take_profit: toNumberOrNull(p.take_profit),
+          stop_loss: toNumberOrNull(p.stop_loss),
           mark_price: mark || p.entry_price,
           value: live.ok ? live.value : Number(p.qty) * Number(p.entry_price),
           unrealized_pnl: live.ok ? live.unrealized : 0,
@@ -307,6 +428,7 @@ export function TradeProvider({ children }) {
   );
 
   const clearError = useCallback(() => setError(null), []);
+  const clearTrigger = useCallback(() => setLastTrigger(null), []);
 
   const value = {
     positions: openPositions,
@@ -319,10 +441,13 @@ export function TradeProvider({ children }) {
     error,
     marks,
     markFor,
+    lastTrigger,
     openTrade,
     closeTrade,
+    updateLevels,
     refresh: load,
     clearError,
+    clearTrigger,
   };
 
   return <TradeContext.Provider value={value}>{children}</TradeContext.Provider>;

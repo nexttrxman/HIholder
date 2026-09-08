@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { RefreshCw, ChevronDown, ChevronUp, CandlestickChart, Info } from 'lucide-react';
+import { RefreshCw, ChevronDown, ChevronUp, CandlestickChart, Info, X, Target, ShieldAlert } from 'lucide-react';
 import { useMarketData } from '@/hooks/useMarketData';
+import { useTrade } from '@/contexts/TradeContext';
 import { useTelegram } from '@/hooks/useTelegram';
 import { PAIRS, TIMEFRAMES, getPair, getTimeframe } from '@/services/market';
 import { formatPercent, formatPrice, formatUsd } from '@/lib/trade';
 import { CandleChart } from './CandleChart';
+import { PairSelector } from './PairSelector';
 import { OrderForm } from './OrderForm';
 import { PositionsList } from './PositionsList';
 
@@ -20,6 +22,7 @@ export function TradePanel({ variant = 'full', className = '' }) {
   const [formOpen, setFormOpen] = useState(variant === 'full');
 
   const { vibrate } = useTelegram();
+  const { positions, lastTrigger, clearTrigger } = useTrade();
   const { candles, mode, loading, lastPrice, changePercent, high24h, low24h, refresh } = useMarketData(
     pairId,
     timeframeId,
@@ -27,13 +30,18 @@ export function TradePanel({ variant = 'full', className = '' }) {
   );
 
   const pair = getPair(pairId);
+  // Show the armed bracket of the open position for this market on the chart.
+  const armed = positions.find((p) => p.pair === pairId);
+  const chartLevels = armed
+    ? { takeProfit: armed.take_profit, stopLoss: armed.stop_loss }
+    : null;
   const timeframe = getTimeframe(timeframeId);
   const up = changePercent >= 0;
   const accent = up ? 'text-brand-green' : 'text-brand-red';
 
   return (
     <section
-      className={`backdrop-blur-xl bg-white/[0.03] border border-white/[0.06] rounded-3xl p-4 overflow-hidden ${className}`}
+      className={`relative backdrop-blur-xl bg-white/[0.03] border border-white/[0.06] rounded-3xl p-4 ${className}`}
       data-testid="trade-panel"
     >
       {/* Header */}
@@ -66,30 +74,38 @@ export function TradePanel({ variant = 'full', className = '' }) {
         </button>
       </div>
 
-      {/* Market selector */}
-      <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-none" data-testid="trade-pair-selector">
-        {PAIRS.map((p) => {
-          const active = p.id === pairId;
-          return (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => {
-                vibrate('light');
-                setPairId(p.id);
-              }}
-              data-testid={`pair-${p.id}`}
-              className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all active:scale-95 ${
-                active
-                  ? 'bg-white text-black'
-                  : 'bg-white/[0.04] border border-white/[0.06] text-white/55 hover:bg-white/[0.08]'
-              }`}
-            >
-              {p.label}
+      {/* TP / SL execution notice */}
+      <AnimatePresence>
+        {lastTrigger && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            className={`mb-3 flex items-center gap-2 rounded-2xl px-3.5 py-2.5 border ${
+              lastTrigger.kind === 'tp'
+                ? 'bg-brand-green/10 border-brand-green/25 text-brand-green'
+                : 'bg-brand-red/10 border-brand-red/25 text-brand-red'
+            }`}
+            data-testid="trade-trigger-banner"
+          >
+            {lastTrigger.kind === 'tp' ? (
+              <Target className="w-4 h-4 flex-shrink-0" />
+            ) : (
+              <ShieldAlert className="w-4 h-4 flex-shrink-0" />
+            )}
+            <p className="flex-1 text-xs font-semibold">
+              {lastTrigger.kind === 'tp' ? 'Take Profit hit' : 'Stop Loss hit'} ·{' '}
+              {getPair(lastTrigger.pair).label} {formatUsd(lastTrigger.pnl)}
+            </p>
+            <button type="button" onClick={clearTrigger} className="p-0.5 opacity-60 hover:opacity-100">
+              <X className="w-3.5 h-3.5" />
             </button>
-          );
-        })}
-      </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Market picker */}
+      <PairSelector pairId={pairId} onChange={setPairId} />
 
       {/* Price */}
       <div className="flex items-end justify-between mt-3">
@@ -142,6 +158,7 @@ export function TradePanel({ variant = 'full', className = '' }) {
         candles={candles}
         pair={pair}
         timeframe={timeframe}
+        levels={chartLevels}
         height={variant === 'full' ? 220 : 168}
         className="mt-1"
       />

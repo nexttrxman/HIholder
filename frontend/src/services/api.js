@@ -282,8 +282,23 @@ export const requestWithdraw = async ({ asset, amount, toAddress }) => {
 // TRADE - simulated spot trading
 // ============================================
 // Returns `null` in dev mode so the caller can execute the order locally.
-export const placeTrade = async ({ pair, amount, price }) => {
-  const result = await apiCall('/trade', { pair, amount, price });
+export const placeTrade = async ({ pair, amount, price, takeProfit = null, stopLoss = null }) => {
+  const result = await apiCall('/trade', {
+    pair,
+    amount,
+    price,
+    take_profit: takeProfit,
+    stop_loss: stopLoss,
+  });
+  return result || null;
+};
+
+export const setTradeLevels = async ({ positionId, takeProfit = null, stopLoss = null }) => {
+  const result = await apiCall('/trade/levels', {
+    position_id: positionId,
+    take_profit: takeProfit,
+    stop_loss: stopLoss,
+  });
   return result || null;
 };
 
@@ -352,6 +367,7 @@ export default {
   verifyPayment,
   placeTrade,
   closeTradePosition,
+  setTradeLevels,
   getPositions,
   applyLocalBalanceDelta,
   resetMockWallet,

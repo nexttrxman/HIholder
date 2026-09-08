@@ -407,6 +407,8 @@ CREATE TABLE IF NOT EXISTS trade_positions (
   entry_price DECIMAL(28, 12) NOT NULL CHECK (entry_price > 0),
   exit_price DECIMAL(28, 12),
   cost_basis DECIMAL(28, 12) NOT NULL,     -- qty * entry_price
+  take_profit DECIMAL(28, 12),             -- precio objetivo (opcional)
+  stop_loss DECIMAL(28, 12),               -- precio de corte (opcional)
   fee_paid DECIMAL(28, 12) NOT NULL DEFAULT 0,   -- fee de apertura
   fee_paid_close DECIMAL(28, 12) DEFAULT 0,      -- fee de cierre
   credit DECIMAL(28, 12),                  -- USDT devuelto al cerrar
@@ -432,6 +434,8 @@ ALTER TABLE wallet_ledger ADD CONSTRAINT wallet_ledger_operation_check CHECK (op
 
 -- =============================================
 -- FUNCIÓN: abrir posición (atómica)
+-- NOTA: esta firma de 4 parámetros queda reemplazada más abajo por la versión
+-- con Take Profit / Stop Loss (v2.4). Se deja por historial.
 -- =============================================
 CREATE OR REPLACE FUNCTION open_trade(
   p_user_id TEXT,
@@ -585,6 +589,146 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- =============================================
+-- ORDER LIMITS: Take Profit / Stop Loss (v2.4)
+-- =============================================
+-- Bases ya creadas: agregar las columnas si no existen.
+ALTER TABLE trade_positions ADD COLUMN IF NOT EXISTS take_profit DECIMAL(28, 12);
+ALTER TABLE trade_positions ADD COLUMN IF NOT EXISTS stop_loss DECIMAL(28, 12);
+
+-- La firma de open_trade cambia (2 parametros nuevos): dropear la anterior
+-- para que PostgREST no tenga dos funciones con el mismo nombre.
+DROP FUNCTION IF EXISTS open_trade(TEXT, TEXT, DECIMAL, DECIMAL);
+
+CREATE OR REPLACE FUNCTION open_trade(
+  p_user_id TEXT,
+  p_pair TEXT,
+  p_amount DECIMAL,        -- USDT a invertir (notional)
+  p_price DECIMAL,         -- precio de fill validado por el worker
+  p_take_profit DECIMAL DEFAULT NULL,
+  p_stop_loss DECIMAL DEFAULT NULL
+) RETURNS JSONB AS $$
+DECLARE
+  v_wallet RECORD;
+  v_fee DECIMAL;
+  v_total DECIMAL;
+  v_qty DECIMAL;
+  v_balance_before DECIMAL;
+  v_balance_after DECIMAL;
+  v_position RECORD;
+  v_fee_rate CONSTANT DECIMAL := 0.001;   -- 0.1% por lado (debe coincidir con TRADE_CONFIG.FEE_RATE)
+BEGIN
+  IF p_amount IS NULL OR p_amount <= 0 OR p_price IS NULL OR p_price <= 0 THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Invalid amount or price');
+  END IF;
+
+  -- Regla de negocio: en un LONG el TP va arriba del entry y el SL abajo.
+  IF p_take_profit IS NOT NULL AND p_take_profit <= p_price THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Take Profit must be above the entry price');
+  END IF;
+  IF p_stop_loss IS NOT NULL AND p_stop_loss >= p_price THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Stop Loss must be below the entry price');
+  END IF;
+
+  SELECT * INTO v_wallet FROM internal_wallets
+  WHERE user_id = p_user_id FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Wallet not found');
+  END IF;
+
+  v_fee := p_amount * v_fee_rate;
+  v_total := p_amount + v_fee;
+  v_qty := p_amount / p_price;
+  v_balance_before := v_wallet.usdt_balance;
+
+  IF v_total > v_balance_before THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Insufficient USDT balance');
+  END IF;
+
+  v_balance_after := v_balance_before - v_total;
+
+  INSERT INTO trade_positions (
+    user_id, pair, side, qty, entry_price, cost_basis, fee_paid,
+    take_profit, stop_loss, status
+  ) VALUES (
+    p_user_id, p_pair, 'buy', v_qty, p_price, p_amount, v_fee,
+    p_take_profit, p_stop_loss, 'open'
+  ) RETURNING * INTO v_position;
+
+  UPDATE internal_wallets
+  SET usdt_balance = v_balance_after
+  WHERE user_id = p_user_id;
+
+  INSERT INTO wallet_ledger (
+    user_id, operation, reference_type, reference_id,
+    asset, amount, balance_before, balance_after, description
+  ) VALUES (
+    p_user_id, 'trade_buy', 'trade', v_position.id::text,
+    'USDT', v_total, v_balance_before, v_balance_after,
+    'Buy ' || p_pair || ' @ ' || p_price
+  );
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'new_balance', v_balance_after,
+    'position', jsonb_build_object(
+      'id', v_position.id,
+      'pair', v_position.pair,
+      'qty', v_position.qty,
+      'entry_price', v_position.entry_price,
+      'cost_basis', v_position.cost_basis,
+      'fee_paid', v_position.fee_paid,
+      'take_profit', v_position.take_profit,
+      'stop_loss', v_position.stop_loss,
+      'status', v_position.status,
+      'opened_at', v_position.opened_at
+    )
+  );
+END;
+$$ LANGUAGE plpgsql;
+
+-- =============================================
+-- FUNCIÓN: editar TP/SL de una posición abierta
+-- =============================================
+CREATE OR REPLACE FUNCTION set_trade_levels(
+  p_user_id TEXT,
+  p_position_id UUID,
+  p_take_profit DECIMAL,
+  p_stop_loss DECIMAL
+) RETURNS JSONB AS $$
+DECLARE
+  v_pos RECORD;
+BEGIN
+  SELECT * INTO v_pos FROM trade_positions
+  WHERE id = p_position_id AND user_id = p_user_id FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Position not found');
+  END IF;
+  IF v_pos.status <> 'open' THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Position already closed');
+  END IF;
+  IF p_take_profit IS NOT NULL AND p_take_profit <= v_pos.entry_price THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Take Profit must be above the entry price');
+  END IF;
+  IF p_stop_loss IS NOT NULL AND p_stop_loss >= v_pos.entry_price THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Stop Loss must be below the entry price');
+  END IF;
+
+  UPDATE trade_positions
+  SET take_profit = p_take_profit, stop_loss = p_stop_loss
+  WHERE id = p_position_id;
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'take_profit', p_take_profit,
+    'stop_loss', p_stop_loss
+  );
+END;
+$$ LANGUAGE plpgsql;
+
+-- =============================================
 -- DONE
 -- =============================================
+
 

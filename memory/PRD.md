@@ -84,6 +84,8 @@ TronKeeper es una crypto wallet / mini app para Telegram enfocada en engagement 
 - [x] PnL realizado + ledger `trade_buy` / `trade_sell` en History
 - [x] Endpoints `/trade`, `/trade/close`, `/positions` + RPC `open_trade`/`close_trade`
 - [x] Pestaña propia en el medio de la barra inferior (Home · Missions · Trade · Invite · Wallet)
+- [x] Order limits: Take Profit / Stop Loss con presets, preview de PnL y cierre automático
+- [x] Selector de mercados en mini menú (precio + 24h) en vez de chips en línea
 
 ### Wallet Page
 - [x] Total balance hero

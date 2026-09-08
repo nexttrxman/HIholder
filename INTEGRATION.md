@@ -283,6 +283,7 @@ rápidos de Deposit/Withdraw (quedan dentro de Wallet).
 | `POST /trade` | `{ initData, pair, amount, price }` | `{ ok, position, new_balance, mark_price }` |
 | `POST /trade/close` | `{ initData, position_id, price }` | `{ ok, pnl, pnl_pct, credited, new_balance }` |
 | `POST /positions` | `{ initData }` | `{ ok, positions, realized_pnl, unrealized_pnl, positions_value }` |
+| `POST /trade/levels` | `{ initData, position_id, take_profit, stop_loss }` | `{ ok, take_profit, stop_loss }` |
 
 - `pair` debe ser uno de `TRADE_CONFIG.ALLOWED_PAIRS` (`TONUSDT`, `BTCUSDT`, `ETHUSDT`,
   `TRXUSDT`, `DOGEUSDT`).
@@ -290,6 +291,10 @@ rápidos de Deposit/Withdraw (quedan dentro de Wallet).
   (`fetchMarkPrice`). Si Binance no responde, acepta el precio del chart dentro de un 2%
   de tolerancia (`isPriceWithinTolerance`).
 - Fee simulado: `0.1%` por lado (`TRADE_CONFIG.FEE_RATE`).
+- **Take Profit / Stop Loss**: opcionales en la orden (`take_profit`, `stop_loss`). El worker
+  valida el bracket con `validateLevels` (TP arriba del entry, SL abajo) y lo guarda en la
+  posición. El frontend monitorea los precios y cierra solo cuando se toca un nivel
+  (`checkLevelTrigger`); el SL gana si un salto cruza ambos.
 - Todo se descuenta del saldo interno de USDT mediante las RPC `open_trade` /
   `close_trade` (atómicas, en `supabase/schema.sql`).
 
@@ -301,6 +306,12 @@ Ejecutar la sección **"TRADE POSITIONS TABLE"** y siguientes de `supabase/schem
 2. `ALTER TABLE wallet_ledger` para permitir `trade_buy` / `trade_sell`
 3. `CREATE FUNCTION open_trade(...)` y `close_trade(...)`
 
+**v2.4 (Take Profit / Stop Loss)** — sección "ORDER LIMITS" del mismo archivo:
+
+1. `ALTER TABLE trade_positions ADD COLUMN take_profit / stop_loss`
+2. `DROP FUNCTION open_trade(TEXT, TEXT, DECIMAL, DECIMAL)` + nueva firma de 6 parámetros
+3. `CREATE FUNCTION set_trade_levels(...)`
+
 ### Frontend
 
 | Archivo | Rol |
@@ -309,7 +320,8 @@ Ejecutar la sección **"TRADE POSITIONS TABLE"** y siguientes de `supabase/schem
 | `src/hooks/useMarketData.js` | Polling (6s) y auto-recuperación a datos reales |
 | `src/lib/trade.js` | Espejo de la matemática del worker (validación, fee, PnL) |
 | `src/contexts/TradeContext.jsx` | Posiciones, open/close, fallback a `localStorage` |
-| `src/components/trade/CandleChart.jsx` | Chart de velas SVG propio (crosshair táctil) |
+| `src/components/trade/CandleChart.jsx` | Chart de velas SVG propio (crosshair táctil + líneas TP/SL) |
+| `src/components/trade/PairSelector.jsx` | Mini menú de mercados con precio y 24h |
 | `src/components/trade/TradePanel.jsx` | Panel completo / compacto |
 
 Sin `initData` de Telegram (navegador, preview) el panel opera contra el balance demo
@@ -324,6 +336,6 @@ en 5 tabs: Home, Missions, **Trade**, Invite, Wallet.
 ### Tests
 
 ```bash
-cd frontend && npx vitest run          # 13 tests (navegacion, flujo compra/cierre, maths)
-cd cloudflare-worker && node --test tests/lib.test.mjs tests/trade.test.mjs   # 40 tests
+cd frontend && npx vitest run          # 21 tests (nav, compra/cierre, TP-SL, picker, maths)
+cd cloudflare-worker && node --test tests/lib.test.mjs tests/trade.test.mjs   # 51 tests
 ```

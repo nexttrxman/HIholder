@@ -24,7 +24,7 @@ function timeLabel(ts, tfMs) {
  * need pixel control over the wicks, the neon last-price chip and the touch
  * crosshair.
  */
-export function CandleChart({ candles, pair, timeframe, height = 200, className = '' }) {
+export function CandleChart({ candles, pair, timeframe, levels = null, height = 200, className = '' }) {
   const wrapRef = useRef(null);
   const [width, setWidth] = useState(340);
   const [hover, setHover] = useState(null);
@@ -271,6 +271,44 @@ export function CandleChart({ candles, pair, timeframe, height = 200, className 
             >
               {formatPrice(geo.lastClose, pair.priceDecimals)}
             </text>
+
+            {/* Take Profit / Stop Loss lines (pinned to the edge when off-scale) */}
+            {[
+              { key: 'tp', value: levels?.takeProfit, color: UP, label: 'TP', testId: 'chart-tp-line' },
+              { key: 'sl', value: levels?.stopLoss, color: DOWN, label: 'SL', testId: 'chart-sl-line' },
+            ]
+              .filter((level) => Number.isFinite(level.value) && level.value > 0)
+              .map((level) => {
+                const rawY = geo.y(level.value);
+                const top = PAD.t + 9;
+                const bottom = PAD.t + geo.plotH - 4;
+                const y = Math.max(top, Math.min(rawY, bottom));
+                const offScale = rawY < top || rawY > bottom;
+                return (
+                  <g key={level.key} data-testid={level.testId}>
+                    <line
+                      x1={PAD.l}
+                      x2={PAD.l + geo.plotW}
+                      y1={y}
+                      y2={y}
+                      stroke={level.color}
+                      strokeWidth="1"
+                      strokeDasharray="5 4"
+                      opacity={offScale ? 0.45 : 0.8}
+                    />
+                    <text
+                      x={PAD.l + 4}
+                      y={y - 3.5}
+                      fill={level.color}
+                      fontSize="8.5"
+                      fontWeight="700"
+                      fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+                    >
+                      {`${offScale ? (level.value > geo.max ? '\u25B2 ' : '\u25BC ') : ''}${level.label} ${formatPrice(level.value, pair.priceDecimals)}`}
+                    </text>
+                  </g>
+                );
+              })}
 
             {/* crosshair */}
             {hover !== null && (

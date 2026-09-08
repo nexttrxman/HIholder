@@ -1,5 +1,5 @@
 /**
- * TronKeeper Cloudflare Worker - TON Claims + Simulated Trade (v2.3)
+ * TronKeeper Cloudflare Worker - TON Claims + Simulated Trade (v2.4)
  *
  * Environment Variables (Secrets):
  * - BOT_TOKEN: Telegram Bot Token
@@ -21,6 +21,7 @@ import {
   decodeTonComment,
   findValidTonPayment,
   validateTradeRequest,
+  validateLevels,
   calcUnrealizedPnl,
   isPriceWithinTolerance,
   fetchMarkPrice,
@@ -478,7 +479,7 @@ async function handleReferrals(request, env) {
 // TRADE - open a simulated spot position with internal USDT
 // ============================================
 async function handleTrade(request, env) {
-  const { initData, pair, amount, price } = await request.json();
+  const { initData, pair, amount, price, take_profit, stop_loss } = await request.json();
   const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
 
   if (!telegramUser) {
@@ -512,11 +513,18 @@ async function handleTrade(request, env) {
     );
   }
 
+  const levels = validateLevels({ entryPrice: fillPrice, takeProfit: take_profit, stopLoss: stop_loss });
+  if (!levels.ok) {
+    return jsonResponse({ ok: false, error: levels.error }, 400);
+  }
+
   const result = await db.rpc('open_trade', {
     p_user_id: tgId,
     p_pair: pair,
     p_amount: validation.amount,
     p_price: fillPrice,
+    p_take_profit: levels.takeProfit,
+    p_stop_loss: levels.stopLoss,
   });
 
   if (!result || result.ok !== true) {
@@ -583,6 +591,54 @@ async function handleTradeClose(request, env) {
 }
 
 // ============================================
+// TRADE LEVELS - set / edit Take Profit and Stop Loss
+// ============================================
+async function handleTradeLevels(request, env) {
+  const { initData, position_id, take_profit, stop_loss } = await request.json();
+  const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
+
+  if (!telegramUser) {
+    return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
+  }
+  if (!position_id) {
+    return jsonResponse({ ok: false, error: 'Missing position_id' }, 400);
+  }
+
+  const db = supabase(env);
+  const tgId = telegramUser.id.toString();
+
+  const rows = await db.query('trade_positions', 'select', { filters: { id: position_id } });
+  const position = (Array.isArray(rows) ? rows : [])[0];
+  if (!position) return jsonResponse({ ok: false, error: 'Position not found' }, 404);
+  if (position.user_id !== tgId) return jsonResponse({ ok: false, error: 'Unauthorized' }, 403);
+  if (position.status !== 'open') {
+    return jsonResponse({ ok: false, error: 'Position already closed' }, 400);
+  }
+
+  const levels = validateLevels({
+    entryPrice: parseFloat(position.entry_price),
+    takeProfit: take_profit,
+    stopLoss: stop_loss,
+  });
+  if (!levels.ok) {
+    return jsonResponse({ ok: false, error: levels.error }, 400);
+  }
+
+  const result = await db.rpc('set_trade_levels', {
+    p_user_id: tgId,
+    p_position_id: position_id,
+    p_take_profit: levels.takeProfit,
+    p_stop_loss: levels.stopLoss,
+  });
+
+  if (!result || result.ok !== true) {
+    return jsonResponse({ ok: false, error: result?.error || 'Update failed' }, 400);
+  }
+
+  return jsonResponse({ ok: true, take_profit: levels.takeProfit, stop_loss: levels.stopLoss });
+}
+
+// ============================================
 // POSITIONS - open positions + realized PnL
 // ============================================
 async function handlePositions(request, env) {
@@ -625,6 +681,8 @@ async function handlePositions(request, env) {
       entry_price: entry,
       cost_basis: parseFloat(p.cost_basis),
       fee_paid: parseFloat(p.fee_paid),
+      take_profit: p.take_profit === null || p.take_profit === undefined ? null : parseFloat(p.take_profit),
+      stop_loss: p.stop_loss === null || p.stop_loss === undefined ? null : parseFloat(p.stop_loss),
       status: p.status,
       opened_at: p.opened_at,
       closed_at: p.closed_at,
@@ -675,12 +733,13 @@ export default {
           case '/referrals':      return handleReferrals(request, env);
           case '/trade':          return handleTrade(request, env);
           case '/trade/close':    return handleTradeClose(request, env);
+          case '/trade/levels':   return handleTradeLevels(request, env);
           case '/positions':      return handlePositions(request, env);
         }
       }
 
       if (path === '/' || path === '/health') {
-        return jsonResponse({ ok: true, service: 'TronKeeper API', version: '2.3.0', treasury: CONFIG.TREASURY_WALLET });
+        return jsonResponse({ ok: true, service: 'TronKeeper API', version: '2.4.0', treasury: CONFIG.TREASURY_WALLET });
       }
 
       return jsonResponse({ error: 'Not found' }, 404);

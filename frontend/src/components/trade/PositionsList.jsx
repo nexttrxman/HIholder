@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { TrendingUp, TrendingDown, Loader2, Briefcase } from 'lucide-react';
+import { TrendingUp, TrendingDown, Loader2, Briefcase, Target, ShieldAlert, Pencil, Trash2 } from 'lucide-react';
 import { useTrade } from '@/contexts/TradeContext';
 import { getPair } from '@/services/market';
 import { calcUnrealizedPnl, formatPercent, formatPrice, formatQty, formatUsd } from '@/lib/trade';
@@ -9,13 +9,18 @@ import { useTelegram } from '@/hooks/useTelegram';
 const CONFIRM_WINDOW_MS = 3000;
 
 /**
- * Open positions with live PnL. Uses the freshest price available for the pair
- * currently on screen, otherwise the context's mark-price poller.
+ * Open positions with live PnL and editable Take Profit / Stop Loss levels.
+ * Uses the freshest price available for the pair currently on screen, otherwise
+ * the context's mark-price poller.
  */
 export function PositionsList({ limit = null, livePair = null, livePrice = null, compact = false }) {
-  const { positions, realizedPnl, busy, closeTrade } = useTrade();
+  const { positions, realizedPnl, busy, closeTrade, updateLevels, clearError } = useTrade();
+  const [levelsError, setLevelsError] = useState(null);
   const { vibrate } = useTelegram();
   const [confirmId, setConfirmId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [tpDraft, setTpDraft] = useState('');
+  const [slDraft, setSlDraft] = useState('');
 
   useEffect(() => {
     if (!confirmId) return undefined;
@@ -44,6 +49,25 @@ export function PositionsList({ limit = null, livePair = null, livePrice = null,
     setConfirmId(null);
     const res = await closeTrade(position.id, position.mark_price);
     vibrate(res.ok ? 'success' : 'error');
+  };
+
+  const startEditing = (position) => {
+    vibrate('light');
+    setLevelsError(null);
+    setEditingId(position.id);
+    setTpDraft(position.take_profit ? String(position.take_profit) : '');
+    setSlDraft(position.stop_loss ? String(position.stop_loss) : '');
+  };
+
+  const saveLevels = async (position) => {
+    const res = await updateLevels(position.id, { takeProfit: tpDraft, stopLoss: slDraft });
+    vibrate(res.ok ? 'success' : 'error');
+    if (res.ok) {
+      setLevelsError(null);
+      setEditingId(null);
+    } else {
+      setLevelsError(res.error);
+    }
   };
 
   if (positions.length === 0) {
@@ -76,6 +100,8 @@ export function PositionsList({ limit = null, livePair = null, livePrice = null,
             const pair = getPair(p.pair);
             const up = p.unrealized_pnl >= 0;
             const isConfirming = String(confirmId) === String(p.id);
+            const isEditing = String(editingId) === String(p.id);
+            const hasLevels = !!p.take_profit || !!p.stop_loss;
 
             return (
               <motion.div
@@ -113,8 +139,125 @@ export function PositionsList({ limit = null, livePair = null, livePrice = null,
                   </div>
                 </div>
 
+                {/* TP / SL */}
                 {!compact && (
-                  <div className="mt-2.5 flex items-center justify-between gap-3">
+                  <div className="mt-2.5 pt-2.5 border-t border-white/[0.05]">
+                    {isEditing ? (
+                      <div className="space-y-2" data-testid="levels-editor">
+                        <div className="flex items-center gap-2">
+                          <Target className="w-3 h-3 text-brand-green flex-shrink-0" />
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            step="any"
+                            value={tpDraft}
+                            placeholder="Take Profit"
+                            onChange={(e) => {
+                              setTpDraft(e.target.value);
+                              setLevelsError(null);
+                            }}
+                            data-testid="levels-tp-input"
+                            className="flex-1 min-w-0 rounded-lg bg-black/30 border border-white/[0.06] px-2.5 py-1.5 font-mono text-[11px] text-white outline-none focus:border-brand-green/40 placeholder:text-white/25 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <ShieldAlert className="w-3 h-3 text-brand-red flex-shrink-0" />
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            step="any"
+                            value={slDraft}
+                            placeholder="Stop Loss"
+                            onChange={(e) => {
+                              setSlDraft(e.target.value);
+                              setLevelsError(null);
+                            }}
+                            data-testid="levels-sl-input"
+                            className="flex-1 min-w-0 rounded-lg bg-black/30 border border-white/[0.06] px-2.5 py-1.5 font-mono text-[11px] text-white outline-none focus:border-brand-red/40 placeholder:text-white/25 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          />
+                        </div>
+                        {levelsError && (
+                          <p className="text-[10px] text-brand-red">{levelsError}</p>
+                        )}
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => saveLevels(p)}
+                            disabled={busy}
+                            data-testid="levels-save"
+                            className="flex-1 py-1.5 rounded-lg bg-white text-black text-[11px] font-bold active:scale-95 disabled:opacity-50 transition-all"
+                          >
+                            Save limits
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingId(null)}
+                            disabled={busy}
+                            className="px-3 py-1.5 rounded-lg bg-white/[0.06] border border-white/10 text-[11px] font-semibold text-white/60 active:scale-95 disabled:opacity-50 transition-all"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const res = await updateLevels(p.id, { takeProfit: null, stopLoss: null });
+                              vibrate(res.ok ? 'success' : 'error');
+                              if (res.ok) {
+                                setLevelsError(null);
+                                setEditingId(null);
+                              } else {
+                                setLevelsError(res.error);
+                              }
+                            }}
+                            disabled={busy}
+                            data-testid="levels-remove"
+                            className="px-3 py-1.5 rounded-lg bg-brand-red/10 border border-brand-red/20 text-brand-red active:scale-95 disabled:opacity-50 transition-all"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {p.take_profit ? (
+                            <span
+                              className="flex items-center gap-1 px-2 py-1 rounded-md bg-brand-green/10 border border-brand-green/20 text-[10px] font-mono text-brand-green"
+                              data-testid="position-tp"
+                            >
+                              <Target className="w-2.5 h-2.5" />
+                              TP {formatPrice(p.take_profit, pair.priceDecimals)}
+                            </span>
+                          ) : null}
+                          {p.stop_loss ? (
+                            <span
+                              className="flex items-center gap-1 px-2 py-1 rounded-md bg-brand-red/10 border border-brand-red/20 text-[10px] font-mono text-brand-red"
+                              data-testid="position-sl"
+                            >
+                              <ShieldAlert className="w-2.5 h-2.5" />
+                              SL {formatPrice(p.stop_loss, pair.priceDecimals)}
+                            </span>
+                          ) : null}
+                          {!hasLevels && <span className="text-[10px] text-white/25">No limits set</span>}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => startEditing(p)}
+                          disabled={busy}
+                          data-testid="levels-edit"
+                          className="flex items-center gap-1 px-2 py-1 rounded-md bg-white/[0.05] border border-white/[0.08] text-[10px] font-semibold text-white/60 hover:text-white active:scale-95 disabled:opacity-50 transition-all"
+                        >
+                          <Pencil className="w-2.5 h-2.5" />
+                          {hasLevels ? 'Edit' : 'Add TP/SL'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {!compact && (
+                  <div className="mt-2 flex items-center justify-between gap-3">
                     <div className="text-[11px] text-white/40 font-mono">
                       Mark {formatPrice(p.mark_price, pair.priceDecimals)} · Value {formatUsd(p.value)}
                     </div>

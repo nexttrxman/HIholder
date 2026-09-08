@@ -17,6 +17,10 @@ import {
   calcUnrealizedPnl,
   isPriceWithinTolerance,
   fetchMarkPrice,
+  priceFromPercent,
+  validateLevels,
+  checkLevelTrigger,
+  previewLevelPnl,
 } from '../lib.js';
 
 const close = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
@@ -209,4 +213,73 @@ test('fetchMarkPrice: returns null on HTTP error or bad payload', async () => {
     }),
     null
   );
+});
+
+// ============================================
+// ORDER LIMITS: Take Profit / Stop Loss
+// ============================================
+test('priceFromPercent: moves a reference price by a percentage', () => {
+  assert.ok(close(priceFromPercent(100, 0.05), 105));
+  assert.ok(close(priceFromPercent(100, -0.03), 97));
+  assert.equal(priceFromPercent(0, 0.05), null);
+  assert.equal(priceFromPercent(100, 'x'), null);
+});
+
+test('validateLevels: both levels optional', () => {
+  const res = validateLevels({ entryPrice: 100 });
+  assert.equal(res.ok, true);
+  assert.equal(res.takeProfit, null);
+  assert.equal(res.stopLoss, null);
+});
+
+test('validateLevels: accepts a valid long bracket', () => {
+  const res = validateLevels({ entryPrice: 100, takeProfit: 110, stopLoss: 95 });
+  assert.equal(res.ok, true);
+  assert.equal(res.takeProfit, 110);
+  assert.equal(res.stopLoss, 95);
+});
+
+test('validateLevels: Take Profit must sit above entry', () => {
+  assert.match(validateLevels({ entryPrice: 100, takeProfit: 100 }).error, /above the entry/);
+  assert.match(validateLevels({ entryPrice: 100, takeProfit: 90 }).error, /above the entry/);
+});
+
+test('validateLevels: Stop Loss must sit below entry', () => {
+  assert.match(validateLevels({ entryPrice: 100, stopLoss: 100 }).error, /below the entry/);
+  assert.match(validateLevels({ entryPrice: 100, stopLoss: 120 }).error, /below the entry/);
+});
+
+test('validateLevels: an inverted bracket is rejected', () => {
+  // sl >= entry is caught first: tp > entry > sl would mean sl < tp anyway.
+  assert.match(validateLevels({ entryPrice: 100, takeProfit: 105, stopLoss: 106 }).error, /below the entry/);
+});
+
+test('validateLevels: rejects garbage input', () => {
+  assert.match(validateLevels({ entryPrice: 100, takeProfit: 'abc' }).error, /positive price/);
+  assert.match(validateLevels({ entryPrice: 100, stopLoss: -5 }).error, /positive price/);
+  assert.equal(validateLevels({ entryPrice: 0 }).ok, false);
+});
+
+test('checkLevelTrigger: fires the Stop Loss first on a gap down', () => {
+  assert.equal(checkLevelTrigger({ entryPrice: 100, markPrice: 94, takeProfit: 110, stopLoss: 95 }), 'sl');
+  assert.equal(checkLevelTrigger({ entryPrice: 100, markPrice: 95, stopLoss: 95 }), 'sl');
+  assert.equal(checkLevelTrigger({ entryPrice: 100, markPrice: 96, stopLoss: 95 }), null);
+});
+
+test('checkLevelTrigger: fires the Take Profit when reached', () => {
+  assert.equal(checkLevelTrigger({ entryPrice: 100, markPrice: 110, takeProfit: 110, stopLoss: 95 }), 'tp');
+  assert.equal(checkLevelTrigger({ entryPrice: 100, markPrice: 109.9, takeProfit: 110 }), null);
+});
+
+test('checkLevelTrigger: no levels, no trigger', () => {
+  assert.equal(checkLevelTrigger({ entryPrice: 100, markPrice: 50 }), null);
+  assert.equal(checkLevelTrigger({ entryPrice: 100, markPrice: 0, stopLoss: 95 }), null);
+});
+
+test('previewLevelPnl: prices the level net of fees', () => {
+  const res = previewLevelPnl({ qty: 1, entryPrice: 100, targetPrice: 95 });
+  assert.equal(res.ok, true);
+  assert.ok(res.pnl < 0, 'a stop loss below entry must be a loss');
+  const expected = calcCloseTrade({ qty: 1, entryPrice: 100, exitPrice: 95 });
+  assert.ok(close(res.pnl, expected.pnl));
 });

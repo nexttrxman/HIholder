@@ -6,6 +6,8 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
  * candle generator stay real, so the chart renders exactly what it would render
  * on a device without connectivity (the documented fallback path).
  */
+const market = vi.hoisted(() => ({ price: 3.5, changePercent: 1.25 }));
+
 vi.mock('@/services/market', async (importOriginal) => {
   const actual = await importOriginal();
   return {
@@ -16,10 +18,10 @@ vi.mock('@/services/market', async (importOriginal) => {
     })),
     fetch24h: vi.fn(async () => ({
       mode: 'live',
-      price: 3.5,
-      changePercent: 1.25,
-      high: 3.62,
-      low: 3.41,
+      price: market.price,
+      changePercent: market.changePercent,
+      high: market.price * 1.02,
+      low: market.price * 0.98,
       volume: 1250000,
     })),
   };
@@ -37,14 +39,17 @@ import {
   validateTradeRequest,
   calcOpenTrade,
   calcCloseTrade,
+  validateLevels,
+  checkLevelTrigger,
+  priceFromPercent,
 } from '@/lib/trade';
 
 const close = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
 
-function renderWithProviders(ui) {
+function renderWithProviders(ui, { markPollMs = 10000 } = {}) {
   return render(
     <WalletProvider>
-      <TradeProvider>{ui}</TradeProvider>
+      <TradeProvider markPollMs={markPollMs}>{ui}</TradeProvider>
     </WalletProvider>
   );
 }
@@ -76,6 +81,31 @@ describe('trade maths', () => {
     const res = calcCloseTrade({ qty: 50 / 3.5, entryPrice: 3.5, exitPrice: 3.5 });
     expect(close(res.credit, 49.95)).toBe(true);
     expect(close(res.pnl, -0.1)).toBe(true); // round trip costs exactly the two fees
+  });
+});
+
+describe('order limits maths', () => {
+  it('places the levels on the right side of the entry', () => {
+    expect(validateLevels({ entryPrice: 3.5, takeProfit: 3.675, stopLoss: 3.395 }).ok).toBe(true);
+    expect(validateLevels({ entryPrice: 3.5, takeProfit: 3.4 }).error).toMatch(/above the entry/);
+    expect(validateLevels({ entryPrice: 3.5, stopLoss: 3.6 }).error).toMatch(/below the entry/);
+  });
+
+  it('fires the Stop Loss first when both are crossed', () => {
+    expect(
+      checkLevelTrigger({ entryPrice: 3.5, markPrice: 3.1, takeProfit: 3.675, stopLoss: 3.395 })
+    ).toBe('sl');
+    expect(
+      checkLevelTrigger({ entryPrice: 3.5, markPrice: 3.7, takeProfit: 3.675, stopLoss: 3.395 })
+    ).toBe('tp');
+    expect(
+      checkLevelTrigger({ entryPrice: 3.5, markPrice: 3.5, takeProfit: 3.675, stopLoss: 3.395 })
+    ).toBe(null);
+  });
+
+  it('prices a percentage away from the entry', () => {
+    expect(priceFromPercent(3.5, 0.05)).toBeCloseTo(3.675, 6);
+    expect(priceFromPercent(3.5, -0.03)).toBeCloseTo(3.395, 6);
   });
 });
 
@@ -137,6 +167,7 @@ describe('Trade page', () => {
   beforeEach(() => {
     localStorage.clear();
     resetMockWallet(); // the mock wallet is module state; put it back to 250 USDT
+    market.price = 3.5;
   });
 
   it('buys with the wallet balance and closes the position', async () => {
@@ -229,5 +260,135 @@ describe('Wallet page', () => {
     await waitFor(() => expect(screen.getByTestId('transaction-list')).toBeInTheDocument());
     expect(screen.getByTestId('filter-trades')).toBeInTheDocument();
     expect(screen.getByText('Trade Buy')).toBeInTheDocument();
+  });
+});
+
+// ============================================
+// MARKET PICKER (mini menu instead of chips)
+// ============================================
+describe('market picker', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetMockWallet();
+    market.price = 3.5;
+  });
+
+  it('picks the market from a menu instead of a chip row', async () => {
+    renderWithProviders(<TradePage />);
+    await waitFor(() => expect(screen.getByTestId('trade-last-price')).toHaveTextContent('3.500'));
+
+    // no inline chip row anymore
+    expect(screen.queryByTestId('pair-TONUSDT')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('pair-selector-menu')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('pair-selector-trigger'));
+    await waitFor(() => expect(screen.getByTestId('pair-selector-menu')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('pair-option-BTCUSDT'));
+    await waitFor(() => expect(screen.queryByTestId('pair-selector-menu')).not.toBeInTheDocument());
+
+    // BTC quotes 2 decimals, TON 3 -> the price rendering proves the switch
+    await waitFor(() => expect(screen.getByTestId('trade-last-price')).toHaveTextContent('3.50'));
+    await waitFor(() => expect(screen.getByTestId('trade-available-balance')).toBeInTheDocument());
+  });
+});
+
+// ============================================
+// TAKE PROFIT / STOP LOSS
+// ============================================
+describe('order limits', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetMockWallet();
+    market.price = 3.5;
+  });
+
+  it('attaches a TP/SL bracket to the order and shows it on the position', async () => {
+    renderWithProviders(<TradePage />);
+    await waitFor(() => expect(screen.getByTestId('trade-available-balance')).toHaveTextContent('$250.00'));
+
+    fireEvent.change(screen.getByTestId('trade-amount-input'), { target: { value: '50' } });
+    fireEvent.click(screen.getByTestId('trade-limits-toggle'));
+
+    // +5% / -3% presets against a 3.500 entry
+    fireEvent.click(screen.getByTestId('tp-preset-5'));
+    fireEvent.click(screen.getByTestId('sl-preset-3'));
+    expect(screen.getByTestId('tp-input')).toHaveValue(3.675);
+    expect(screen.getByTestId('sl-input')).toHaveValue(3.395);
+
+    // Net-of-fees previews: +2.40 / -1.60 on 50 USDT
+    await waitFor(() => expect(screen.getByTestId('tp-preview')).toHaveTextContent('+$2.40'));
+    expect(screen.getByTestId('sl-preview')).toHaveTextContent('-$1.60');
+
+    fireEvent.click(screen.getByTestId('trade-buy-submit'));
+    await waitFor(() => expect(screen.getByTestId('position-TONUSDT')).toBeInTheDocument());
+
+    expect(screen.getByTestId('position-tp')).toHaveTextContent('TP 3.675');
+    expect(screen.getByTestId('position-sl')).toHaveTextContent('SL 3.395');
+    // ...and on the chart
+    expect(screen.getByTestId('chart-tp-line')).toBeInTheDocument();
+    expect(screen.getByTestId('chart-sl-line')).toBeInTheDocument();
+  });
+
+  it('rejects a bracket on the wrong side of the entry', async () => {
+    renderWithProviders(<TradePage />);
+    await waitFor(() => expect(screen.getByTestId('trade-available-balance')).toHaveTextContent('$250.00'));
+
+    fireEvent.change(screen.getByTestId('trade-amount-input'), { target: { value: '20' } });
+    fireEvent.click(screen.getByTestId('trade-limits-toggle'));
+    fireEvent.change(screen.getByTestId('tp-input'), { target: { value: '3.2' } }); // below entry
+
+    await waitFor(() => expect(screen.getByText(/Take Profit must be above the entry/)).toBeInTheDocument());
+    expect(screen.getByTestId('trade-buy-submit')).toBeDisabled();
+  });
+
+  it('auto-closes the position when the price hits the Stop Loss', async () => {
+    renderWithProviders(<TradePage />, { markPollMs: 40 });
+    await waitFor(() => expect(screen.getByTestId('trade-available-balance')).toHaveTextContent('$250.00'));
+
+    fireEvent.change(screen.getByTestId('trade-amount-input'), { target: { value: '50' } });
+    fireEvent.click(screen.getByTestId('trade-limits-toggle'));
+    fireEvent.change(screen.getByTestId('tp-input'), { target: { value: '3.9' } });
+    fireEvent.change(screen.getByTestId('sl-input'), { target: { value: '3.2' } });
+    fireEvent.click(screen.getByTestId('trade-buy-submit'));
+
+    await waitFor(() => expect(screen.getByTestId('position-TONUSDT')).toBeInTheDocument());
+
+    // Price drops through the stop loss
+    market.price = 3.1;
+    await waitFor(() => expect(screen.getByTestId('trade-trigger-banner')).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+    expect(screen.getByTestId('trade-trigger-banner')).toHaveTextContent('Stop Loss hit');
+
+    await waitFor(() => expect(screen.getByTestId('positions-empty')).toBeInTheDocument());
+    // 199.95 after the buy + credit (14.2857 * 3.1 - 0.1% fee = 44.24) = 244.19
+    await waitFor(() => expect(screen.getByTestId('trade-stat-cash')).toHaveTextContent('$244.19'));
+  });
+
+  it('edits the levels of an open position', async () => {
+    renderWithProviders(<TradePage />);
+    await waitFor(() => expect(screen.getByTestId('trade-available-balance')).toHaveTextContent('$250.00'));
+
+    fireEvent.change(screen.getByTestId('trade-amount-input'), { target: { value: '30' } });
+    fireEvent.click(screen.getByTestId('trade-buy-submit'));
+    await waitFor(() => expect(screen.getByTestId('position-TONUSDT')).toBeInTheDocument());
+    expect(screen.getByTestId('levels-edit')).toHaveTextContent('Add TP/SL');
+
+    fireEvent.click(screen.getByTestId('levels-edit'));
+    await waitFor(() => expect(screen.getByTestId('levels-editor')).toBeInTheDocument());
+
+    fireEvent.change(screen.getByTestId('levels-tp-input'), { target: { value: '3.8' } });
+    fireEvent.change(screen.getByTestId('levels-sl-input'), { target: { value: '4.1' } }); // above entry
+    fireEvent.click(screen.getByTestId('levels-save'));
+    await waitFor(() =>
+      expect(screen.getByText(/Stop Loss must be below the entry price/)).toBeInTheDocument()
+    );
+
+    fireEvent.change(screen.getByTestId('levels-sl-input'), { target: { value: '3.2' } });
+    fireEvent.click(screen.getByTestId('levels-save'));
+
+    await waitFor(() => expect(screen.getByTestId('position-tp')).toHaveTextContent('TP 3.800'));
+    expect(screen.getByTestId('position-sl')).toHaveTextContent('SL 3.200');
   });
 });

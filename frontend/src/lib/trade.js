@@ -103,6 +103,78 @@ export function calcUnrealizedPnl({ qty, entryPrice, markPrice }) {
   return { ok: true, costBasis, value: size * mark, unrealized, unrealizedPct: unrealized / costBasis };
 }
 
+/** Percentage chips offered next to the TP/SL inputs. */
+export const LEVEL_PRESETS = {
+  takeProfit: [0.03, 0.05, 0.1], // +3%, +5%, +10%
+  stopLoss: [0.02, 0.03, 0.05], // -2%, -3%, -5%
+};
+
+/** Price a given percentage away from a reference price. */
+export function priceFromPercent(referencePrice, percent) {
+  const ref = Number(referencePrice);
+  const pct = Number(percent);
+  if (!Number.isFinite(ref) || ref <= 0) return null;
+  if (!Number.isFinite(pct)) return null;
+  const next = ref * (1 + pct);
+  return next > 0 ? next : null;
+}
+
+/**
+ * Validate a Take Profit / Stop Loss bracket for a LONG position.
+ * Both are optional; when present they must sit on the right side of the entry.
+ */
+export function validateLevels({ entryPrice, takeProfit = null, stopLoss = null }) {
+  const entry = Number(entryPrice);
+  if (!Number.isFinite(entry) || entry <= 0) return { ok: false, error: 'Invalid entry price' };
+
+  const normalize = (value) => {
+    if (value === null || value === undefined || value === '') return null;
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+
+  const tp = normalize(takeProfit);
+  const sl = normalize(stopLoss);
+
+  if (takeProfit !== null && takeProfit !== undefined && takeProfit !== '' && tp === null) {
+    return { ok: false, error: 'Take Profit must be a positive price' };
+  }
+  if (stopLoss !== null && stopLoss !== undefined && stopLoss !== '' && sl === null) {
+    return { ok: false, error: 'Stop Loss must be a positive price' };
+  }
+  if (tp !== null && tp <= entry) {
+    return { ok: false, error: 'Take Profit must be above the entry price' };
+  }
+  if (sl !== null && sl >= entry) {
+    // Also covers an inverted bracket: tp > entry > sl implies sl < tp.
+    return { ok: false, error: 'Stop Loss must be below the entry price' };
+  }
+
+  return { ok: true, takeProfit: tp, stopLoss: sl };
+}
+
+/** Which limit does the mark price hit first? 'tp' | 'sl' | null */
+export function checkLevelTrigger({ entryPrice, markPrice, takeProfit = null, stopLoss = null }) {
+  const entry = Number(entryPrice);
+  const mark = Number(markPrice);
+  if (!Number.isFinite(entry) || entry <= 0) return null;
+  if (!Number.isFinite(mark) || mark <= 0) return null;
+
+  const sl = Number(stopLoss);
+  const tp = Number(takeProfit);
+
+  if (Number.isFinite(sl) && sl > 0 && mark <= sl) return 'sl';
+  if (Number.isFinite(tp) && tp > 0 && mark >= tp) return 'tp';
+  return null;
+}
+
+/** Expected PnL if a level is reached, net of both fees. */
+export function previewLevelPnl({ qty, entryPrice, targetPrice }) {
+  const res = calcCloseTrade({ qty, entryPrice, exitPrice: targetPrice });
+  if (!res.ok) return res;
+  return { ok: true, pnl: res.pnl, pnlPct: res.pnlPct, credit: res.credit };
+}
+
 // ============================================
 // FORMATTERS
 // ============================================
