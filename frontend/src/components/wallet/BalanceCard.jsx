@@ -27,7 +27,7 @@ export function BalanceCard({
             </div>
           )}
           <div>
-            <p className="text-xs text-white/40 uppercase tracking-wider">{label || asset}</p>
+            <p className="sys-label">{label || asset}</p>
             <p className="text-2xl font-bold text-white mt-1">
               {isUSDT ? '$' : ''}{amount.toFixed(2)}
               {!isUSDT && <span className="text-sm text-white/40 ml-1">TRX</span>}

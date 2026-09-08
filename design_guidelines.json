@@ -1,107 +1,129 @@
 {
   "project_context": {
-    "domain": "Crypto Wallet & Telegram Mini App",
+    "domain": "Crypto Wallet & Telegram Mini App (TronKeeper)",
     "theme": "Dark Theme (Mandatory)",
-    "archetype": "Archetype 5 (Jewel & Luxury) mixed with Archetype 4 (Swiss)",
-    "vibe": "Premium, Moody, Cinematic, Clean, Mobile-First"
+    "archetype": "Futuristic space console (TRON-style) mixed with glassmorphism modules",
+    "vibe": "Very dark petrol blue background, thin glowing teal/mint lines, high contrast, minimal ornament, no visual overload",
+    "source_of_truth": [
+      "frontend/tailwind.config.js (tokens)",
+      "frontend/src/index.css (utilities: .glass-card, .sys-label, .sys-value, .chip, .orb, .glow-*)"
+    ],
+    "revision": "2026-09-08 — replaces the previous obsidian/TRX-red system"
   },
   "typography": {
     "fonts": {
-      "headings": "'Unbounded', sans-serif",
-      "body": "'Manrope', sans-serif"
+      "headings_and_body": "'Manrope', sans-serif (font-sans / font-display)",
+      "labels_and_numeric": "'DM Mono', monospace (font-mono) — system-interface role only"
     },
+    "rules": [
+      "DM Mono is reserved for labels, statuses, tickers, prices and small technical text.",
+      "Mono text is uppercase with wide tracking (0.14em-0.18em) and small sizes (9px-12px).",
+      "Numeric values use font-variant-numeric: tabular-nums (see .sys-value).",
+      "Manrope stays reserved for titles, paragraphs and button labels.",
+      "High contrast: primary text near-white, never grey on grey."
+    ],
     "hierarchy": {
       "h1": "text-4xl sm:text-5xl font-bold tracking-tight font-display",
       "h2": "text-2xl sm:text-3xl font-bold tracking-tight font-display",
       "h3": "text-xl font-semibold font-display",
       "body": "text-base font-medium text-white/70",
-      "small": "text-sm font-medium text-white/50",
-      "overline": "text-[10px] uppercase tracking-[0.2em] text-white/40"
+      "small": "text-sm font-medium text-ink-dim",
+      "overline_label": "sys-label  -> font-mono, 10px, uppercase, tracking 0.18em, #8faeaa",
+      "numeric_value": "sys-value  -> font-mono, tabular-nums"
     }
   },
   "colors": {
     "background": {
-      "app": "#050505",
-      "surface": "#111114",
-      "surface_glass": "rgba(255,255,255,0.03)"
+      "app": "#06131a",
+      "deep": "#041016",
+      "surface": "#0a1c25",
+      "surface_glass": "rgba(233,255,251,0.04)",
+      "note": "body carries a fixed layered gradient (deep blue -> teal/green -> petrol) plus a faint grid; the app container must stay transparent so it shows through."
     },
     "brand": {
-      "trx_red": "#FF2A3A",
-      "usdt_green": "#00E676",
-      "accent_glow": "rgba(255,42,58,0.2)"
+      "teal_primary": "#57d6c8",
+      "mint_secondary": "#8cf2db",
+      "soft_blue": "#83a7e9",
+      "gold_reward": "#ffd166",
+      "danger": "#ff6b7a",
+      "legacy_alias": "brand-green === brand-teal (kept so existing class names keep working)"
+    },
+    "usage_rules": {
+      "teal_mint": "primary actions, active states, positive/UP values, key metrics",
+      "soft_blue": "secondary/technical actions (e.g. TonConnect), informational badges",
+      "gold": "RESERVED for rewards and special states (prizes, claims, SIM/offline mode) — never as a generic accent",
+      "danger": "negative values, expired timers, destructive confirms"
     },
     "text": {
-      "primary": "#FFFFFF",
-      "secondary": "rgba(255,255,255,0.7)",
-      "muted": "rgba(255,255,255,0.4)"
+      "primary": "#e9fffb",
+      "secondary": "rgba(233,255,251,0.70)",
+      "muted": "#8faeaa",
+      "note": "Tailwind `white`/`black` are remapped to #e9fffb / #06131a, so text-white/40 etc. stay consistent."
     },
     "border": {
-      "subtle": "rgba(255,255,255,0.05)",
-      "active": "rgba(255,255,255,0.15)"
+      "subtle": "rgba(233,255,251,0.055)",
+      "active": "rgba(87,214,200,0.35)"
     }
   },
   "layout_and_spacing": {
-    "container": "w-full max-w-md mx-auto min-h-screen relative pb-24 bg-[#050505] text-white overflow-x-hidden",
+    "container": "w-full max-w-md mx-auto min-h-screen relative pb-28 text-white overflow-x-hidden",
     "screen_padding": "p-4 sm:p-6",
     "bento_grid": "grid grid-cols-1 gap-4",
-    "card_padding": "p-5 sm:p-6"
+    "card_padding": "p-5 sm:p-6",
+    "radii": "cards rounded-3xl (1.5rem) / rounded-console (1.75rem); pills rounded-full; inputs rounded-2xl"
   },
   "surface_strategies": {
-    "premium_card": "backdrop-blur-xl bg-white/[0.03] border border-white/[0.05] rounded-3xl shadow-[0_8px_32px_rgba(0,0,0,0.4)] overflow-hidden",
-    "interactive_card": "backdrop-blur-xl bg-white/[0.03] border border-white/[0.05] rounded-3xl active:scale-[0.98] transition-all cursor-pointer hover:bg-white/[0.05]",
-    "bottom_nav": "fixed bottom-0 left-0 right-0 z-50 backdrop-blur-2xl bg-[#050505]/90 border-t border-white/[0.08] px-2 py-3 sm:px-4 flex justify-between items-center max-w-md mx-auto"
+    "console_module": ".glass-card -> bg-app-surface/55, 1px rgba(233,255,251,0.07) border, rounded-3xl, inner light ring (inset 1px rgba(233,255,251,0.05)) + deep drop shadow. Reads as a dark blue glass module.",
+    "interactive_card": ".glass-card .hover-lift active:scale-[0.98]",
+    "ambient_orbs": ".orb .orb-teal|.orb-blue|.orb-gold — blurred diffuse circles fixed behind the app (PageContainer), pointer-events:none, aria-hidden",
+    "bottom_nav": "floating dock: mx-3 mb-3 rounded-console bg-app-surface/75 backdrop-blur-2xl border-white/[0.09] shadow-console; active tab = teal pill + glow + 2px underline"
   },
   "components": {
-    "hold_to_earn_button": {
-      "wrapper": "relative flex items-center justify-center w-64 h-64 mx-auto my-12",
-      "button": "w-48 h-48 rounded-full bg-gradient-to-b from-[#1a1a1f] to-[#050505] border border-[#FF2A3A]/30 shadow-[0_0_40px_rgba(255,42,58,0.15)] flex flex-col items-center justify-center z-10 select-none",
-      "progress_ring": "absolute inset-0 rounded-full border-4 border-transparent border-t-[#00E676] animate-spin",
-      "interaction": "Use framer-motion whileTap={{ scale: 0.92 }}. Button must feel weighty."
+    "chip": {
+      "base": ".chip -> pill, 9px mono uppercase, tracking 0.14em, rgba fill + 12% border",
+      "variants": ".chip-teal | .chip-gold | .chip-blue | .chip-coral"
     },
-    "referral_pool": {
-      "bar_container": "w-full h-3 rounded-full bg-white/5 overflow-hidden",
-      "bar_fill": "h-full bg-gradient-to-r from-[#FF2A3A] to-[#FF8080] shadow-[0_0_12px_rgba(255,42,58,0.6)] rounded-full",
-      "urgency_text": "text-sm text-[#FF2A3A] font-bold animate-pulse"
+    "glows": {
+      "shadows": ".shadow-glow-teal | .shadow-glow-gold | .shadow-glow-blue",
+      "text": ".text-glow-teal | .text-glow-gold (subtle, key figures only)",
+      "gradients": ".gradient-text (teal->mint) | .gradient-text-gold | .gradient-text-red",
+      "rule": "glow only on critical metrics/buttons — never on body content"
+    },
+    "hold_to_earn_button": {
+      "wrapper": "relative flex items-center justify-center w-64 h-64 mx-auto my-8",
+      "button": "w-48 h-48 rounded-full bg-gradient-to-b from-[#0b2430] to-[#041016] border border-brand-teal/30 shadow-glow-teal",
+      "progress_ring": "absolute inset-0 rounded-full border-4 border-transparent border-t-brand-mint animate-spin",
+      "interaction": "framer-motion whileTap={{ scale: 0.92 }} — must feel weighty. 3s hold, 3 holds per 8h cycle, then claim. LOGIC IS FROZEN."
+    },
+    "reward": {
+      "prize_popup": "gold gradient text + gold glow, mono uppercase caption",
+      "claim_reward": "gold amount, soft-blue TonConnect CTA (TonConnect blue is allowed as an external-protocol exception)"
     },
     "wallet_balance": {
-      "container": "flex flex-col items-center justify-center py-6",
-      "amount": "text-4xl font-bold tracking-tight text-white flex items-baseline gap-2 font-display",
-      "currency": "text-lg text-[#00E676] font-display"
+      "amount": "sys-value text-4xl font-medium tracking-tight text-white",
+      "currency": "text-lg text-brand-mint font-display"
     },
-    "primary_cta": {
-      "classes": "w-full py-4 rounded-2xl bg-white text-black font-bold tracking-tight hover:bg-gray-200 transition-colors active:scale-95 flex items-center justify-center gap-2"
-    },
-    "secondary_cta": {
-      "classes": "w-full py-4 rounded-2xl bg-white/[0.05] border border-white/[0.1] text-white font-semibold transition-colors active:scale-95 hover:bg-white/[0.08] flex items-center justify-center gap-2"
-    }
+    "primary_cta": "w-full py-4 rounded-2xl bg-brand-teal text-black font-bold shadow-glow-teal hover:brightness-110 active:scale-95",
+    "secondary_cta": "w-full py-4 rounded-2xl bg-white/[0.06] border border-white/[0.09] text-white font-semibold hover:bg-white/[0.1] active:scale-95",
+    "chart": "UP #57d6c8 / DOWN #ff6b7a; grid lines rgba(233,255,251,0.06); axis labels DM Mono 10px; TP/SL dashed lines in mint/coral"
   },
   "icons_and_media": {
     "library": "lucide-react",
-    "icon_size": "w-6 h-6",
-    "image_urls": [
-      {
-        "category": "background_texture",
-        "url": "https://images.unsplash.com/photo-1659698376016-ae05fd9079d0?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzh8MHwxfHNlYXJjaHwyfHxkYXJrJTIwb2JzaWRpYW4lMjB0ZXh0dXJlfGVufDB8fHx8MTc3NTIxNTU4OHww&ixlib=rb-4.1.0&q=85",
-        "description": "Dark obsidian texture. Use with 5-10% opacity, absolute positioned behind the main interface to add cinematic grain."
-      }
-    ]
+    "icon_size": "w-6 h-6 (stroke 2)",
+    "no_photos": "The console look needs no photographic textures; depth comes from the ambient gradient, orbs and glass modules."
   },
   "testing_attributes": {
-    "rule": "CRITICAL: All interactive elements MUST include data-testid. Examples: data-testid='hold-button', data-testid='nav-home', data-testid='nav-wallet', data-testid='withdraw-submit', data-testid='copy-memo-btn'."
+    "rule": "CRITICAL: All interactive elements MUST include data-testid. Examples: data-testid='hold-button', data-testid='holds-remaining', data-testid='nav-trade', data-testid='pair-selector-trigger', data-testid='trade-buy-submit', data-testid='withdraw-submit', data-testid='copy-memo-btn'."
   },
   "instructions_to_main_agent": [
-    "Install dependencies: framer-motion, lucide-react.",
-    "Import fonts in index.html or global css: @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Unbounded:wght@400;600;700&display=swap');",
-    "Configure tailwind.config.js to extend fonts: { fontFamily: { sans: ['Manrope', 'sans-serif'], display: ['Unbounded', 'sans-serif'] } }",
-    "Since it's a Telegram Mini App, lock the layout to a mobile width container (max-w-md mx-auto) with a dark background outside it to simulate mobile on desktop.",
-    "Implement 7 screens/views: Home (Hold to Earn + Stats), Wallet, Withdraw, Deposit, Transactions, Missions, Referrals.",
-    "Use a bottom navigation bar with 5 tabs: Home, Wallet, Missions, Referrals, History.",
-    "For the Hold to Earn mechanic, implement a robust visually rewarding state with framer-motion (scale down on press, glowing ring, haptic-like visual feedback).",
-    "For the Wallet flow (Deposit/Withdraw), prioritize clarity. The deposit screen must prominently display the Address and the MEMO with easy one-tap copy buttons.",
-    "For the Withdraw flow, use a step-by-step or clean single-form layout: Asset -> Amount -> Address -> Confirm.",
-    "Ensure the remaining TRX pool in the Referral section looks urgent and visually scarce (use the red gradient pool bar).",
-    "Avoid generic AI dashboard looks. Keep it cinematic, with deep obsidian backgrounds, high contrast text, and glowing neon accents only for critical metrics/buttons.",
-    "Use standard React .js syntax, no TypeScript.",
-    "Do not use generic UI cards. Implement the custom `premium_card` surface strategy."
+    "Fonts are imported in frontend/src/index.css: Manrope (sans/display) + DM Mono (mono). Configure tailwind fontFamily accordingly.",
+    "Never re-introduce hardcoded hex colors in components — use the brand-* / app-* / ink tokens.",
+    "The Telegram WebApp chrome is themed in src/services/api.js (setHeaderColor / setBackgroundColor = #06131a) — keep it in sync with --background.",
+    "Since it's a Telegram Mini App, lock the layout to a mobile width container (max-w-md mx-auto).",
+    "Implement 5 tabs: Home, Missions, TRADE, Invite, Wallet (History is a section inside Wallet, not a tab).",
+    "Do not touch the hold/claim mechanics while restyling: 3s hold, 3 holds per 8h cycle, claim via TonConnect to the project wallet. Guards: frontend/src/__tests__/hold.test.jsx (4) + trade.test.jsx (21).",
+    "Use standard React .jsx syntax, no TypeScript.",
+    "Do not use generic UI cards — use the console_module surface strategy.",
+    "Verify with: cd frontend && npx vitest run (25 tests) && npx vite build; worker: cd cloudflare-worker && node --test tests/lib.test.mjs tests/trade.test.mjs (51 tests)."
   ]
 }

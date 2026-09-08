@@ -50,7 +50,7 @@ export function HomePage({ onNavigate, onClaimReady, onOpenClaim }) {
         >
           <button
             onClick={onOpenClaim}
-            className="w-full p-4 rounded-2xl bg-gradient-to-r from-brand-green/20 to-yellow-500/20 border border-brand-green/30 flex items-center justify-between"
+            className="w-full p-4 rounded-2xl glass-card !border-brand-gold/25 flex items-center justify-between shadow-glow-gold"
           >
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-full bg-brand-green/20 flex items-center justify-center">
@@ -62,7 +62,7 @@ export function HomePage({ onNavigate, onClaimReady, onOpenClaim }) {
               </div>
             </div>
             <div className="text-right">
-              <div className="flex items-center gap-1 text-yellow-500">
+              <div className="flex items-center gap-1 text-brand-gold">
                 <Clock className="w-4 h-4" />
                 <span className="font-mono font-bold">{formatClaimTime(claimSeconds)}</span>
               </div>

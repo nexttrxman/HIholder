@@ -56,7 +56,7 @@ export function TradePage() {
           >
             <div className="flex items-center gap-1.5 mb-1">
               <Icon className="w-3 h-3 text-white/35" />
-              <span className="text-[10px] uppercase tracking-wider text-white/35">{label}</span>
+              <span className="sys-label">{label}</span>
             </div>
             <p className={`text-sm font-bold tabular-nums ${tone}`} data-testid={`trade-stat-${id}`}>
               {value}

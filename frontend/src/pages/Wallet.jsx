@@ -90,7 +90,7 @@ export function WalletPage({ onOpenWithdraw, initialSection = 'balance' }) {
               animate={{ opacity: 1, y: 0 }}
               data-testid="wallet-total-balance"
             >
-              <p className="text-xs text-white/40 uppercase tracking-wider mb-2">Total Balance</p>
+              <p className="sys-label mb-2">Total Balance</p>
               <div className="flex items-baseline justify-center gap-1">
                 <span className="text-4xl font-bold text-white font-display tabular-nums">
                   ${usdtBalance.toFixed(2)}

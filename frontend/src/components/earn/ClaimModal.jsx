@@ -244,7 +244,7 @@ export function ClaimModal({ isOpen, onClose, claim }) {
       />
 
       <motion.div
-        className="relative w-full max-w-md bg-app-surface rounded-t-3xl border-t border-white/10 max-h-[85vh] overflow-hidden"
+        className="relative w-full max-w-md bg-app-bg/95 backdrop-blur-2xl rounded-t-console border-t border-white/[0.09] shadow-console max-h-[85vh] overflow-hidden"
         initial={{ y: '100%' }}
         animate={{ y: 0 }}
         exit={{ y: '100%' }}
@@ -252,7 +252,7 @@ export function ClaimModal({ isOpen, onClose, claim }) {
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
-          <h2 className="font-display text-lg font-bold text-white">Claim Reward</h2>
+          <h2 className="font-display text-lg font-bold tracking-tight text-white">Claim Reward</h2>
           {step !== 'paying' && step !== 'verifying' && (
             <button onClick={handleClose} className="p-2 -mr-2 text-white/40 hover:text-white">
               <X className="w-5 h-5" />
@@ -272,39 +272,43 @@ export function ClaimModal({ isOpen, onClose, claim }) {
                 className="space-y-4"
               >
                 {/* Timer */}
-                <div className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl ${
-                  isUrgent ? 'bg-red-500/20 border border-red-500/30' : 'bg-white/5 border border-white/10'
+                <div className={`flex items-center justify-center gap-2 py-3 px-4 rounded-2xl border ${
+                  isUrgent
+                    ? 'bg-brand-red/12 border-brand-red/30 shadow-[0_0_24px_rgba(255,107,122,0.18)]'
+                    : 'bg-white/[0.04] border-white/[0.08]'
                 }`}>
-                  <Clock className={`w-5 h-5 ${isUrgent ? 'text-red-500' : 'text-white/60'}`} />
-                  <span className={`font-mono text-2xl font-bold ${isUrgent ? 'text-red-500' : 'text-white'}`}>
+                  <Clock className={`w-5 h-5 ${isUrgent ? 'text-brand-red' : 'text-brand-teal'}`} />
+                  <span className={`sys-value text-2xl font-medium ${isUrgent ? 'text-brand-red' : 'text-white'}`}>
                     {formatTime(secondsRemaining)}
                   </span>
-                  <span className="text-xs text-white/40">remaining</span>
+                  <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-dim">remaining</span>
                 </div>
 
                 {/* Prize Info */}
                 <div className="text-center py-4">
-                  <p className="text-white/50 text-sm mb-1">Your Reward</p>
-                  <p className="text-4xl font-bold text-brand-green font-display">
+                  <p className="sys-label mb-1.5">Your Reward</p>
+                  <p className="font-display text-4xl font-bold gradient-text-gold text-glow-gold">
                     ${claim.total_prize.toFixed(2)}
                   </p>
-                  <p className="text-xs text-white/40 mt-1">USDT (internal balance)</p>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-dim mt-1.5">
+                    USDT · internal balance
+                  </p>
                 </div>
 
                 {/* Fee Info */}
-                <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-2">
+                <div className="p-4 rounded-2xl glass-card space-y-2">
                   <div className="flex justify-between text-sm">
-                    <span className="text-white/50">Claim Fee</span>
-                    <span className="text-white font-semibold">{tonFee} TON</span>
+                    <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-dim">Claim Fee</span>
+                    <span className="sys-value text-white">{tonFee} TON</span>
                   </div>
-                  <p className="text-xs text-white/40">
+                  <p className="text-xs text-ink-dim">
                     A small TON fee is required to validate your claim. It is sent to the project
                     treasury wallet, which confirms the claim on-chain before your reward is
                     credited.
                   </p>
                   <div className="flex items-center justify-between gap-2 pt-1">
-                    <span className="text-xs text-white/40">Destination</span>
-                    <code className="text-[10px] font-mono text-white/60 truncate">
+                    <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-dim">Destination</span>
+                    <code className="text-[10px] font-mono text-brand-teal/80 truncate">
                       {treasuryWallet.slice(0, 6)}...{treasuryWallet.slice(-6)}
                     </code>
                   </div>
@@ -312,9 +316,9 @@ export function ClaimModal({ isOpen, onClose, claim }) {
 
                 {/* Error */}
                 {error && (
-                  <div className="flex items-center gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/30">
-                    <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />
-                    <span className="text-sm text-red-500">{error}</span>
+                  <div className="flex items-center gap-2 p-3 rounded-2xl bg-brand-red/10 border border-brand-red/25">
+                    <AlertTriangle className="w-4 h-4 text-brand-red flex-shrink-0" />
+                    <span className="text-sm text-brand-red">{error}</span>
                   </div>
                 )}
 
@@ -322,7 +326,7 @@ export function ClaimModal({ isOpen, onClose, claim }) {
                 {!wallet ? (
                   <button
                     onClick={handleConnect}
-                    className="w-full py-4 rounded-2xl bg-[#0098EA] text-white font-bold flex items-center justify-center gap-2 hover:bg-[#0098EA]/90 active:scale-95 transition-all"
+                    className="w-full py-4 rounded-2xl bg-brand-blue text-black font-bold flex items-center justify-center gap-2 shadow-glow-blue hover:brightness-110 active:scale-95 transition-all"
                   >
                     <Wallet className="w-5 h-5" />
                     Connect TON Wallet
@@ -353,7 +357,7 @@ export function ClaimModal({ isOpen, onClose, claim }) {
                 exit={{ opacity: 0 }}
                 className="py-12 text-center"
               >
-                <Loader2 className="w-12 h-12 mx-auto text-[#0098EA] animate-spin mb-4" />
+                <Loader2 className="w-12 h-12 mx-auto text-brand-blue animate-spin mb-4" />
                 <p className="text-white font-semibold">Connecting wallet...</p>
                 <p className="text-sm text-white/40 mt-1">Approve in your wallet app</p>
               </motion.div>
@@ -400,22 +404,24 @@ export function ClaimModal({ isOpen, onClose, claim }) {
                 className="py-8 text-center"
               >
                 <motion.div
-                  className="w-20 h-20 mx-auto mb-4 rounded-full bg-brand-green/20 flex items-center justify-center"
+                  className="w-20 h-20 mx-auto mb-4 rounded-full bg-brand-teal/15 border border-brand-teal/25 flex items-center justify-center shadow-glow-teal"
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
                   transition={{ type: 'spring', delay: 0.1 }}
                 >
-                  <CheckCircle className="w-10 h-10 text-brand-green" />
+                  <CheckCircle className="w-10 h-10 text-brand-mint" />
                 </motion.div>
                 <h3 className="text-2xl font-bold text-white mb-2">Claimed!</h3>
-                <p className="text-4xl font-bold text-brand-green font-display mb-2">
+                <p className="font-display text-4xl font-bold gradient-text-gold text-glow-gold mb-2">
                   +${claim.total_prize.toFixed(2)}
                 </p>
-                <p className="text-sm text-white/50">Added to your internal balance</p>
+                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-dim">
+                  Added to your internal balance
+                </p>
 
                 <button
                   onClick={handleClose}
-                  className="mt-6 w-full py-4 rounded-2xl bg-white/10 text-white font-semibold hover:bg-white/20 active:scale-95 transition-all"
+                  className="mt-6 w-full py-4 rounded-2xl bg-white/[0.06] border border-white/[0.09] text-white font-semibold hover:bg-white/[0.1] active:scale-95 transition-all"
                 >
                   Done
                 </button>
@@ -430,8 +436,8 @@ export function ClaimModal({ isOpen, onClose, claim }) {
                 animate={{ opacity: 1 }}
                 className="py-8 text-center"
               >
-                <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-red-500/20 flex items-center justify-center">
-                  <Clock className="w-10 h-10 text-red-500" />
+                <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-brand-red/15 border border-brand-red/25 flex items-center justify-center">
+                  <Clock className="w-10 h-10 text-brand-red" />
                 </div>
                 <h3 className="text-xl font-bold text-white mb-2">Claim Expired</h3>
                 <p className="text-sm text-white/50 mb-6">
@@ -439,7 +445,7 @@ export function ClaimModal({ isOpen, onClose, claim }) {
                 </p>
                 <button
                   onClick={handleClose}
-                  className="w-full py-4 rounded-2xl bg-white/10 text-white font-semibold hover:bg-white/20 active:scale-95 transition-all"
+                  className="w-full py-4 rounded-2xl bg-white/[0.06] border border-white/[0.09] text-white font-semibold hover:bg-white/[0.1] active:scale-95 transition-all"
                 >
                   Start New Cycle
                 </button>

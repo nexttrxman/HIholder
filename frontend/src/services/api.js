@@ -99,8 +99,8 @@ export const initTelegram = () => {
   if (tg) {
     tg.ready();
     tg.expand();
-    if (tg.setHeaderColor) tg.setHeaderColor('#050505');
-    if (tg.setBackgroundColor) tg.setBackgroundColor('#050505');
+    if (tg.setHeaderColor) tg.setHeaderColor('#06131a');
+    if (tg.setBackgroundColor) tg.setBackgroundColor('#06131a');
   }
 };
 

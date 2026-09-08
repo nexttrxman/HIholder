@@ -142,7 +142,7 @@ export function OrderForm({ pair, price }) {
   return (
     <div className="mt-4" data-testid="trade-order-form">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[10px] uppercase tracking-[0.2em] text-white/40">Buy {pair.base}</span>
+        <span className="sys-label">Buy {pair.base}</span>
         <span className="text-[10px] text-white/40">Fee {(TRADE_CONFIG.FEE_RATE * 100).toFixed(2)}%</span>
       </div>
 

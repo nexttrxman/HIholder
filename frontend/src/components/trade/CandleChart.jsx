@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatPrice } from '@/lib/trade';
 
-const UP = '#00E676';
-const DOWN = '#FF2A3A';
+const UP = '#57d6c8';
+const DOWN = '#ff6b7a';
 const PAD = { t: 14, r: 58, b: 22, l: 6 };
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -132,7 +132,7 @@ export function CandleChart({ candles, pair, timeframe, levels = null, height = 
       data-testid="candle-chart"
     >
       {!geo ? (
-        <div className="w-full h-full rounded-xl bg-white/[0.02] animate-pulse" />
+        <div className="w-full h-full rounded-xl bg-white/[0.03] animate-pulse" />
       ) : (
         <>
           <svg
@@ -159,15 +159,15 @@ export function CandleChart({ candles, pair, timeframe, levels = null, height = 
                   x2={PAD.l + geo.plotW}
                   y1={geo.y(value)}
                   y2={geo.y(value)}
-                  stroke="rgba(255,255,255,0.05)"
+                  stroke="rgba(233,255,251,0.06)"
                   strokeWidth="1"
                 />
                 <text
                   x={PAD.l + geo.plotW + 8}
                   y={geo.y(value) + 3.5}
-                  fill="rgba(255,255,255,0.35)"
+                  fill="rgba(143,174,170,0.9)"
                   fontSize="9.5"
-                  fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+                  fontFamily="'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace"
                 >
                   {formatPrice(value, pair.priceDecimals)}
                 </text>
@@ -180,10 +180,10 @@ export function CandleChart({ candles, pair, timeframe, levels = null, height = 
                 key={`time-${i}`}
                 x={geo.x(i)}
                 y={height - 6}
-                fill="rgba(255,255,255,0.28)"
+                fill="rgba(143,174,170,0.75)"
                 fontSize="9"
                 textAnchor="middle"
-                fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+                fontFamily="'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace"
               >
                 {timeLabel(candles[i].t, timeframe.ms)}
               </text>
@@ -264,10 +264,10 @@ export function CandleChart({ candles, pair, timeframe, levels = null, height = 
             <text
               x={PAD.l + geo.plotW + 8}
               y={geo.lastY + 3.5}
-              fill="#050505"
+              fill="#06131a"
               fontSize="9.5"
               fontWeight="700"
-              fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+              fontFamily="'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace"
             >
               {formatPrice(geo.lastClose, pair.priceDecimals)}
             </text>
@@ -302,7 +302,7 @@ export function CandleChart({ candles, pair, timeframe, levels = null, height = 
                       fill={level.color}
                       fontSize="8.5"
                       fontWeight="700"
-                      fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
+                      fontFamily="'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace"
                     >
                       {`${offScale ? (level.value > geo.max ? '\u25B2 ' : '\u25BC ') : ''}${level.label} ${formatPrice(level.value, pair.priceDecimals)}`}
                     </text>
@@ -317,7 +317,7 @@ export function CandleChart({ candles, pair, timeframe, levels = null, height = 
                 x2={geo.x(hover)}
                 y1={PAD.t}
                 y2={PAD.t + geo.plotH}
-                stroke="rgba(255,255,255,0.35)"
+                stroke="rgba(233,255,251,0.4)"
                 strokeWidth="1"
                 strokeDasharray="2 3"
               />
@@ -326,7 +326,7 @@ export function CandleChart({ candles, pair, timeframe, levels = null, height = 
 
           {hoveredCandle && (
             <div
-              className="pointer-events-none absolute top-1 z-10 rounded-xl border border-white/10 bg-black/80 px-3 py-2 backdrop-blur-md"
+              className="pointer-events-none absolute top-1 z-10 rounded-xl border border-white/10 bg-app-surface/90 px-3 py-2 backdrop-blur-md"
               style={{
                 left: Math.max(4, Math.min(geo.x(hover) - 74, width - 152)),
               }}

@@ -101,12 +101,12 @@ export function PairSelector({ pairId, onChange }) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.98 }}
             transition={{ duration: 0.14 }}
-            className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 rounded-2xl border border-white/10 bg-[#0b0b0f]/95 backdrop-blur-2xl shadow-[0_16px_40px_rgba(0,0,0,0.6)] overflow-hidden"
+            className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 rounded-console border border-white/[0.09] bg-app-surface/95 backdrop-blur-2xl shadow-console overflow-hidden"
             data-testid="pair-selector-menu"
           >
             <div className="flex items-center gap-2 px-3.5 py-2.5 border-b border-white/[0.06]">
               <Search className="w-3.5 h-3.5 text-white/30" />
-              <span className="text-[10px] uppercase tracking-[0.2em] text-white/35">Markets</span>
+              <span className="sys-label">Markets</span>
             </div>
 
             <div className="max-h-64 overflow-y-auto py-1">

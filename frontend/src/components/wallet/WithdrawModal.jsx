@@ -224,7 +224,7 @@ export function WithdrawModal({ isOpen, onClose, initialAsset = 'USDT' }) {
               >
                 {/* Amount Input */}
                 <div>
-                  <label className="text-xs text-white/40 uppercase tracking-wider mb-2 block">
+                  <label className="sys-label mb-2 block">
                     Amount
                   </label>
                   <div className="relative">
@@ -254,7 +254,7 @@ export function WithdrawModal({ isOpen, onClose, initialAsset = 'USDT' }) {
 
                 {/* Address Input */}
                 <div>
-                  <label className="text-xs text-white/40 uppercase tracking-wider mb-2 block">
+                  <label className="sys-label mb-2 block">
                     To Address (TRON)
                   </label>
                   <input
@@ -286,7 +286,7 @@ export function WithdrawModal({ isOpen, onClose, initialAsset = 'USDT' }) {
                 <button
                   onClick={handleContinue}
                   data-testid="withdraw-continue"
-                  className="w-full py-4 rounded-2xl bg-white text-black font-bold hover:bg-gray-200 active:scale-95 transition-all"
+                  className="w-full py-4 rounded-2xl bg-white text-black font-bold hover:brightness-110 shadow-glow-teal active:scale-95 transition-all"
                 >
                   Continue
                 </button>
@@ -326,9 +326,9 @@ export function WithdrawModal({ isOpen, onClose, initialAsset = 'USDT' }) {
                 </div>
 
                 {/* Backend Notice */}
-                <div className="p-3 rounded-xl bg-yellow-500/10 border border-yellow-500/20 flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-yellow-500 flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-yellow-500/80">
+                <div className="p-3 rounded-2xl bg-brand-gold/10 border border-brand-gold/25 flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-brand-gold flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-brand-gold/85">
                     <strong>Note:</strong> Final confirmation requires backend validation. 
                     Your request will be processed and confirmed shortly.
                   </p>
@@ -345,7 +345,7 @@ export function WithdrawModal({ isOpen, onClose, initialAsset = 'USDT' }) {
                   onClick={handleSubmit}
                   disabled={isSubmitting}
                   data-testid="withdraw-submit"
-                  className="w-full py-4 rounded-2xl bg-white text-black font-bold hover:bg-gray-200 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="w-full py-4 rounded-2xl bg-white text-black font-bold hover:brightness-110 shadow-glow-teal active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {isSubmitting ? (
                     <>

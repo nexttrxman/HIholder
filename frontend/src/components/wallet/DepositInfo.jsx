@@ -31,7 +31,7 @@ export function DepositInfo({ onClose }) {
 
       {/* Address */}
       <div className="mb-4">
-        <label className="text-xs text-white/40 uppercase tracking-wider mb-2 block">
+        <label className="sys-label mb-2 block">
           Deposit Address
         </label>
         <div className="flex items-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10">

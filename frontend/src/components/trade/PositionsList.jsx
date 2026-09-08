@@ -83,7 +83,7 @@ export function PositionsList({ limit = null, livePair = null, livePrice = null,
   return (
     <div className="mt-4" data-testid="positions-list">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[10px] uppercase tracking-[0.2em] text-white/40">
+        <span className="sys-label">
           Positions · {positions.length}
         </span>
         <span className="text-[11px] text-white/40">

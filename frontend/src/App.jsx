@@ -89,7 +89,7 @@ export function AppContent() {
             <p className="text-sm text-white/50 mb-6">{error}</p>
             <button 
               onClick={() => window.location.reload()}
-              className="px-6 py-3 rounded-xl bg-white text-black font-semibold hover:bg-gray-200 active:scale-95 transition-all"
+              className="px-6 py-3 rounded-2xl bg-white text-black font-semibold shadow-glow-teal hover:brightness-110 active:scale-95 transition-all"
             >
               Try Again
             </button>

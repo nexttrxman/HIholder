@@ -88,9 +88,9 @@ function MissionCard({ mission, context, index, onClaim, claimedMissions }) {
           </div>
         </div>
         <span className={`text-xs px-2 py-1 rounded-full ${
-          mission.type === 'daily' ? 'bg-blue-500/10 text-blue-400' :
-          mission.type === 'weekly' ? 'bg-purple-500/10 text-purple-400' :
-          mission.type === 'milestone' ? 'bg-yellow-500/10 text-yellow-400' :
+          mission.type === 'daily' ? 'bg-brand-blue/10 text-brand-blue border border-brand-blue/20' :
+          mission.type === 'weekly' ? 'bg-brand-teal/10 text-brand-teal border border-brand-teal/20' :
+          mission.type === 'milestone' ? 'bg-brand-gold/10 text-brand-gold border border-brand-gold/20' :
           'bg-white/5 text-white/40'
         }`}>
           {mission.type === 'daily' && 'Daily'}

@@ -53,7 +53,7 @@ export function TradePanel({ variant = 'full', className = '' }) {
             className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${
               mode === 'live'
                 ? 'bg-brand-green/10 text-brand-green border border-brand-green/20'
-                : 'bg-yellow-500/10 text-yellow-500 border border-yellow-500/20'
+                : 'bg-brand-gold/10 text-brand-gold border border-brand-gold/20'
             }`}
             data-testid="trade-data-mode"
           >
@@ -110,7 +110,7 @@ export function TradePanel({ variant = 'full', className = '' }) {
       {/* Price */}
       <div className="flex items-end justify-between mt-3">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.2em] text-white/35 mb-1">{pair.label}</p>
+          <p className="sys-label mb-1">{pair.label}</p>
           <div className="flex items-baseline gap-2">
             <span className="font-display text-2xl font-bold text-white tabular-nums" data-testid="trade-last-price">
               {formatPrice(lastPrice, pair.priceDecimals)}

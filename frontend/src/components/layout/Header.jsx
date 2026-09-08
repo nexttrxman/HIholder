@@ -11,36 +11,38 @@ export function Header() {
   };
 
   return (
-    <header className="flex items-center justify-between px-4 py-3 safe-area-top" data-testid="header">
-      {/* Avatar + Name */}
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-red/30 to-brand-green/30 flex items-center justify-center border border-white/10">
-          {user?.photo_url ? (
-            <img 
-              src={user.photo_url} 
-              alt="Avatar" 
-              className="w-full h-full rounded-full object-cover"
-            />
-          ) : (
-            <span className="text-sm font-bold text-white/80">{getInitials()}</span>
-          )}
+    <header
+      className="flex items-center justify-between px-4 py-3 safe-area-top"
+      data-testid="header"
+    >
+      {/* Identity */}
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="relative">
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-teal/35 via-brand-blue/25 to-transparent flex items-center justify-center border border-brand-teal/25 shadow-glow-teal overflow-hidden">
+            {user?.photo_url ? (
+              <img src={user.photo_url} alt="Avatar" className="w-full h-full rounded-full object-cover" />
+            ) : (
+              <span className="font-mono text-xs font-medium text-brand-mint">{getInitials()}</span>
+            )}
+          </div>
+          <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-brand-teal border-2 border-app-bg" />
         </div>
-        <div>
-          <h1 className="font-display text-sm font-semibold text-white">
-            TronKeeper
-          </h1>
-          <p className="text-xs text-white/40">
-            {user?.username ? `@${user.username}` : 'Welcome'}
+
+        <div className="min-w-0">
+          <h1 className="font-display text-sm font-bold tracking-tight text-white">TronKeeper</h1>
+          <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-dim truncate">
+            {user?.username ? `@${user.username}` : 'Console online'}
           </p>
         </div>
       </div>
 
-      {/* Quick Balance */}
-      <div className="text-right">
-        <div className="flex items-baseline gap-1">
-          <span className="text-lg font-bold text-white">${usdtBalance.toFixed(2)}</span>
-        </div>
-        <p className="text-xs text-white/40">{trxBalance.toFixed(2)} TRX</p>
+      {/* Balance */}
+      <div className="text-right flex-shrink-0">
+        <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-ink-dim mb-0.5">Balance</p>
+        <p className="sys-value text-lg font-medium text-white text-glow-teal tabular-nums">
+          ${usdtBalance.toFixed(2)}
+        </p>
+        <p className="sys-value text-[10px] text-ink-dim tabular-nums">{trxBalance.toFixed(2)} TRX</p>
       </div>
     </header>
   );

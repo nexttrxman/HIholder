@@ -128,7 +128,9 @@ describe('Hold to Earn — 3 second hold + claim loop', () => {
     // cycle dots: first one filled, the rest still pending
     const dots = screen.getByTestId('holds-remaining').firstElementChild.children;
     expect(dots.length).toBe(3);
+    // filled dots carry the accent background, pending ones do not
     expect(dots[0].className).toContain('bg-brand-green');
-    expect(dots[1].className).toContain('bg-white/10');
+    expect(dots[1].className).not.toContain('bg-brand-green');
+    expect(dots[2].className).not.toContain('bg-brand-green');
   });
 });
