@@ -823,6 +823,10 @@ export default {
             SUPA_SERVICE_KEY: Boolean(env.SUPA_SERVICE_KEY),
             TON_API_KEY: Boolean(env.TON_API_KEY),
           },
+          // Los nombres realmente presentes, sin valores. Los booleanos de arriba
+          // no distinguen "no hay nada adjunto" de "el nombre está mal escrito"
+          // (un espacio de más, minúsculas), y las dos dan false.
+          envKeys: Object.keys(env).sort(),
         });
       }
 
