@@ -46,6 +46,24 @@ export default defineConfig({
   build: {
     outDir: 'dist',
   },
+  // The preview serves the production build. Unlike the dev server it has no
+  // dependency pre-bundle, so there are no ?v= hashes to go stale behind a
+  // caching proxy and no CJS interop that can hand a component a null React.
+  preview: {
+    host: '0.0.0.0',
+    port: 3000,
+    strictPort: true,
+    allowedHosts: [
+      'localhost',
+      '127.0.0.1',
+      '.arena.site',
+      '.e2b.app',
+      '.emergentagent.com',
+      '.preview.emergentagent.com',
+      '.cluster-5.preview.emergentcf.cloud',
+      'crypto-clean-1.cluster-5.preview.emergentcf.cloud',
+    ],
+  },
   test: {
     environment: 'jsdom',
     globals: true,
