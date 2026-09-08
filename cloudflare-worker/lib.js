@@ -100,6 +100,53 @@ export async function validateInitData(initData, botToken, options = {}) {
   }
 }
 
+/**
+ * Parte BOT_TOKEN en una lista de tokens.
+ *
+ * La app puede publicarse bajo varios bots (mirror): el bot definitivo y uno de
+ * pruebas apuntando al mismo backend. Telegram firma el initData con el token
+ * del bot desde el que se abrió la Mini App, así que el Worker necesita poder
+ * verificar contra más de uno. Se aceptan varios tokens separados por coma,
+ * espacio o salto de línea; también un array.
+ *
+ * @param {string|string[]} value
+ * @returns {string[]} tokens sin vacíos ni duplicados, en el orden dado
+ */
+export function parseBotTokens(value) {
+  const raw = Array.isArray(value) ? value : String(value ?? '').split(/[\s,]+/);
+  const seen = new Set();
+  const out = [];
+  for (const item of raw) {
+    const token = String(item ?? '').trim();
+    if (token && !seen.has(token)) {
+      seen.add(token);
+      out.push(token);
+    }
+  }
+  return out;
+}
+
+/**
+ * Valida un initData contra varios tokens de bot y devuelve el usuario del
+ * primero que firme. Devuelve null si ninguno cierra.
+ *
+ * No debilita la verificación: el HMAC igual tiene que cerrar contra alguno de
+ * los tokens configurados. Lo que cambia es cuántos bots de confianza hay.
+ *
+ * @param {string} initData
+ * @param {string|string[]} botTokens
+ * @param {{now?: number, maxAgeSeconds?: number}} [options]
+ * @returns {Promise<object|null>}
+ */
+export async function validateInitDataAny(initData, botTokens, options = {}) {
+  if (!initData) return null;
+  for (const token of parseBotTokens(botTokens)) {
+    const user = await validateInitData(initData, token, options);
+    if (user) return user;
+  }
+  return null;
+}
+
 // ============================================
 // TON ADDRESS NORMALIZATION
 // ============================================

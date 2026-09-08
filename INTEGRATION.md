@@ -63,9 +63,9 @@ wrangler deploy
 Actualiza `/app/frontend/.env`:
 
 ```env
-REACT_APP_WORKER_URL=https://tu-worker.tu-subdomain.workers.dev
-REACT_APP_TELEGRAM_BOT_URL=https://t.me/TU_BOT
-REACT_APP_DEPOSIT_ADDRESS=TU_WALLET_ADDRESS
+VITE_WORKER_URL=https://tu-worker.tu-subdomain.workers.dev
+VITE_TELEGRAM_BOT_URL=https://t.me/TU_BOT
+VITE_DEPOSIT_ADDRESS=TU_WALLET_ADDRESS
 ```
 
 Deploy a Cloudflare Pages:
@@ -85,17 +85,33 @@ npx wrangler pages deploy build --project-name=tronkeeper
 
 | Variable | Descripción |
 |----------|-------------|
-| `BOT_TOKEN` | Token del bot de Telegram (de @BotFather) |
+| `BOT_TOKEN` | Token del bot de Telegram (de @BotFather). Acepta **varios** separados por coma o salto de línea para publicar la app bajo bots mirror |
 | `SUPA_URL` | URL de tu proyecto Supabase |
 | `SUPA_SERVICE_KEY` | Service role key de Supabase |
+
+#### Bots mirror
+
+Telegram firma el `initData` con el token del bot desde el que se abrió la Mini
+App. Para publicar la misma app bajo varios bots (por ejemplo uno definitivo y
+uno de pruebas) contra un solo backend, poné todos los tokens en `BOT_TOKEN`:
+
+```
+BOT_TOKEN=111111111:TokenDelBotDefinitivo,222222222:TokenDelBotDePruebas
+```
+
+`parseBotTokens` los separa por coma, espacio o salto de línea, recorta y
+deduplica; `validateInitDataAny` prueba cada uno y devuelve el usuario del
+primero que firme. No debilita la verificación: el HMAC igual tiene que cerrar
+contra alguno de los tokens configurados, y la ventana anti-replay de
+`AUTH_MAX_AGE_SECONDS` se aplica por igual. Cubierto en `tests/mirrors.test.mjs`.
 
 ### Frontend (.env)
 
 | Variable | Descripción |
 |----------|-------------|
-| `REACT_APP_WORKER_URL` | URL del Cloudflare Worker |
-| `REACT_APP_TELEGRAM_BOT_URL` | URL del bot (https://t.me/TU_BOT) |
-| `REACT_APP_DEPOSIT_ADDRESS` | Wallet TRON para depósitos |
+| `VITE_WORKER_URL` | URL del Cloudflare Worker (sin `/` final) |
+| `VITE_TELEGRAM_BOT_URL` | URL del bot (https://t.me/TU_BOT) |
+| `VITE_DEPOSIT_ADDRESS` | Wallet TRON para depósitos |
 
 ## Endpoints del Worker
 

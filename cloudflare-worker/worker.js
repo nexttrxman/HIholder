@@ -14,7 +14,7 @@
  */
 
 import {
-  validateInitData,
+  validateInitDataAny,
   jsonResponse,
   generateClaimId,
   normalizeTonAddress,
@@ -92,7 +92,7 @@ const corsHeaders = {
 // ============================================
 async function handleAuth(request, env) {
   const { initData } = await request.json();
-  const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
+  const telegramUser = await validateInitDataAny(initData, env.BOT_TOKEN);
 
   if (!telegramUser) {
     return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
@@ -214,7 +214,7 @@ async function handleAuth(request, env) {
 // ============================================
 async function handleHold(request, env) {
   const { initData, prize } = await request.json();
-  const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
+  const telegramUser = await validateInitDataAny(initData, env.BOT_TOKEN);
 
   if (!telegramUser) {
     return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
@@ -299,7 +299,7 @@ async function handleHold(request, env) {
 // ============================================
 async function handleGetClaim(request, env) {
   const { initData } = await request.json();
-  const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
+  const telegramUser = await validateInitDataAny(initData, env.BOT_TOKEN);
 
   if (!telegramUser) {
     return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
@@ -353,7 +353,7 @@ async function handleGetClaim(request, env) {
 // ============================================
 async function handleVerifyPayment(request, env) {
   const { initData, claim_id, sender_address } = await request.json();
-  const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
+  const telegramUser = await validateInitDataAny(initData, env.BOT_TOKEN);
 
   if (!telegramUser) {
     return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
@@ -436,7 +436,7 @@ async function handleVerifyPayment(request, env) {
 // ============================================
 async function handleTransactions(request, env) {
   const { initData, limit = 50 } = await request.json();
-  const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
+  const telegramUser = await validateInitDataAny(initData, env.BOT_TOKEN);
 
   if (!telegramUser) {
     return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
@@ -469,7 +469,7 @@ async function handleTransactions(request, env) {
 // ============================================
 async function handleReferrals(request, env) {
   const { initData } = await request.json();
-  const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
+  const telegramUser = await validateInitDataAny(initData, env.BOT_TOKEN);
 
   if (!telegramUser) {
     return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
@@ -500,7 +500,7 @@ async function handleReferrals(request, env) {
 // ============================================
 async function handleTrade(request, env) {
   const { initData, pair, amount, price, take_profit, stop_loss } = await request.json();
-  const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
+  const telegramUser = await validateInitDataAny(initData, env.BOT_TOKEN);
 
   if (!telegramUser) {
     return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
@@ -565,7 +565,7 @@ async function handleTrade(request, env) {
 // ============================================
 async function handleTradeClose(request, env) {
   const { initData, position_id, price } = await request.json();
-  const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
+  const telegramUser = await validateInitDataAny(initData, env.BOT_TOKEN);
 
   if (!telegramUser) {
     return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
@@ -615,7 +615,7 @@ async function handleTradeClose(request, env) {
 // ============================================
 async function handleTradeLevels(request, env) {
   const { initData, position_id, take_profit, stop_loss } = await request.json();
-  const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
+  const telegramUser = await validateInitDataAny(initData, env.BOT_TOKEN);
 
   if (!telegramUser) {
     return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
@@ -663,7 +663,7 @@ async function handleTradeLevels(request, env) {
 // ============================================
 async function handlePositions(request, env) {
   const { initData } = await request.json();
-  const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
+  const telegramUser = await validateInitDataAny(initData, env.BOT_TOKEN);
 
   if (!telegramUser) {
     return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
@@ -739,7 +739,7 @@ async function handlePositions(request, env) {
 /** POST /checkin/status — streak, days this week and whether today is done. */
 async function handleCheckinStatus(request, env) {
   const { initData } = await request.json();
-  const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
+  const telegramUser = await validateInitDataAny(initData, env.BOT_TOKEN);
   if (!telegramUser) {
     return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
   }
@@ -763,7 +763,7 @@ async function handleCheckinStatus(request, env) {
  */
 async function handleCheckin(request, env) {
   const { initData } = await request.json();
-  const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
+  const telegramUser = await validateInitDataAny(initData, env.BOT_TOKEN);
   if (!telegramUser) {
     return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
   }
@@ -792,19 +792,19 @@ export default {
     try {
       if (request.method === 'POST') {
         switch (path) {
-          case '/auth':           return handleAuth(request, env);
-          case '/hold':           return handleHold(request, env);
+          case '/auth':           return await handleAuth(request, env);
+          case '/hold':           return await handleHold(request, env);
           case '/claim':
-          case '/get-claim':      return handleGetClaim(request, env);
-          case '/verify-payment': return handleVerifyPayment(request, env);
-          case '/transactions':   return handleTransactions(request, env);
-          case '/referrals':      return handleReferrals(request, env);
-          case '/trade':          return handleTrade(request, env);
-          case '/trade/close':    return handleTradeClose(request, env);
-          case '/trade/levels':   return handleTradeLevels(request, env);
-          case '/positions':      return handlePositions(request, env);
-          case '/checkin':        return handleCheckin(request, env);
-          case '/checkin/status': return handleCheckinStatus(request, env);
+          case '/get-claim':      return await handleGetClaim(request, env);
+          case '/verify-payment': return await handleVerifyPayment(request, env);
+          case '/transactions':   return await handleTransactions(request, env);
+          case '/referrals':      return await handleReferrals(request, env);
+          case '/trade':          return await handleTrade(request, env);
+          case '/trade/close':    return await handleTradeClose(request, env);
+          case '/trade/levels':   return await handleTradeLevels(request, env);
+          case '/positions':      return await handlePositions(request, env);
+          case '/checkin':        return await handleCheckin(request, env);
+          case '/checkin/status': return await handleCheckinStatus(request, env);
         }
       }
 
