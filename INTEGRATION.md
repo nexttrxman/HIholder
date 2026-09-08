@@ -89,6 +89,19 @@ npx wrangler pages deploy build --project-name=tronkeeper
 | `SUPA_URL` | URL de tu proyecto Supabase |
 | `SUPA_SERVICE_KEY` | Service role key de Supabase |
 
+> **Cargalas como tipo `Secret`, no `Text`.** Wrangler borra en cada deploy las
+> variables de *texto* configuradas en el dashboard y las reemplaza por las de
+> `wrangler.toml` — que acá está vacío, o sea que las deja en nada. Las de tipo
+> `Secret` no las borra ningún deploy. El `keep_vars = true` de `wrangler.toml`
+> es una red de seguridad por si alguien las carga como `Text`.
+>
+> Ojo también con cargarlas en **Settings → Builds → Variables and secrets**:
+> esas son solo para el *build* y no llegan al `env` del Worker en runtime. Las
+> que valen son las de **Settings → Variables and Secrets**.
+>
+> `GET /health` reporta cuáles están presentes (`env.BOT_TOKEN: true/false`) sin
+> revelar valores. Si dan `false`, el Worker no las ve.
+
 #### Bots mirror
 
 Telegram firma el `initData` con el token del bot desde el que se abrió la Mini
