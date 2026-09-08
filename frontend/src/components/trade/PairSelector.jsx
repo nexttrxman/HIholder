@@ -79,21 +79,15 @@ export function PairSelector({ pairId, onChange }) {
         aria-expanded={open}
         className="w-full flex items-center justify-between gap-2 rounded-2xl bg-white/[0.05] border border-white/[0.08] px-3.5 py-3 hover:bg-white/[0.08] active:scale-[0.99] transition-all"
       >
-        <div className="flex items-center gap-2.5 min-w-0">
-          <span
-            className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-black flex-shrink-0"
-            style={{ background: selected.color }}
-          >
-            {selected.base.slice(0, 3)}
-          </span>
-          <div className="text-left min-w-0">
-            <p className="text-sm font-semibold text-white leading-tight">{selected.label}</p>
-            <p className="text-[10px] text-white/40 leading-tight">
-              {selectedTicker
-                ? `${formatPrice(selectedTicker.price, selected.priceDecimals)} · ${formatPercent(selectedTicker.changePercent)}`
-                : 'Tap to change market'}
-            </p>
-          </div>
+        <div className="text-left min-w-0">
+          <p className="text-sm font-semibold text-white leading-tight" data-testid="pair-selector-label">
+            {selected.label}
+          </p>
+          <p className="text-[10px] text-white/40 leading-tight">
+            {selectedTicker
+              ? `${formatPrice(selectedTicker.price, selected.priceDecimals)} · ${formatPercent(selectedTicker.changePercent)}`
+              : 'Tap to change market'}
+          </p>
         </div>
         <ChevronDown
           className={`w-4 h-4 text-white/50 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
@@ -131,18 +125,9 @@ export function PairSelector({ pairId, onChange }) {
                       active ? 'bg-white/[0.07]' : 'hover:bg-white/[0.04]'
                     }`}
                   >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <span
-                        className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-black flex-shrink-0"
-                        style={{ background: pair.color }}
-                      >
-                        {pair.base.slice(0, 3)}
-                      </span>
-                      <div className="text-left">
-                        <p className="text-sm font-semibold text-white leading-tight">{pair.label}</p>
-                        <p className="text-[10px] text-white/35 leading-tight">{pair.base}</p>
-                      </div>
-                    </div>
+                    <p className="text-sm font-semibold text-white leading-tight min-w-0">
+                      {pair.label}
+                    </p>
 
                     <div className="text-right">
                       {ticker ? (

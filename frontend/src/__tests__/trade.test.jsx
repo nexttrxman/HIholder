@@ -281,14 +281,23 @@ describe('market picker', () => {
     expect(screen.queryByTestId('pair-TONUSDT')).not.toBeInTheDocument();
     expect(screen.queryByTestId('pair-selector-menu')).not.toBeInTheDocument();
 
+    // trigger shows the pair name only
+    expect(screen.getByTestId('pair-selector-label')).toHaveTextContent('TON/USDT');
+
     fireEvent.click(screen.getByTestId('pair-selector-trigger'));
     await waitFor(() => expect(screen.getByTestId('pair-selector-menu')).toBeInTheDocument());
+
+    // each row is the pair name + its quote, with no abbreviation badge repeated
+    const ethRow = screen.getByTestId('pair-option-ETHUSDT');
+    expect(ethRow).toHaveTextContent('ETH/USDT');
+    expect(ethRow.textContent.replace('ETH/USDT', '')).not.toContain('ETH');
 
     fireEvent.click(screen.getByTestId('pair-option-BTCUSDT'));
     await waitFor(() => expect(screen.queryByTestId('pair-selector-menu')).not.toBeInTheDocument());
 
     // BTC quotes 2 decimals, TON 3 -> the price rendering proves the switch
     await waitFor(() => expect(screen.getByTestId('trade-last-price')).toHaveTextContent('3.50'));
+    expect(screen.getByTestId('pair-selector-label')).toHaveTextContent('BTC/USDT');
     await waitFor(() => expect(screen.getByTestId('trade-available-balance')).toBeInTheDocument());
   });
 });
