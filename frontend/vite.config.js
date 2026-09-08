@@ -3,6 +3,17 @@ import react from '@vitejs/plugin-react'
 import path from 'path'
 import { buildManifest, DEV_APP_URL, PROD_APP_URL } from './tonconnect.manifest.js'
 
+// Sirve el manifiesto con el origen real de la petición. Detrás del proxy del
+// preview el esquema llega en x-forwarded-proto, no en la conexión local.
+function serveManifest(req, res, appUrl, { preferHost = false } = {}) {
+  const host = req.headers.host
+  const proto = String(req.headers['x-forwarded-proto'] || 'http').split(',')[0].trim()
+  const url = preferHost && host ? `${proto}://${host}` : appUrl
+  res.setHeader('Content-Type', 'application/json')
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.end(JSON.stringify(buildManifest(url), null, 2))
+}
+
 // Sirve /tonconnect-manifest.json desde el propio origen. TonConnect lo
 // descarga antes de conectar; si falla, el claim muere con "manifest not
 // found". Generarlo acá garantiza que `url` sea el origen real del deploy
@@ -25,12 +36,15 @@ function tonconnectManifest() {
     },
     configureServer(server) {
       server.middlewares.use('/tonconnect-manifest.json', (req, res) => {
-        // En dev/preview se usa el host real de la petición si no hay env.
-        const host = req.headers.host
-        const url = appUrl !== DEV_APP_URL && appUrl ? appUrl : `http://${host}`
-        res.setHeader('Content-Type', 'application/json')
-        res.setHeader('Access-Control-Allow-Origin', '*')
-        res.end(JSON.stringify(buildManifest(url), null, 2))
+        serveManifest(req, res, appUrl)
+      })
+    },
+    // `vite preview` sirve dist/, donde el asset quedó con la url de
+    // producción. Se pisa con el host real de la petición para que el preview
+    // local declare su propio origen y no el dominio desplegado.
+    configurePreviewServer(server) {
+      server.middlewares.use('/tonconnect-manifest.json', (req, res) => {
+        serveManifest(req, res, appUrl, { preferHost: true })
       })
     },
     generateBundle() {
