@@ -182,6 +182,27 @@ const apiCall = async (endpoint, body = {}) => {
   return response.json();
 };
 
+/**
+ * Convierte un fallo de la llamada al Worker en un mensaje mostrable.
+ *
+ * Antes el catch de WalletContext ponía siempre "Failed to connect. Please try
+ * again." y no había forma de distinguir un Worker sin deployar de un initData
+ * rechazado con 401: las dos cosas pintaban la misma pantalla. Dentro de
+ * Telegram no hay consola a mano, así que la causa tiene que verse en la UI.
+ *
+ * @param {unknown} err
+ * @returns {string}
+ */
+export function describeApiError(err) {
+  const message = err?.message ? String(err.message) : String(err);
+  // fetch lanza TypeError cuando ni siquiera llega al servidor: DNS, red,
+  // URL inexistente o WORKER_URL mal configurado.
+  if (err instanceof TypeError || /fetch|network|load failed|failed to fetch/i.test(message)) {
+    return `Cannot reach the backend at ${WORKER_URL}. Check that the Worker is deployed and that VITE_WORKER_URL points to it.`;
+  }
+  return `Backend error: ${message}`;
+}
+
 // ============================================
 // AUTH
 // ============================================
@@ -514,6 +535,7 @@ export default {
   registerHold,
   getClaim,
   verifyPayment,
+  describeApiError,
   placeTrade,
   closeTradePosition,
   setTradeLevels,

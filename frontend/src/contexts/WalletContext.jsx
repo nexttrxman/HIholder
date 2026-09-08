@@ -9,6 +9,7 @@ import {
   getTelegramUser,
   initTelegram,
   applyLocalBalanceDelta,
+  describeApiError,
   DEPOSIT_INFO,
   TON_CONFIG,
 } from '@/services/api';
@@ -142,7 +143,7 @@ export function WalletProvider({ children }) {
       }
     } catch (err) {
       console.error('Failed to load user data:', err);
-      setError('Failed to connect. Please try again.');
+      setError(describeApiError(err));
     } finally {
       setLoading(false);
     }
