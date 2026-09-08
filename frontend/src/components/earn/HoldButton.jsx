@@ -24,7 +24,11 @@ export function HoldButton({ onClaimReady }) {
   const [showPrize, setShowPrize] = useState(false);
   const [prizeAmount, setPrizeAmount] = useState(0);
   const [showRipple, setShowRipple] = useState(false);
+  // Full-screen burst fired when a hold completes. Holds the button centre in
+  // viewport coordinates so the nova radiates from where the finger was.
+  const [nova, setNova] = useState(null);
 
+  const buttonRef = useRef(null);
   const timerRef = useRef(null);
   const startTimeRef = useRef(null);
   const frameRef = useRef(null);
@@ -78,6 +82,15 @@ export function HoldButton({ onClaimReady }) {
     setProgress(1);
     setStatus('done');
     setShowRipple(true);
+
+    // NOVA: overlay the whole screen, centred on the button.
+    const rect = buttonRef.current?.getBoundingClientRect?.();
+    setNova({
+      x: rect ? rect.left + rect.width / 2 : window.innerWidth / 2,
+      y: rect ? rect.top + rect.height / 2 : window.innerHeight / 2,
+      gold: !!pendingClaim,
+    });
+    setTimeout(() => setNova(null), 1100);
     
     const prize = calculatePrize();
     setPrizeAmount(prize);
@@ -186,6 +199,56 @@ export function HoldButton({ onClaimReady }) {
         </motion.div>
       )}
 
+      {/* ============================================
+          NOVA — full-screen burst when a hold completes
+          ============================================ */}
+      {/* No AnimatePresence here on purpose: the layers below fade themselves
+          out, and an exit animation would keep the overlay mounted after the
+          burst is over. */}
+      {nova && (
+        <motion.div
+          className="fixed inset-0 z-[70] pointer-events-none"
+          data-testid="hold-nova"
+          initial={{ opacity: 1 }}
+          animate={{ opacity: 0 }}
+          transition={{ duration: 1.05, ease: 'easeOut' }}
+          aria-hidden
+        >
+            {/* wash over the whole screen */}
+            <motion.div
+              className="absolute inset-0"
+              initial={{ opacity: 0.9 }}
+              animate={{ opacity: 0 }}
+              transition={{ duration: 0.9, ease: 'easeOut' }}
+              style={{
+                background: `radial-gradient(circle 70vmax at ${nova.x}px ${nova.y}px, ${
+                  nova.gold ? 'rgba(255,209,102,0.30)' : 'rgba(87,214,200,0.28)'
+                } 0%, ${
+                  nova.gold ? 'rgba(255,209,102,0.10)' : 'rgba(87,214,200,0.09)'
+                } 35%, transparent 70%)`,
+              }}
+            />
+            {/* two shockwaves */}
+            {[0, 0.14].map((delay, i) => (
+              <motion.span
+                key={i}
+                className="absolute rounded-full border"
+                style={{
+                  left: nova.x,
+                  top: nova.y,
+                  borderColor: nova.gold ? 'rgba(255,209,102,0.75)' : 'rgba(140,242,219,0.7)',
+                  boxShadow: nova.gold
+                    ? '0 0 40px rgba(255,209,102,0.45)'
+                    : '0 0 40px rgba(87,214,200,0.4)',
+                }}
+                initial={{ width: 40, height: 40, x: -20, y: -20, opacity: 0.95, borderWidth: 3 }}
+                animate={{ width: '190vmax', height: '190vmax', x: '-95vmax', y: '-95vmax', opacity: 0, borderWidth: 1 }}
+                transition={{ duration: 0.95, delay, ease: 'easeOut' }}
+              />
+          ))}
+        </motion.div>
+      )}
+
       {/* Hold button container */}
       <div className="relative w-52 h-52 flex items-center justify-center">
         <div className={`
@@ -198,10 +261,12 @@ export function HoldButton({ onClaimReady }) {
         }}
         />
 
-        <svg 
+        <svg
           className="absolute inset-0 w-full h-full"
           viewBox="0 0 200 200"
-          style={{ transform: 'rotate(-90deg)' }}
+          /* overflow visible: an SVG filter region is a rectangle, so the
+             ring's glow used to get cut off in a box. */
+          style={{ transform: 'rotate(-90deg)', overflow: 'visible' }}
         >
           <circle
             cx="100"
@@ -243,12 +308,12 @@ export function HoldButton({ onClaimReady }) {
         </AnimatePresence>
 
         <motion.button
+          ref={buttonRef}
           data-testid="hold-button"
           className={`
             relative w-40 h-40 rounded-full
             flex items-center justify-center
             select-none cursor-pointer
-            overflow-hidden
             ${isDisabled && !hasPendingClaim ? 'opacity-50 cursor-not-allowed' : ''}
             ${hasPendingClaim ? 'ring-4 ring-brand-gold/40 animate-pulse shadow-glow-gold' : 'shadow-glow-teal'}
           `}

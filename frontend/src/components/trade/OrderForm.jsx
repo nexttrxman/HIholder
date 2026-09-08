@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Loader2, CheckCircle2, AlertTriangle, ChevronDown, Target, ShieldAlert } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertTriangle, ChevronDown, Target, ShieldAlert, TrendingDown } from 'lucide-react';
 import { useWallet } from '@/contexts/WalletContext';
 import { useTrade } from '@/contexts/TradeContext';
 import { useTelegram } from '@/hooks/useTelegram';
@@ -8,6 +8,7 @@ import {
   AMOUNT_PRESETS,
   LEVEL_PRESETS,
   TRADE_CONFIG,
+  calcCloseTrade,
   calcOpenTrade,
   formatPercent,
   formatPrice,
@@ -20,14 +21,20 @@ import {
 } from '@/lib/trade';
 
 /**
- * Buy form for the Trade panel: spend internal USDT on the selected market,
- * optionally attaching a Take Profit / Stop Loss bracket to the order.
+ * Order form for the Trade panel.
+ *
+ * BUY  spends internal USDT on the selected market and can attach a
+ *      Take Profit / Stop Loss bracket.
+ * SELL closes the open position in that market at the current price. The
+ *      simulator is long-only spot, so there is nothing to short: selling is
+ *      always exiting a position you already hold.
  */
 export function OrderForm({ pair, price }) {
   const { usdtBalance } = useWallet();
-  const { openTrade, busy, error, clearError } = useTrade();
+  const { openTrade, closeTrade, positions, busy, error, clearError } = useTrade();
   const { vibrate } = useTelegram();
 
+  const [side, setSide] = useState('buy');
   const [amount, setAmount] = useState('');
   const [limitsOn, setLimitsOn] = useState(false);
   const [tp, setTp] = useState('');
@@ -40,7 +47,16 @@ export function OrderForm({ pair, price }) {
     setTp('');
     setSl('');
     setResult(null);
+    setSide('buy');
   }, [pair.id]);
+
+  const isSell = side === 'sell';
+
+  // The position this SELL would close (long-only: one open position per pair).
+  const position = useMemo(
+    () => positions.find((p) => p.pair === pair.id && p.status !== 'closed') || null,
+    [positions, pair.id]
+  );
 
   const numericAmount = Number(amount);
   const fill = useMemo(() => {
@@ -106,7 +122,24 @@ export function OrderForm({ pair, price }) {
     return previewLevelPnl({ qty: fill.qty, entryPrice: price, targetPrice: levels.stopLoss });
   }, [fill, levels, price]);
 
-  const canSubmit = !!fill && sizeValidation.ok && levels.ok && !busy;
+  // ---- SELL side ----------------------------------------------------------
+  // The simulator is long-only spot and `close_trade` exits the whole
+  // position, so a SELL is always a full market close. There is deliberately
+  // no quantity field here: a partial amount would promise something the
+  // backend does not do.
+  const sellQty = position ? Number(position.qty) : 0;
+
+  const sellFill = useMemo(() => {
+    if (!position || !price || !(sellQty > 0)) return null;
+    const res = calcCloseTrade({
+      qty: sellQty,
+      entryPrice: position.entry_price,
+      exitPrice: price,
+    });
+    return res.ok ? res : null;
+  }, [position, price, sellQty]);
+
+  const canSubmit = isSell ? !!sellFill && !busy : !!fill && sizeValidation.ok && levels.ok && !busy;
 
   const handleSubmit = async () => {
     if (!canSubmit) {
@@ -115,6 +148,25 @@ export function OrderForm({ pair, price }) {
     }
 
     vibrate('impact');
+
+    if (isSell) {
+      const res = await closeTrade(position.id, price, 'manual');
+      if (res.ok) {
+        vibrate('success');
+        setResult({
+          sold: true,
+          qty: sellQty,
+          base: pair.base,
+          credit: sellFill.credit,
+          pnl: res.pnl,
+        });
+        setTimeout(() => setResult(null), 2800);
+      } else {
+        vibrate('error');
+      }
+      return;
+    }
+
     const res = await openTrade({
       pair: pair.id,
       amountUsdt: numericAmount,
@@ -126,6 +178,7 @@ export function OrderForm({ pair, price }) {
     if (res.ok) {
       vibrate('success');
       setResult({
+        sold: false,
         qty: res.position.qty,
         base: pair.base,
         bracketed: limitsOn && (levels.takeProfit || levels.stopLoss),
@@ -141,11 +194,44 @@ export function OrderForm({ pair, price }) {
 
   return (
     <div className="mt-4" data-testid="trade-order-form">
+      {/* Buy / Sell */}
+      <div
+        className="flex gap-1 p-1 rounded-2xl bg-white/[0.04] border border-white/[0.08] mb-3"
+        data-testid="trade-side-toggle"
+      >
+        {[
+          { id: 'buy', label: 'Buy', on: 'bg-brand-teal text-black shadow-glow-teal' },
+          { id: 'sell', label: 'Sell', on: 'bg-brand-red text-black shadow-[0_0_18px_rgba(255,107,122,0.35)]' },
+        ].map(({ id, label, on }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => {
+              setSide(id);
+              setAmount('');
+              setResult(null);
+              clearError();
+            }}
+            data-testid={`trade-side-${id}`}
+            aria-pressed={side === id}
+            className={`flex-1 py-2 rounded-xl text-xs font-bold uppercase tracking-[0.08em] transition-all active:scale-[0.98] ${
+              side === id ? on : 'text-white/45 hover:text-white/70'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       <div className="flex items-center justify-between mb-2">
-        <span className="sys-label">Buy {pair.base}</span>
+        <span className={`sys-label ${isSell ? '!text-brand-red' : ''}`}>
+          {isSell ? 'Sell' : 'Buy'} {pair.base}
+        </span>
         <span className="text-[10px] text-white/40">Fee {(TRADE_CONFIG.FEE_RATE * 100).toFixed(2)}%</span>
       </div>
 
+      {!isSell && (
+      <>
       <div className="flex items-center gap-2 rounded-2xl bg-white/[0.04] border border-white/[0.08] px-4 py-3 focus-within:border-brand-green/40 transition-colors">
         <input
           type="number"
@@ -161,12 +247,16 @@ export function OrderForm({ pair, price }) {
           data-testid="trade-amount-input"
           className="flex-1 min-w-0 bg-transparent text-xl font-semibold text-white outline-none placeholder:text-white/25 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
         />
-        <span className="text-xs font-semibold text-brand-green">USDT</span>
+        <span className={`text-xs font-semibold ${isSell ? 'text-brand-red' : 'text-brand-green'}`}>
+          {isSell ? pair.base : 'USDT'}
+        </span>
       </div>
 
       <div className="flex items-center justify-between mt-1.5 text-[11px]" data-testid="trade-available-balance">
         <span className="text-white/35">Available</span>
-        <span className="font-mono text-white/60">{formatUsd(usdtBalance)} USDT</span>
+        <span className="font-mono text-white/60" data-testid="trade-available-value">
+          {formatUsd(usdtBalance)} USDT
+        </span>
       </div>
 
       <div className="flex gap-2 mt-2">
@@ -182,9 +272,55 @@ export function OrderForm({ pair, price }) {
           </button>
         ))}
       </div>
+      </>
+      )}
+
+      {/* SELL: what is about to be sold, read-only */}
+      {isSell && position && (
+        <div
+          className="flex items-center justify-between gap-2 rounded-2xl bg-brand-red/[0.07] border border-brand-red/25 px-4 py-3"
+          data-testid="trade-sell-amount"
+        >
+          <span className="sys-label !text-brand-red/80">Selling all</span>
+          <span className="font-mono text-sm font-semibold text-white tabular-nums">
+            {formatQty(sellQty, pair.qtyDecimals)} {pair.base}
+          </span>
+        </div>
+      )}
+
+      {/* Sell preview */}
+      {isSell && sellFill && (
+        <div className="mt-3 space-y-1.5 text-xs" data-testid="trade-sell-preview">
+          <div className="flex justify-between">
+            <span className="text-white/40">You receive</span>
+            <span className="font-semibold text-white">{formatUsd(sellFill.credit)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-white/40">Exit price</span>
+            <span className="font-mono text-white/70">{formatPrice(price, pair.priceDecimals)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-white/40">Realised PnL</span>
+            <span
+              className={`font-mono font-semibold ${sellFill.pnl >= 0 ? 'text-brand-teal' : 'text-brand-red'}`}
+              data-testid="trade-sell-pnl"
+            >
+              {sellFill.pnl >= 0 ? '+' : ''}
+              {formatUsd(sellFill.pnl)} ({formatPercent(sellFill.pnlPct)})
+            </span>
+          </div>
+        </div>
+      )}
+
+      {isSell && !position && (
+        <p className="mt-3 flex items-center gap-2 text-[11px] text-white/45" data-testid="trade-sell-empty">
+          <TrendingDown className="w-3.5 h-3.5 text-brand-red/70" />
+          Nothing to sell yet — open a {pair.base} position first.
+        </p>
+      )}
 
       {/* Fill preview */}
-      {fill && (
+      {!isSell && fill && (
         <div className="mt-3 space-y-1.5 text-xs">
           <div className="flex justify-between">
             <span className="text-white/40">You receive</span>
@@ -208,8 +344,10 @@ export function OrderForm({ pair, price }) {
       )}
 
       {/* ============================================
-          ORDER LIMITS - Take Profit / Stop Loss
+          ORDER LIMITS - Take Profit / Stop Loss (buy only)
           ============================================ */}
+      {!isSell && (
+      <>
       <button
         type="button"
         onClick={toggleLimits}
@@ -334,9 +472,11 @@ export function OrderForm({ pair, price }) {
           </motion.div>
         )}
       </AnimatePresence>
+      </>
+      )}
 
       <AnimatePresence>
-        {(showValidation || error) && (
+        {((!isSell && showValidation) || error) && (
           <motion.div
             initial={{ opacity: 0, y: -4 }}
             animate={{ opacity: 1, y: 0 }}
@@ -355,12 +495,20 @@ export function OrderForm({ pair, price }) {
         disabled={!canSubmit}
         whileTap={{ scale: 0.97 }}
         data-testid="trade-buy-submit"
-        className="mt-4 w-full py-3.5 rounded-2xl bg-brand-green text-black font-bold tracking-tight flex items-center justify-center gap-2 disabled:opacity-35 disabled:cursor-not-allowed transition-opacity active:scale-[0.98]"
+        data-side={side}
+        className={`mt-4 w-full py-3.5 rounded-2xl text-black font-bold tracking-tight flex items-center justify-center gap-2 disabled:opacity-35 disabled:cursor-not-allowed transition-opacity active:scale-[0.98] ${
+          isSell ? 'bg-brand-red shadow-[0_0_24px_rgba(255,107,122,0.3)]' : 'bg-brand-green shadow-glow-teal'
+        }`}
       >
         {busy ? (
           <>
             <Loader2 className="w-4 h-4 animate-spin" />
             Sending order...
+          </>
+        ) : isSell ? (
+          <>
+            <TrendingDown className="w-4 h-4" />
+            {`Sell ${pair.base}`}
           </>
         ) : (
           `Buy ${pair.base}`
@@ -373,12 +521,28 @@ export function OrderForm({ pair, price }) {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
-            className="mt-3 flex items-center gap-2 rounded-xl bg-brand-green/10 border border-brand-green/25 px-3 py-2.5 text-xs text-brand-green"
+            className={`mt-3 flex items-center gap-2 rounded-xl px-3 py-2.5 text-xs border ${
+              result.sold
+                ? 'bg-brand-red/10 border-brand-red/25 text-brand-red'
+                : 'bg-brand-green/10 border-brand-green/25 text-brand-green'
+            }`}
+            data-testid="trade-order-result"
           >
             <CheckCircle2 className="w-4 h-4" />
             <span>
-              Bought {formatQty(result.qty, 4)} {result.base}
-              {result.bracketed ? ' — TP/SL armed' : ' — position opened'}
+              {result.sold ? (
+                <>
+                  Sold {formatQty(result.qty, pair.qtyDecimals)} {result.base} — credited {formatUsd(result.credit)}
+                  {typeof result.pnl === 'number'
+                    ? ` · PnL ${result.pnl >= 0 ? '+' : ''}${formatUsd(result.pnl)}`
+                    : ''}
+                </>
+              ) : (
+                <>
+                  Bought {formatQty(result.qty, pair.qtyDecimals)} {result.base}
+                  {result.bracketed ? ' — TP/SL armed' : ' — position opened'}
+                </>
+              )}
             </span>
           </motion.div>
         )}

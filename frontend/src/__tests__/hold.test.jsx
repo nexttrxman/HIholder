@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
 import { resetMockWallet, authUser, registerHold } from '@/services/api';
 import { WalletProvider } from '@/contexts/WalletContext';
@@ -193,5 +193,54 @@ describe('unclaimed claim', () => {
     expect(hold.hold_number).toBe(1);
     expect(hold.remaining_holds).toBe(2);
     expect(hold.cycle_complete).toBe(false);
+  });
+});
+
+// ============================================
+// Nova + unclipped glow
+// ============================================
+describe('hold feedback', () => {
+  beforeEach(() => {
+    resetMockWallet();
+    localStorage.clear();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('does not clip the button or the progress ring', async () => {
+    renderHold();
+    await settle();
+
+    // the old overflow-hidden cut the glow into a box; the image is rounded
+    // on its own so the clip was never needed
+    const button = screen.getByTestId('hold-button');
+    expect(button.className).not.toContain('overflow-hidden');
+
+    const svg = button.parentElement.querySelector('svg');
+    expect(svg.style.overflow).toBe('visible');
+  });
+
+  it('fires a full-screen nova when the hold completes', async () => {
+    renderHold();
+    await settle();
+
+    const button = screen.getByTestId('hold-button');
+    fireEvent.mouseDown(button);
+    await holdFor(HOLD_MS + 50);
+
+    // findBy* cannot advance fake timers — query directly after the act()
+    const nova = screen.getByTestId('hold-nova');
+    // it must cover the whole screen and sit above the app
+    expect(nova.className).toContain('fixed');
+    expect(nova.className).toContain('inset-0');
+    expect(nova.className).toContain('z-[70]');
+    expect(nova.className).toContain('pointer-events-none');
+
+    // and it must clean itself up
+    await holdFor(1200);
+    expect(screen.queryByTestId('hold-nova')).not.toBeInTheDocument();
   });
 });

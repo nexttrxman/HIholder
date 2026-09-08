@@ -401,3 +401,94 @@ describe('order limits', () => {
     expect(screen.getByTestId('position-sl')).toHaveTextContent('SL 3.200');
   });
 });
+
+// ============================================
+// SELL side
+// ============================================
+describe('selling', () => {
+  beforeEach(() => {
+    resetMockWallet();
+    localStorage.clear();
+    market.price = 3.5;
+    market.changePercent = 1.25;
+  });
+
+  const buyFifty = async () => {
+    await waitFor(() => expect(screen.getByTestId('trade-available-balance')).toHaveTextContent('$250.00'));
+    fireEvent.change(screen.getByTestId('trade-amount-input'), { target: { value: '50' } });
+    await waitFor(() => expect(screen.getByTestId('trade-preview-qty')).toHaveTextContent('14.29 TON'));
+    fireEvent.click(screen.getByTestId('trade-buy-submit'));
+    await waitFor(() => expect(screen.getByTestId('position-TONUSDT')).toBeInTheDocument());
+  };
+
+  it('has a Buy/Sell switch that starts on Buy', async () => {
+    renderWithProviders(<TradePage />);
+    await waitFor(() => expect(screen.getByTestId('trade-side-toggle')).toBeInTheDocument());
+
+    expect(screen.getByTestId('trade-side-buy')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('trade-side-sell')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByTestId('trade-buy-submit')).toHaveAttribute('data-side', 'buy');
+    expect(screen.getByTestId('trade-buy-submit').textContent).toContain('Buy TON');
+  });
+
+  it('has nothing to sell before a position exists', async () => {
+    renderWithProviders(<TradePage />);
+    await waitFor(() => expect(screen.getByTestId('trade-side-toggle')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('trade-side-sell'));
+
+    expect(await screen.findByTestId('trade-sell-empty')).toBeInTheDocument();
+    expect(screen.getByTestId('trade-buy-submit')).toBeDisabled();
+    expect(screen.getByTestId('trade-buy-submit').textContent).toContain('Sell TON');
+    // the TP/SL bracket is a buy-only concept
+    expect(screen.queryByTestId('trade-limits-toggle')).not.toBeInTheDocument();
+  });
+
+  it('shows the whole position as the amount to sell', async () => {
+    renderWithProviders(<TradePage />);
+    await buyFifty();
+
+    fireEvent.click(screen.getByTestId('trade-side-sell'));
+
+    const amount = await screen.findByTestId('trade-sell-amount');
+    expect(amount.textContent).toContain('14.29 TON');
+    // no quantity field on the sell side: the close is always total
+    expect(screen.queryByTestId('trade-amount-input')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('trade-preset-100')).not.toBeInTheDocument();
+
+    await waitFor(() => expect(screen.getByTestId('trade-sell-preview')).toBeInTheDocument());
+    expect(screen.getByTestId('trade-sell-pnl').textContent).toContain('-');
+  });
+
+  it('sells the open position at market and credits the wallet', async () => {
+    renderWithProviders(<TradePage />);
+    await buyFifty();
+    await waitFor(() => expect(screen.getByTestId('trade-stat-cash')).toHaveTextContent('$199.95'));
+
+    fireEvent.click(screen.getByTestId('trade-side-sell'));
+    await waitFor(() => expect(screen.getByTestId('trade-sell-preview')).toBeInTheDocument());
+    expect(screen.getByTestId('trade-buy-submit')).not.toBeDisabled();
+
+    fireEvent.click(screen.getByTestId('trade-buy-submit'));
+
+    await waitFor(() => expect(screen.getByTestId('positions-empty')).toBeInTheDocument());
+    // 199.95 + 49.95 credit = 249.90, the round trip cost the two fees
+    await waitFor(() => expect(screen.getByTestId('trade-stat-cash')).toHaveTextContent('$249.90'));
+    expect(screen.getByTestId('trade-stat-pnl')).toHaveTextContent('-$0.10');
+    expect(screen.getByTestId('trade-order-result').textContent).toContain('Sold 14.29 TON');
+  });
+
+  it('switching back to Buy restores the amount field and the bracket', async () => {
+    renderWithProviders(<TradePage />);
+    await waitFor(() => expect(screen.getByTestId('trade-side-toggle')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('trade-side-sell'));
+    await waitFor(() => expect(screen.queryByTestId('trade-amount-input')).not.toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('trade-side-buy'));
+
+    await waitFor(() => expect(screen.getByTestId('trade-amount-input')).toBeInTheDocument());
+    expect(screen.getByTestId('trade-available-value').textContent).toContain('$250.00');
+    expect(screen.getByTestId('trade-limits-toggle')).toBeInTheDocument();
+  });
+});
