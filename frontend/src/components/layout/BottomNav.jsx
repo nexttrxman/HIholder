@@ -47,30 +47,33 @@ export function BottomNav({ activeTab, onTabChange, claimPending = false }) {
                   onClick={() => onTabChange(id)}
                   data-testid={`nav-${id}`}
                   aria-label="Trade"
-                  className="relative flex flex-col items-center justify-center flex-1 -mt-7 group"
+                  className="relative flex flex-col items-center justify-center flex-1 -mt-3.5 group"
                 >
+                  {/* Raised key: a dark glass face with a teal tint and a soft
+                      emboss. Deliberately quiet — it should read as the primary
+                      tab without shouting. */}
                   <span
                     className={`
                       relative flex items-center justify-center
-                      h-14 w-14 rounded-[1.35rem]
-                      bg-gradient-to-b from-brand-mint via-brand-teal to-[#2b9d92]
-                      border border-brand-mint/50
-                      shadow-[inset_0_2px_1px_rgba(233,255,251,0.55),inset_0_-4px_8px_rgba(4,16,22,0.45),0_12px_22px_-8px_rgba(87,214,200,0.65)]
-                      transition-all duration-150
-                      ${isActive ? 'translate-y-0 brightness-110' : 'translate-y-0 group-hover:brightness-105'}
-                      group-active:translate-y-[2px]
-                      group-active:shadow-[inset_0_2px_6px_rgba(4,16,22,0.5),0_4px_10px_-6px_rgba(87,214,200,0.5)]
+                      h-12 w-12 rounded-2xl
+                      bg-gradient-to-b from-brand-teal/22 to-brand-teal/[0.06]
+                      border transition-all duration-150
+                      shadow-[inset_0_1px_0_rgba(233,255,251,0.14),inset_0_-2px_4px_rgba(4,16,22,0.4),0_6px_14px_-10px_rgba(87,214,200,0.45)]
+                      group-active:translate-y-[1px]
+                      group-active:shadow-[inset_0_1px_3px_rgba(4,16,22,0.45)]
+                      ${isActive ? 'border-brand-teal/45' : 'border-white/[0.1]'}
                     `}
                     data-testid="trade-key"
                   >
-                    {/* specular highlight across the top face */}
-                    <span className="pointer-events-none absolute inset-x-2 top-1 h-3 rounded-full bg-white/45 blur-[3px]" />
-                    <Icon className="relative w-6 h-6 text-[#041016]" strokeWidth={2.4} />
+                    <Icon
+                      className={`w-5 h-5 ${isActive ? 'text-brand-mint' : 'text-brand-teal/90'}`}
+                      strokeWidth={isActive ? 2.2 : 1.9}
+                    />
                   </span>
                   <span
                     className={`
                       font-mono text-[9px] uppercase tracking-[0.14em] mt-1
-                      ${isActive ? 'text-brand-mint' : 'text-brand-teal/80'}
+                      ${isActive ? 'text-brand-mint' : 'text-ink-dim/70'}
                     `}
                   >
                     {label}

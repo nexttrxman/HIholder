@@ -9,6 +9,13 @@ const TELEGRAM_BOT_URL = import.meta.env.VITE_TELEGRAM_BOT_URL || 'https://t.me/
 const DEPOSIT_ADDRESS = import.meta.env.VITE_DEPOSIT_ADDRESS || 'TNjqVzo47ndAvH241njkMLKbda3G6FPgVs';
 const TREASURY_WALLET = 'UQCydneDGeAcamdCFS6e13Z2xoxwA5DsLkFONRdp-cavw-Th';
 
+import {
+  CHECKIN_CONFIG,
+  utcDayKey,
+  isoWeekKey,
+  summarizeCheckins,
+} from '@/lib/checkin';
+
 // Dev mode detection
 const IS_DEV = typeof window !== 'undefined' && !window.Telegram?.WebApp?.initData;
 
@@ -390,6 +397,118 @@ export const TON_CONFIG = {
   claim_expiry_minutes: 15,
 };
 
+// ============================================
+// DAILY CHECK-IN
+// ============================================
+const CHECKIN_KEY = 'tk_checkins_v1';
+const CHECKIN_WEEKLY_KEY = 'tk_checkin_weekly_paid_v1';
+
+const readMockCheckins = () => {
+  try {
+    const raw = window.localStorage.getItem(CHECKIN_KEY);
+    const rows = raw ? JSON.parse(raw) : [];
+    return Array.isArray(rows) ? rows : [];
+  } catch (e) {
+    return [];
+  }
+};
+
+const writeMockCheckins = (rows) => {
+  try {
+    window.localStorage.setItem(CHECKIN_KEY, JSON.stringify(rows));
+  } catch (e) {
+    /* storage unavailable */
+  }
+};
+
+/** @returns {Promise<{ok:boolean, checked_in_today:boolean, streak:number, days_this_week:number, weekly_complete:boolean}>} */
+export const checkinStatus = async () => {
+  try {
+    const result = await apiCall('/checkin/status');
+    if (result) return result;
+
+    return {
+      ok: true,
+      ...summarizeCheckins(readMockCheckins().map((d) => ({ checkin_date: d }))),
+    };
+  } catch (error) {
+    console.error('Check-in status error:', error);
+    if (IS_DEV) {
+      return {
+        ok: true,
+        ...summarizeCheckins(readMockCheckins().map((d) => ({ checkin_date: d }))),
+      };
+    }
+    throw error;
+  }
+};
+
+/**
+ * Performs today's check-in. Credits the daily reward and, on the 7th day of
+ * the ISO week, the weekly bonus (once per week).
+ */
+export const dailyCheckin = async () => {
+  try {
+    const result = await apiCall('/checkin');
+    if (result) return result;
+
+    const days = readMockCheckins();
+    const today = utcDayKey();
+    const asRows = (list) => list.map((d) => ({ checkin_date: d }));
+
+    if (days.includes(today)) {
+      return { ok: false, error: 'already_checked_in', ...summarizeCheckins(asRows(days)) };
+    }
+
+    days.push(today);
+    writeMockCheckins(days);
+
+    const summary = summarizeCheckins(asRows(days));
+    const week = isoWeekKey();
+
+    // weekly bonus: 7 days in the ISO week, paid at most once per week
+    let weeklyPaid = 0;
+    let paidWeek = null;
+    try {
+      paidWeek = window.localStorage.getItem(CHECKIN_WEEKLY_KEY);
+    } catch (e) {
+      paidWeek = null;
+    }
+    if (summary.weekly_complete && paidWeek !== week) {
+      weeklyPaid = CHECKIN_CONFIG.WEEKLY_BONUS_USDT;
+      try {
+        window.localStorage.setItem(CHECKIN_WEEKLY_KEY, week);
+      } catch (e) {
+        /* ignore */
+      }
+    }
+
+    const credited = CHECKIN_CONFIG.DAILY_REWARD_USDT + weeklyPaid;
+    const newBalance = applyLocalBalanceDelta(credited);
+
+    return {
+      ok: true,
+      ...summary,
+      weekly_bonus: weeklyPaid,
+      credited,
+      new_balance: newBalance,
+    };
+  } catch (error) {
+    console.error('Check-in error:', error);
+    throw error;
+  }
+};
+
+/** Dev-only: forget the demo check-in history (tests and "restart demo"). */
+export const resetMockCheckins = () => {
+  try {
+    window.localStorage.removeItem(CHECKIN_KEY);
+    window.localStorage.removeItem(CHECKIN_WEEKLY_KEY);
+  } catch (e) {
+    /* ignore */
+  }
+};
+
 export default {
   authUser,
   registerHold,
@@ -401,6 +520,9 @@ export default {
   getPositions,
   applyLocalBalanceDelta,
   resetMockWallet,
+  checkinStatus,
+  dailyCheckin,
+  resetMockCheckins,
   getTransactions,
   getReferralPool,
   getTelegramUser,

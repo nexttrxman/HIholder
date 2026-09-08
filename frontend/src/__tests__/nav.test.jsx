@@ -138,12 +138,15 @@ describe('BottomNav cues', () => {
     render(<BottomNav activeTab="home" onTabChange={() => {}} />);
 
     const key = screen.getByTestId('trade-key');
-    // emboss = light top edge + dark bottom + coloured drop, and it lifts out
-    // of the dock
+    // emboss = light top edge + dark bottom + a small coloured drop, lifted
+    // just out of the dock. Kept subtle on purpose: if the lift or the inset
+    // shadows grow back, this is the guard.
     expect(key.className).toContain('bg-gradient-to-b');
-    expect(key.className).toContain('inset_0_2px_1px');
-    expect(key.className).toContain('inset_0_-4px_8px');
-    expect(screen.getByTestId('nav-trade').className).toContain('-mt-7');
+    expect(key.className).toContain('inset_0_1px_0');
+    expect(key.className).toContain('inset_0_-2px_4px');
+    expect(screen.getByTestId('nav-trade').className).toContain('-mt-3.5');
+    // it must stay modest: a small key, not a big bright slab
+    expect(key.className).toContain('h-12 w-12');
   });
 
   it('still switches tabs from the raised key', () => {

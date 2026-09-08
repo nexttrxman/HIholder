@@ -17,6 +17,11 @@ import {
   findValidTonPayment,
   generateClaimId,
   resolvePendingClaim,
+  isoWeekKey,
+  utcDayKey,
+  computeStreak,
+  summarizeCheckins,
+  CHECKIN_CONFIG,
   CONFIG,
 } from '../lib.js';
 
@@ -303,4 +308,81 @@ test('resolvePendingClaim: a malformed expires_at forfeits rather than locking',
   // so a future change to this branch is a conscious one.
   assert.equal(r.forfeited, false);
   assert.equal(r.pendingClaim, claim);
+});
+
+// ============================================
+// Daily check-in rules
+// ============================================
+test('utcDayKey: UTC day, not local', () => {
+  assert.equal(utcDayKey(new Date('2026-09-08T23:59:00Z')), '2026-09-08');
+  assert.equal(utcDayKey(new Date('2026-09-09T00:01:00Z')), '2026-09-09');
+});
+
+test('isoWeekKey: matches the ISO year-week the SQL uses', () => {
+  assert.equal(isoWeekKey(new Date('2026-09-08T12:00:00Z')), '2026-W37');
+  // 2026-01-01 is a Thursday, so it belongs to week 1 of 2026
+  assert.equal(isoWeekKey(new Date('2026-01-01T12:00:00Z')), '2026-W01');
+  // 2027-01-01 is a Friday -> still week 53 of 2026
+  assert.equal(isoWeekKey(new Date('2027-01-01T12:00:00Z')), '2026-W53');
+});
+
+test('computeStreak: consecutive days add up', () => {
+  const now = new Date('2026-09-08T12:00:00Z');
+  assert.equal(computeStreak(['2026-09-06', '2026-09-07', '2026-09-08'], now), 3);
+});
+
+test('computeStreak: a missed day breaks it', () => {
+  const now = new Date('2026-09-08T12:00:00Z');
+  assert.equal(computeStreak(['2026-09-05', '2026-09-07', '2026-09-08'], now), 2);
+});
+
+test('computeStreak: today not done yet still counts yesterday and back', () => {
+  const now = new Date('2026-09-08T12:00:00Z');
+  assert.equal(computeStreak(['2026-09-06', '2026-09-07'], now), 2);
+});
+
+test('computeStreak: empty history is 0', () => {
+  assert.equal(computeStreak([], new Date('2026-09-08T12:00:00Z')), 0);
+});
+
+test('summarizeCheckins: counts only the current ISO week', () => {
+  const now = new Date('2026-09-08T12:00:00Z'); // 2026-W37, Tuesday
+  const rows = [
+    { checkin_date: '2026-09-07' }, // Mon, same week
+    { checkin_date: '2026-09-08' }, // today
+    { checkin_date: '2026-09-01' }, // previous week -> ignored
+  ];
+  const s = summarizeCheckins(rows, now);
+  assert.equal(s.checked_in_today, true);
+  assert.equal(s.days_this_week, 2);
+  assert.equal(s.weekly_complete, false);
+  assert.equal(s.days_to_weekly, 5);
+  assert.equal(s.streak, 2);
+});
+
+test('summarizeCheckins: 7 distinct days complete the week', () => {
+  const now = new Date('2026-09-13T12:00:00Z'); // Sunday of 2026-W37
+  const rows = ['07', '08', '09', '10', '11', '12', '13'].map((d) => ({
+    checkin_date: `2026-09-${d}`,
+  }));
+  const s = summarizeCheckins(rows, now);
+  assert.equal(s.days_this_week, 7);
+  assert.equal(s.weekly_complete, true);
+  assert.equal(s.days_to_weekly, 0);
+  assert.equal(s.streak, 7);
+});
+
+test('summarizeCheckins: a duplicate day is not counted twice', () => {
+  const now = new Date('2026-09-08T12:00:00Z');
+  const rows = [{ checkin_date: '2026-09-08' }, { checkin_date: '2026-09-08' }];
+  assert.equal(summarizeCheckins(rows, now).days_this_week, 1);
+});
+
+test('summarizeCheckins: tolerates a missing/empty list', () => {
+  const s = summarizeCheckins(undefined, new Date('2026-09-08T12:00:00Z'));
+  assert.equal(s.days_this_week, 0);
+  assert.equal(s.streak, 0);
+  assert.equal(s.weekly_complete, false);
+  assert.equal(s.daily_reward, CHECKIN_CONFIG.DAILY_REWARD_USDT);
+  assert.equal(s.weekly_bonus, CHECKIN_CONFIG.WEEKLY_BONUS_USDT);
 });

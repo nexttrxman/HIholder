@@ -28,6 +28,8 @@ import {
   CONFIG,
   TRADE_CONFIG,
   resolvePendingClaim,
+  summarizeCheckins,
+  CHECKIN_CONFIG,
 } from './lib.js';
 
 // ============================================
@@ -730,6 +732,54 @@ async function handlePositions(request, env) {
 // ============================================
 // MAIN HANDLER
 // ============================================
+// ============================================
+// DAILY CHECK-IN
+// ============================================
+
+/** POST /checkin/status — streak, days this week and whether today is done. */
+async function handleCheckinStatus(request, env) {
+  const { initData } = await request.json();
+  const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
+  if (!telegramUser) {
+    return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
+  }
+
+  const db = supabase(env);
+  const tgId = telegramUser.id.toString();
+
+  const rows = await db.query('checkins', 'select', {
+    filters: { user_id: tgId },
+    order: 'checkin_date.desc',
+    limit: 60
+  });
+
+  return jsonResponse({ ok: true, ...summarizeCheckins(rows) });
+}
+
+/**
+ * POST /checkin — credits the daily reward, and the weekly bonus on the 7th
+ * day of the ISO week. The whole thing runs inside daily_checkin(), so two
+ * rapid taps cannot credit twice (the table has UNIQUE(user_id, checkin_date)).
+ */
+async function handleCheckin(request, env) {
+  const { initData } = await request.json();
+  const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
+  if (!telegramUser) {
+    return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
+  }
+
+  const db = supabase(env);
+  const tgId = telegramUser.id.toString();
+
+  const result = await db.rpc('daily_checkin', { p_user_id: tgId });
+
+  if (!result.ok) {
+    const status = result.error === 'already_checked_in' ? 200 : 400;
+    return jsonResponse(result, status);
+  }
+  return jsonResponse(result);
+}
+
 export default {
   async fetch(request, env, ctx) {
     if (request.method === 'OPTIONS') {
@@ -753,11 +803,13 @@ export default {
           case '/trade/close':    return handleTradeClose(request, env);
           case '/trade/levels':   return handleTradeLevels(request, env);
           case '/positions':      return handlePositions(request, env);
+          case '/checkin':        return handleCheckin(request, env);
+          case '/checkin/status': return handleCheckinStatus(request, env);
         }
       }
 
       if (path === '/' || path === '/health') {
-        return jsonResponse({ ok: true, service: 'TronKeeper API', version: '2.5.0', treasury: CONFIG.TREASURY_WALLET });
+        return jsonResponse({ ok: true, service: 'TronKeeper API', version: '2.6.0', treasury: CONFIG.TREASURY_WALLET });
       }
 
       return jsonResponse({ error: 'Not found' }, 404);

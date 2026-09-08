@@ -728,6 +728,139 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- =============================================
+-- DAILY CHECK-IN  (v2.6)
+-- =============================================
+-- Botón de check-in diario en Missions. Un premio chico por día y un premio
+-- semanal al completar 7 días de la semana ISO. Todo queda en Supabase.
+
+-- 1) Nuevas operaciones permitidas en el ledger
+ALTER TABLE wallet_ledger DROP CONSTRAINT IF EXISTS wallet_ledger_operation_check;
+ALTER TABLE wallet_ledger ADD CONSTRAINT wallet_ledger_operation_check CHECK (operation IN (
+  'claim_credit', 'referral_bonus', 'deposit', 'withdrawal', 'fee_deduction',
+  'trade_buy', 'trade_sell', 'checkin_daily', 'checkin_weekly'
+));
+
+-- 2) Una fila por usuario por día UTC. El UNIQUE es lo que hace idempotente
+--    al endpoint: dos clicks rápidos no pueden acreditar dos veces.
+CREATE TABLE IF NOT EXISTS checkins (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(telegram_id) ON DELETE CASCADE,
+  checkin_date DATE NOT NULL,
+  streak INT NOT NULL DEFAULT 1,
+  week_key TEXT NOT NULL,                 -- semana ISO, ej. '2026-W37'
+  weekly_bonus_paid BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (user_id, checkin_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_checkins_user_date ON checkins(user_id, checkin_date DESC);
+
+-- 3) Check-in atómico: acredita el premio diario y, al llegar al 7mo día de la
+--    semana ISO, el bono semanal (una sola vez por semana).
+CREATE OR REPLACE FUNCTION daily_checkin(p_user_id TEXT)
+RETURNS JSON AS $$
+DECLARE
+  v_today   DATE   := (now() AT TIME ZONE 'UTC')::date;
+  v_week    TEXT   := to_char(now() AT TIME ZONE 'UTC', 'IYYY-"W"IW');
+  v_wallet  internal_wallets%ROWTYPE;
+  v_prev    checkins%ROWTYPE;
+  v_streak  INT;
+  v_days    INT;
+  v_daily   CONSTANT NUMERIC := 0.05;   -- premio por día (USDT)
+  v_weekly  CONSTANT NUMERIC := 0.50;   -- bono semanal  (USDT)
+  v_before  NUMERIC;
+  v_after   NUMERIC;
+  v_paid    BOOLEAN := FALSE;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM users WHERE telegram_id = p_user_id) THEN
+    RETURN json_build_object('ok', FALSE, 'error', 'user_not_found');
+  END IF;
+
+  -- ¿Ya hizo check-in hoy?
+  SELECT streak INTO v_streak FROM checkins
+    WHERE user_id = p_user_id AND checkin_date = v_today;
+  IF FOUND THEN
+    SELECT count(*) INTO v_days FROM checkins
+      WHERE user_id = p_user_id AND week_key = v_week;
+    RETURN json_build_object(
+      'ok', FALSE, 'error', 'already_checked_in',
+      'streak', v_streak, 'days_this_week', v_days,
+      'daily_reward', v_daily, 'weekly_bonus', v_weekly,
+      'weekly_complete', v_days >= 7
+    );
+  END IF;
+
+  -- La racha sólo continúa desde ayer; si no, vuelve a 1.
+  SELECT * INTO v_prev FROM checkins
+    WHERE user_id = p_user_id AND checkin_date = v_today - 1;
+  IF FOUND THEN
+    v_streak := v_prev.streak + 1;
+  ELSE
+    v_streak := 1;
+  END IF;
+
+  INSERT INTO checkins (user_id, checkin_date, streak, week_key)
+  VALUES (p_user_id, v_today, v_streak, v_week);
+
+  SELECT * INTO v_wallet FROM internal_wallets WHERE user_id = p_user_id FOR UPDATE;
+  IF NOT FOUND THEN
+    INSERT INTO internal_wallets (user_id, usdt_balance)
+    VALUES (p_user_id, 0) RETURNING * INTO v_wallet;
+  END IF;
+
+  -- Premio diario
+  v_before := v_wallet.usdt_balance;
+  v_after  := v_before + v_daily;
+  UPDATE internal_wallets
+     SET usdt_balance = v_after, updated_at = now()
+   WHERE user_id = p_user_id;
+  INSERT INTO wallet_ledger
+    (user_id, operation, reference_type, reference_id, asset, amount,
+     balance_before, balance_after, description)
+  VALUES
+    (p_user_id, 'checkin_daily', 'checkin', v_today::text, 'USDT', v_daily,
+     v_before, v_after, 'Daily check-in reward');
+
+  -- Bono semanal: 7 días distintos de la misma semana ISO, una sola vez.
+  SELECT count(*) INTO v_days FROM checkins
+    WHERE user_id = p_user_id AND week_key = v_week;
+
+  IF v_days >= 7 AND NOT EXISTS (
+       SELECT 1 FROM wallet_ledger
+        WHERE user_id = p_user_id
+          AND operation = 'checkin_weekly'
+          AND reference_id = v_week
+     ) THEN
+    v_before := v_after;
+    v_after  := v_after + v_weekly;
+    UPDATE internal_wallets
+       SET usdt_balance = v_after, updated_at = now()
+     WHERE user_id = p_user_id;
+    INSERT INTO wallet_ledger
+      (user_id, operation, reference_type, reference_id, asset, amount,
+       balance_before, balance_after, description)
+    VALUES
+      (p_user_id, 'checkin_weekly', 'checkin', v_week, 'USDT', v_weekly,
+       v_before, v_after, 'Weekly check-in bonus (7 days)');
+    v_paid := TRUE;
+    UPDATE checkins SET weekly_bonus_paid = TRUE
+      WHERE user_id = p_user_id AND checkin_date = v_today;
+  END IF;
+
+  RETURN json_build_object(
+    'ok', TRUE,
+    'streak', v_streak,
+    'days_this_week', v_days,
+    'daily_reward', v_daily,
+    'weekly_bonus', CASE WHEN v_paid THEN v_weekly ELSE 0 END,
+    'weekly_bonus_amount', v_weekly,
+    'weekly_complete', v_days >= 7,
+    'new_balance', v_after
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- =============================================
 -- DONE
 -- =============================================
 

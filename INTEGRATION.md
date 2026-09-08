@@ -321,6 +321,17 @@ Un claim que vence sin pagarse se **pierde** y el ciclo vuelve a 0 holds.
 `resolvePendingClaim`, `lib.js`). El mock de desarrollo y `WalletContext`
 aplican la misma regla.
 
+**v2.6 (Daily Check-In)** — sección "DAILY CHECK-IN" de `supabase/schema.sql`:
+
+1. `ALTER TABLE wallet_ledger` agrega `checkin_daily` / `checkin_weekly`
+2. `CREATE TABLE checkins` (`UNIQUE(user_id, checkin_date)` = idempotencia)
+3. `CREATE FUNCTION daily_checkin(p_user_id)` — acredita el premio diario y, al
+   7mo día de la semana ISO, el bono semanal una sola vez
+
+Endpoints nuevos: `POST /checkin` y `POST /checkin/status`.
+Premios en `CHECKIN_CONFIG` (`cloudflare-worker/lib.js`, espejado en
+`frontend/src/lib/checkin.js`): 0.05 USDT/día, 0.50 USDT a la semana.
+
 ### Frontend
 
 | Archivo | Rol |
