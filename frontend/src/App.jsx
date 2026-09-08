@@ -18,8 +18,14 @@ import { ReferralsPage } from '@/pages/Referrals';
 
 import '@/App.css';
 
-// TonConnect manifest - update with your app info
-const manifestUrl = 'https://raw.githubusercontent.com/AntipressTeam/TonConnectManifest/main/tonkeeper.json';
+// TonConnect exige un manifiesto público con url/name/iconUrl. Se sirve desde
+// el propio origen (lo genera el plugin tonconnectManifest en vite.config.js)
+// para no depender de un repo de terceros: cuando ese host no respondió, el
+// claim se cayó con "manifest not found".
+const manifestUrl =
+  typeof window === 'undefined'
+    ? '/tonconnect-manifest.json'
+    : `${window.location.origin}/tonconnect-manifest.json`;
 
 export function AppContent() {
   const { loading, error, pendingClaim } = useWallet();

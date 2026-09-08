@@ -408,3 +408,21 @@ en 5 tabs: Home, Missions, **Trade**, Invite, Wallet.
 cd frontend && npx vitest run          # 21 tests (nav, compra/cierre, TP-SL, picker, maths)
 cd cloudflare-worker && node --test tests/lib.test.mjs tests/trade.test.mjs   # 51 tests
 ```
+
+### Variables de entorno del build del frontend
+
+Se leen en tiempo de **build** (Vite las inlina), no en runtime. En Cloudflare
+Pages van en Settings → Environment variables.
+
+| Variable | Para qué | Si falta |
+|---|---|---|
+| `VITE_WORKER_URL` | URL del Worker (`api.js`) | cae al fallback `https://tkworker.tkexchange.workers.dev` |
+| `VITE_APP_URL` | Origen de la app, usado como `url` e `iconUrl` del manifiesto de TonConnect | el manifiesto queda en `http://localhost:3000` y las wallets móviles no pueden volver a la app |
+| `VITE_TELEGRAM_BOT_URL` | Link al bot | cae a `https://t.me/TKcex_bot` |
+| `VITE_DEPOSIT_ADDRESS` | Dirección de depósito mostrada | cae a la hardcodeada en `api.js` |
+
+El manifiesto de TonConnect lo genera `vite.config.js` (plugin
+`tonconnectManifest`) en `/tonconnect-manifest.json`, servido desde el propio
+origen. Antes `App.jsx` apuntaba a un repo de terceros
+(`raw.githubusercontent.com/AntipressTeam/...`) y, cuando ese host no respondía,
+el claim abortaba con "manifest not found".
