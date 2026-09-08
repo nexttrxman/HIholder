@@ -117,7 +117,9 @@ async function seedUser(balance = 0) {
   eq('cron: claim pasa a expired_unclaimed', claim.status, 'expired_unclaimed');
 
   const c = await one(`SELECT holds_completed FROM hold_cycles WHERE id=$1`, [cyc.id]);
-  eq('cron: el ciclo vuelve a 0 holds (regla v2.5)', c.holds_completed, 0);
+  // v2.7.1: ya no se pierden. El claim expirado se regenera desde /get-claim
+  // con el mismo premio acumulado, en vez de obligar a esperar las 8 h.
+  eq('cron: el ciclo conserva los 3 holds (regla v2.7.1)', c.holds_completed, 3);
 }
 
 // ---- 3) open_trade / close_trade ----------------------------------------

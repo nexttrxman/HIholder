@@ -494,15 +494,15 @@ $$ LANGUAGE plpgsql;
 -- Función reutilizable (también ejecutable manualmente)
 CREATE OR REPLACE FUNCTION expire_claims_and_cycles() RETURNS void AS $$
 BEGIN
-  -- v2.5: un claim que expiró sin pagarse se pierde Y el ciclo vuelve a 0 holds.
-  -- El worker (/auth) ya aplica esta regla, pero este job corre cada minuto y
-  -- casi siempre gana la carrera: si volteara el claim sin resetear el ciclo,
-  -- /auth vería "3 holds completados, sin claim pendiente" (solo busca claims
-  -- con status='pending') y el botón de hold quedaría muerto hasta que termine
-  -- la ventana de 8 h. Por eso el reset va PRIMERO y usa las filas que estamos
-  -- por expirar.
+  -- v2.7.1: un claim que expiró sin pagarse se pierde, pero el ciclo CONSERVA
+  -- los 3 holds. Antes iban a 0 y el usuario tenía que esperar a que terminara
+  -- la ventana de 8 h para volver a holdear; ahora /get-claim regenera el claim
+  -- con el mismo premio acumulado, así que el trabajo no se pierde por un
+  -- timeout de la red.
+  -- El UPDATE va primero y usa las filas que estamos por expirar: este job corre
+  -- cada minuto y casi siempre gana la carrera contra /auth.
   UPDATE hold_cycles hc
-  SET holds_completed = 0
+  SET holds_completed = 3
   FROM claims c
   WHERE c.status = 'pending'
     AND c.expires_at < NOW()
@@ -523,7 +523,7 @@ $$ LANGUAGE plpgsql;
 -- Reparación única para bases ya desplegadas: el job viejo volteaba claims sin
 -- resetear el ciclo, dejando al usuario trabado en 3/3 sin claim pendiente.
 UPDATE hold_cycles hc
-SET holds_completed = 0
+SET holds_completed = 3
 WHERE hc.status = 'active'
   AND hc.holds_completed > 0
   AND EXISTS (

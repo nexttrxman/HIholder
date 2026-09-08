@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
-import { resetMockWallet, authUser, registerHold } from '@/services/api';
+import { resetMockWallet, authUser, registerHold, getClaim } from '@/services/api';
 import { WalletProvider } from '@/contexts/WalletContext';
 import { TradeProvider } from '@/contexts/TradeContext';
 import { HoldButton } from '@/components/earn/HoldButton';
@@ -66,7 +66,7 @@ describe('Hold to Earn — 3 second hold + claim loop', () => {
 
     // the prize overlay (random 0.02 - 0.08 USDT) pops 300ms later
     await holdFor(PRIZE_DELAY_MS);
-    expect(screen.getByText(/\+\$0\.0[2-8]/)).toBeInTheDocument();
+    expect(screen.getByText(/\+\$0\.(1[5-9]|2\d|3[0-5])/)).toBeInTheDocument();
   });
 
   it('releasing early cancels the hold', async () => {
@@ -105,7 +105,7 @@ describe('Hold to Earn — 3 second hold + claim loop', () => {
     expect(onClaimReady.mock.calls[0][0]).toMatchObject({
       claim_id: expect.any(String),
       total_prize: expect.any(Number),
-      ton_fee: 0.05,
+      ton_fee: 0.15,
       treasury_wallet: expect.any(String),
     });
 
@@ -122,7 +122,7 @@ describe('Hold to Earn — 3 second hold + claim loop', () => {
     fireEvent.mouseDown(button);
     await holdFor(HOLD_MS + 50);
     await holdFor(PRIZE_DELAY_MS);
-    expect(screen.getByText(/\+\$0\.0[2-8]/)).toBeInTheDocument();
+    expect(screen.getByText(/\+\$0\.(1[5-9]|2\d|3[0-5])/)).toBeInTheDocument();
     await holdFor(RESET_MS + 50);
 
     // cycle dots: first one filled, the rest still pending
@@ -150,17 +150,17 @@ describe('unclaimed claim', () => {
   };
 
   it('reports the pending claim once the cycle is complete', async () => {
-    for (let i = 0; i < 3; i++) await registerHold(0.05);
+    for (let i = 0; i < 3; i++) await registerHold(0.25);
 
     const auth = await authUser();
     expect(auth.pending_claim).toBeTruthy();
-    expect(auth.pending_claim.total_prize).toBe(0.15);
+    expect(auth.pending_claim.total_prize).toBe(0.75);
     expect(auth.cycle.holds_completed).toBe(3);
     expect(auth.cycle.remaining_holds).toBe(0);
   });
 
-  it('forfeits an expired claim and resets the cycle to 0 holds', async () => {
-    for (let i = 0; i < 3; i++) await registerHold(0.05);
+  it('forfeits an expired claim but keeps the 3 holds', async () => {
+    for (let i = 0; i < 3; i++) await registerHold(0.25);
 
     const auth = await authUser();
     expect(auth.pending_claim).toBeTruthy();
@@ -168,12 +168,13 @@ describe('unclaimed claim', () => {
 
     const after = await authUser();
     expect(after.pending_claim).toBeNull();
-    expect(after.cycle.holds_completed).toBe(0);
-    expect(after.cycle.remaining_holds).toBe(3);
+    // v2.7.1: ya no se pierden los holds; /get-claim regenera el claim.
+    expect(after.cycle.holds_completed).toBe(3);
+    expect(after.cycle.remaining_holds).toBe(0);
   });
 
   it('keeps the claim payable while it has not expired', async () => {
-    for (let i = 0; i < 3; i++) await registerHold(0.05);
+    for (let i = 0; i < 3; i++) await registerHold(0.25);
 
     const auth = await authUser();
     const again = await authUser();
@@ -183,16 +184,18 @@ describe('unclaimed claim', () => {
     expect(again.cycle.holds_completed).toBe(3);
   });
 
-  it('lets the user hold again after a forfeit', async () => {
-    for (let i = 0; i < 3; i++) await registerHold(0.05);
+  it('regenerates the claim after a forfeit instead of making the user wait', async () => {
+    for (let i = 0; i < 3; i++) await registerHold(0.25);
     expirePendingClaim(await authUser());
 
-    await authUser(); // forfeits and restarts the cycle
+    await authUser(); // pierde el claim pero conserva los 3 holds
 
-    const hold = await registerHold(0.05);
-    expect(hold.hold_number).toBe(1);
-    expect(hold.remaining_holds).toBe(2);
-    expect(hold.cycle_complete).toBe(false);
+    // v2.7.1: /get-claim regenera el claim para cobrar sin esperar 8 h.
+    // (El tope de 3 holds lo impone el worker en handleHold; el mock de dev no.)
+    const { claim } = await getClaim();
+    expect(claim).toBeTruthy();
+    expect(claim.total_prize).toBe(0.75);
+    expect(new Date(claim.expires_at).getTime()).toBeGreaterThan(Date.now());
   });
 });
 

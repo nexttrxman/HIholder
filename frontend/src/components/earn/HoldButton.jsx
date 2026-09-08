@@ -35,7 +35,9 @@ export function HoldButton({ onClaimReady }) {
   const isCompletedRef = useRef(false);
 
   const calculatePrize = () => {
-    return Math.floor(Math.random() * 7 + 2) / 100;
+    // 0.15 a 0.35 USDT por hold (3 holds = hasta 1.05). El worker acota el
+    // mismo rango en handleHold, así que no se puede mandar otra cosa.
+    return Math.floor(Math.random() * 21 + 15) / 100;
   };
 
   const stopHold = useCallback(() => {

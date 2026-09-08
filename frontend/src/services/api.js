@@ -155,10 +155,24 @@ const resolveMockPendingClaim = () => {
   if (new Date(MOCK_PENDING_CLAIM.expires_at) >= new Date()) return MOCK_PENDING_CLAIM;
 
   MOCK_PENDING_CLAIM = null;
-  MOCK_CYCLE.holds_completed = 0;
-  MOCK_CYCLE.remaining_holds = MAX_HOLDS_PER_CYCLE_MOCK;
+  // v2.7.1: el claim vencido se pierde pero los 3 holds se conservan, igual que
+  // en el worker. /get-claim regenera el claim con el mismo premio.
+  MOCK_CYCLE.holds_completed = MAX_HOLDS_PER_CYCLE_MOCK;
+  MOCK_CYCLE.remaining_holds = 0;
   return null;
 };
+
+/**
+ * Claim de dev/preview. El total es 3 holds de 0.25; el fee sale de TON_CONFIG
+ * para no duplicar el valor.
+ */
+const makeMockClaim = () => ({
+  claim_id: `CLM_DEV_${Date.now()}`,
+  total_prize: 0.75,
+  ton_fee: TON_CONFIG.fee,
+  expires_at: new Date(Date.now() + TON_CONFIG.claim_expiry_minutes * 60 * 1000).toISOString(),
+  treasury_wallet: TREASURY_WALLET,
+});
 
 // ============================================
 // TELEGRAM HELPERS
@@ -312,13 +326,7 @@ export const registerHold = async (prize) => {
     const isThird = MOCK_CYCLE.holds_completed === MAX_HOLDS_PER_CYCLE_MOCK;
 
     if (isThird) {
-      MOCK_PENDING_CLAIM = {
-        claim_id: `CLM_DEV_${Date.now()}`,
-        total_prize: 0.15,
-        ton_fee: 0.05,
-        expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
-        treasury_wallet: TREASURY_WALLET,
-      };
+      MOCK_PENDING_CLAIM = makeMockClaim();
     }
 
     return {
@@ -341,7 +349,15 @@ export const getClaim = async () => {
   try {
     const result = await apiCall('/get-claim');
     if (result) return result;
-    return { ok: true, claim: null };
+
+    // Dev/preview: espeja al worker. Si los 3 holds están hechos y no hay claim
+    // pendiente (el anterior venció sin pagarse), se regenera con el mismo
+    // premio en vez de dejar al usuario trabado.
+    resolveMockPendingClaim();
+    if (!MOCK_PENDING_CLAIM && MOCK_CYCLE.holds_completed >= MAX_HOLDS_PER_CYCLE_MOCK) {
+      MOCK_PENDING_CLAIM = makeMockClaim();
+    }
+    return { ok: true, claim: MOCK_PENDING_CLAIM };
   } catch (error) {
     console.error('Get claim error:', error);
     throw error;
@@ -477,7 +493,7 @@ export const DEPOSIT_INFO = {
 
 export const TON_CONFIG = {
   treasury_wallet: TREASURY_WALLET,
-  fee: 0.05,
+  fee: 0.15,
   claim_expiry_minutes: 15,
 };
 

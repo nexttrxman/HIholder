@@ -235,8 +235,14 @@ async function handleHold(request, env) {
     return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
   }
 
-  if (!prize || prize <= 0 || prize > 0.10) {
-    return jsonResponse({ ok: false, error: 'Invalid prize' }, 400);
+  if (
+    typeof prize !== 'number' || !Number.isFinite(prize) ||
+    prize < CONFIG.HOLD_PRIZE_MIN || prize > CONFIG.HOLD_PRIZE_MAX
+  ) {
+    return jsonResponse({
+      ok: false,
+      error: `Invalid prize: must be between ${CONFIG.HOLD_PRIZE_MIN} and ${CONFIG.HOLD_PRIZE_MAX}`,
+    }, 400);
   }
 
   const db = supabase(env);
@@ -332,10 +338,34 @@ async function handleGetClaim(request, env) {
     return jsonResponse({ ok: true, claim: null });
   }
 
-  const claims = await db.query('claims', 'select', {
+  let claims = await db.query('claims', 'select', {
     filters: { cycle_id: cycle.id, status: 'pending' }
   });
-  const claim = claims[0];
+  let claim = claims[0];
+
+  // Los 3 holds están hechos pero no hay claim pendiente: el anterior venció sin
+  // pagarse. Se regenera con el mismo premio acumulado en vez de dejar al
+  // usuario trabado hasta que termine la ventana de 8 h.
+  if (!claim && cycle.holds_completed >= CONFIG.MAX_HOLDS_PER_CYCLE) {
+    const holds = await db.query('holds', 'select', { filters: { cycle_id: cycle.id } });
+    const totalPrize = (Array.isArray(holds) ? holds : [])
+      .reduce((sum, h) => sum + parseFloat(h.prize_amount), 0);
+
+    if (totalPrize > 0) {
+      const created = await db.query('claims', 'insert', {
+        body: {
+          claim_id: generateClaimId(),
+          user_id: tgId,
+          cycle_id: cycle.id,
+          total_prize: totalPrize,
+          ton_fee: CONFIG.TON_FEE,
+          status: 'pending',
+          expires_at: new Date(Date.now() + CONFIG.CLAIM_EXPIRY_MINUTES * 60 * 1000).toISOString(),
+        },
+      });
+      claim = created[0] || null;
+    }
+  }
 
   if (!claim) {
     return jsonResponse({ ok: true, claim: null });

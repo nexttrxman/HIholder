@@ -10,7 +10,11 @@ export const CONFIG = {
   CLAIM_EXPIRY_MINUTES: 15,
   CYCLE_DURATION_HOURS: 8,
   MAX_HOLDS_PER_CYCLE: 3,
-  TON_FEE: 0.05, // TON per claim
+  TON_FEE: 0.15, // TON per claim
+  // Rango del premio por hold. El cliente propone el monto, así que el worker
+  // lo acota: 3 holds de 0.35 = 1.05 USDT como máximo por ciclo.
+  HOLD_PRIZE_MIN: 0.15,
+  HOLD_PRIZE_MAX: 0.35,
   TONCENTER_BASE: 'https://toncenter.com/api/v2',
   // Un initData de Telegram se acepta durante 24 h. La Mini App manda uno
   // fresco en cada apertura, así que un usuario real nunca queda afuera.
@@ -716,7 +720,11 @@ export function resolvePendingClaim(pendingClaim, now = new Date(), currentHolds
   if (!expired) {
     return { pendingClaim, forfeited: false, holdsCompleted: currentHolds };
   }
-  return { pendingClaim: null, forfeited: true, holdsCompleted: 0 };
+  // El claim venció sin pagarse. Antes se perdían los 3 holds y había que
+  // esperar a que terminara la ventana de 8 h; ahora se restauran para que el
+  // usuario pueda regenerar el claim (lo hace /get-claim). El trabajo de los
+  // 3 holds no se pierde por un timeout de la red.
+  return { pendingClaim: null, forfeited: true, holdsCompleted: CONFIG.MAX_HOLDS_PER_CYCLE };
 }
 
 // ============================================

@@ -286,12 +286,23 @@ test('resolvePendingClaim: a live claim is returned untouched', () => {
   assert.equal(r.holdsCompleted, 3, 'still locked at 3/3 while the claim is payable');
 });
 
-test('resolvePendingClaim: an expired claim is forfeited and holds reset to 0', () => {
+test('resolvePendingClaim: el claim expira pero los 3 holds se conservan', () => {
   const claim = { claim_id: 'C1', expires_at: '2026-09-08T12:15:00Z' };
   const r = resolvePendingClaim(claim, new Date('2026-09-08T12:15:01Z'), 3);
   assert.equal(r.pendingClaim, null);
   assert.equal(r.forfeited, true);
-  assert.equal(r.holdsCompleted, 0, 'the user must be able to hold again');
+  // Cambio de contrato: antes iban a 0 y había que esperar las 8 h. Ahora se
+  // conservan para que /get-claim regenere el claim con el mismo premio.
+  assert.equal(r.holdsCompleted, CONFIG.MAX_HOLDS_PER_CYCLE);
+});
+
+test('CONFIG: fee y rango de premio por hold', () => {
+  assert.equal(CONFIG.TON_FEE, 0.15, 'fee del claim en TON');
+  assert.equal(CONFIG.HOLD_PRIZE_MIN, 0.15);
+  assert.equal(CONFIG.HOLD_PRIZE_MAX, 0.35);
+  // 3 holds al máximo = 1.05 USDT
+  // 0.35 * 3 = 1.0499999999999998 en punto flotante: se compara con tolerancia.
+  assert.ok(Math.abs(CONFIG.HOLD_PRIZE_MAX * CONFIG.MAX_HOLDS_PER_CYCLE - 1.05) < 1e-9);
 });
 
 test('resolvePendingClaim: expiry boundary is inclusive (still payable at T)', () => {
