@@ -18,6 +18,9 @@ import {
   isPriceWithinTolerance,
   fetchMarkPrice,
   pairSymbols,
+  validateWalletSale,
+  walletAssetForPair,
+  pairForWalletAsset,
   priceFromPercent,
   validateLevels,
   checkLevelTrigger,
@@ -335,4 +338,43 @@ test('previewLevelPnl: prices the level net of fees', () => {
   assert.ok(res.pnl < 0, 'a stop loss below entry must be a loss');
   const expected = calcCloseTrade({ qty: 1, entryPrice: 100, exitPrice: 95 });
   assert.ok(close(res.pnl, expected.pnl));
+});
+
+// ============================================
+// Venta de saldo interno (TRX/TON -> USDT)
+// ============================================
+test('walletAssetForPair / pairForWalletAsset: solo TRX y TON tienen saldo interno', () => {
+  assert.equal(walletAssetForPair('TRXUSDT'), 'TRX');
+  assert.equal(walletAssetForPair('TONUSDT'), 'TON');
+  assert.equal(walletAssetForPair('BTCUSDT'), null);
+  assert.equal(pairForWalletAsset('TRX'), 'TRXUSDT');
+  assert.equal(pairForWalletAsset('TON'), 'TONUSDT');
+  assert.equal(pairForWalletAsset('USDT'), null);
+});
+
+test('validateWalletSale: acepta una venta cubierta por el saldo', () => {
+  const res = validateWalletSale({ asset: 'TRX', amount: 5, balance: 5 });
+  assert.deepEqual(res, { ok: true, amount: 5 });
+
+  const partial = validateWalletSale({ asset: 'TRX', amount: '2.5', balance: 5 });
+  assert.deepEqual(partial, { ok: true, amount: 2.5 });
+});
+
+test('validateWalletSale: rechaza más de lo que hay', () => {
+  const res = validateWalletSale({ asset: 'TRX', amount: 5.01, balance: 5 });
+  assert.equal(res.ok, false);
+  assert.match(res.error, /Insufficient TRX/);
+});
+
+test('validateWalletSale: rechaza activos que no son de wallet', () => {
+  assert.equal(validateWalletSale({ asset: 'USDT', amount: 5, balance: 5 }).ok, false);
+  assert.equal(validateWalletSale({ asset: 'BTC', amount: 5, balance: 5 }).ok, false);
+  assert.equal(validateWalletSale({ asset: null, amount: 5, balance: 5 }).ok, false);
+});
+
+test('validateWalletSale: rechaza montos inválidos y wallets vacías', () => {
+  assert.equal(validateWalletSale({ asset: 'TRX', amount: 0, balance: 5 }).ok, false);
+  assert.equal(validateWalletSale({ asset: 'TRX', amount: -1, balance: 5 }).ok, false);
+  assert.equal(validateWalletSale({ asset: 'TRX', amount: 'abc', balance: 5 }).ok, false);
+  assert.equal(validateWalletSale({ asset: 'TRX', amount: 1, balance: 0 }).error, 'No TRX available to sell');
 });

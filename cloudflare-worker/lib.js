@@ -590,6 +590,52 @@ export function calcUnrealizedPnl({ qty, entryPrice, markPrice }) {
  * Used by the worker to refuse obviously spoofed fills while still allowing a
  * few hundred ms of drift between the chart and the order.
  */
+/**
+ * Activo de la wallet interna que se puede vender en cada par.
+ *
+ * Solo TRX y TON tienen saldo interno (bonus de referidos, claims). Los demás
+ * pares del panel son puramente simulados: no hay nada que vender ahí.
+ */
+export const PAIR_WALLET_ASSET = {
+  TRXUSDT: 'TRX',
+  TONUSDT: 'TON',
+};
+
+export function walletAssetForPair(pair) {
+  return PAIR_WALLET_ASSET[pair] || null;
+}
+
+/** Par de mercado correspondiente a un activo de la wallet. */
+export function pairForWalletAsset(asset) {
+  return asset === 'TRX' ? 'TRXUSDT' : asset === 'TON' ? 'TONUSDT' : null;
+}
+
+/**
+ * Valida una venta de saldo interno contra la wallet del usuario.
+ * @returns {{ok:true, amount:number}|{ok:false, error:string}}
+ */
+export function validateWalletSale({ asset, amount, balance }) {
+  if (asset !== 'TRX' && asset !== 'TON') {
+    return { ok: false, error: 'Only TRX or TON can be sold from the wallet' };
+  }
+
+  const qty = Number(amount);
+  if (!Number.isFinite(qty) || qty <= 0) {
+    return { ok: false, error: 'Amount must be a positive number' };
+  }
+
+  const have = Number(balance);
+  if (!Number.isFinite(have) || have <= 0) {
+    return { ok: false, error: `No ${asset} available to sell` };
+  }
+
+  if (qty > have) {
+    return { ok: false, error: `Insufficient ${asset} balance` };
+  }
+
+  return { ok: true, amount: qty };
+}
+
 export function isPriceWithinTolerance(clientPrice, markPrice, tolerance = TRADE_CONFIG.PRICE_TOLERANCE) {
   const client = Number(clientPrice);
   const mark = Number(markPrice);

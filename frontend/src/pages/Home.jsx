@@ -88,15 +88,6 @@ export function HomePage({ onNavigate, onClaimReady, onOpenClaim }) {
               <p className="text-sm font-semibold text-white" data-testid="home-total-balance">
                 {formatUsd(portfolio.total)}
               </p>
-              {portfolio.trades > 0 && (
-                <p
-                  className={`text-[10px] ${portfolio.pnl >= 0 ? 'text-brand-green' : 'text-brand-red'}`}
-                  data-testid="home-positions-value"
-                >
-                  {formatUsd(portfolio.trades)} in trades · {portfolio.pnl >= 0 ? '+' : '-'}
-                  {formatUsd(Math.abs(portfolio.pnl))}
-                </p>
-              )}
             </div>
           </div>
           

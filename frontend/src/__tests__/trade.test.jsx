@@ -42,6 +42,8 @@ import {
   validateLevels,
   checkLevelTrigger,
   priceFromPercent,
+  calcWalletSale,
+  walletAssetForPair,
 } from '@/lib/trade';
 
 const close = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
@@ -254,13 +256,13 @@ describe('Wallet page', () => {
     fireEvent.click(screen.getByTestId('nav-wallet'));
     await waitFor(() => expect(screen.getByTestId('wallet-page')).toBeInTheDocument());
     expect(screen.queryByTestId('trade-panel')).not.toBeInTheDocument();
-    // El total ya no es solo el saldo libre: suma la posición a mercado (PnL 0
-    // acá, el mark del mock es el mismo precio de entrada) y el TRX valorado.
-    //   224.975 saldo  +  25.00 posición  +  (5 TRX × 3.50)  =  267.475
+    // El total no es solo el saldo libre: suma la posición a mercado (PnL 0 acá,
+    // el mark del mock es el mismo precio de entrada).
+    //   224.975 saldo  +  25.00 posición  =  249.975  (los 0.025 fueron de fee)
     const headline = screen.getByTestId('wallet-total-balance-amount');
     await waitFor(() => {
       const total = Number(headline.textContent.replace(/[^0-9.]/g, ''));
-      expect(close(total, 250 - 25.025 + 25 + 5 * 3.5, 0.01)).toBe(true);
+      expect(close(total, 250 - 25.025 + 25, 0.01)).toBe(true);
     });
     // El saldo libre y la posición quedan a la vista en el desglose.
     expect(screen.getByTestId('portfolio-breakdown')).toHaveTextContent('1 open position');
@@ -500,5 +502,96 @@ describe('selling', () => {
     await waitFor(() => expect(screen.getByTestId('trade-amount-input')).toBeInTheDocument());
     expect(screen.getByTestId('trade-available-value').textContent).toContain('$250.00');
     expect(screen.getByTestId('trade-limits-toggle')).toBeInTheDocument();
+  });
+});
+
+// ============================================
+// VENDER EL SALDO DE LA WALLET (TRX -> USDT)
+// ============================================
+describe('calcWalletSale', () => {
+  it('cobra la fee de un solo lado, como sell_wallet_asset()', () => {
+    // 5 TRX a 0.30 = 1.50 de proceeds, 0.1% de fee = 0.0015.
+    const res = calcWalletSale({ amount: 5, price: 0.3 });
+    expect(res.ok).toBe(true);
+    expect(close(res.proceeds, 1.5)).toBe(true);
+    expect(close(res.fee, 0.0015)).toBe(true);
+    expect(close(res.credit, 1.4985)).toBe(true);
+  });
+
+  it('rechaza montos y precios inválidos', () => {
+    expect(calcWalletSale({ amount: 0, price: 1 }).ok).toBe(false);
+    expect(calcWalletSale({ amount: -1, price: 1 }).ok).toBe(false);
+    expect(calcWalletSale({ amount: 1, price: 0 }).ok).toBe(false);
+    expect(calcWalletSale({ amount: 'x', price: 1 }).ok).toBe(false);
+  });
+
+  it('solo TRX y TON tienen saldo interno vendible', () => {
+    expect(walletAssetForPair('TRXUSDT')).toBe('TRX');
+    expect(walletAssetForPair('TONUSDT')).toBe('TON');
+    expect(walletAssetForPair('BTCUSDT')).toBeNull();
+  });
+});
+
+describe('selling the wallet TRX balance', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetMockWallet();
+    market.price = 3.5;
+  });
+
+  it('vende el TRX de la wallet en TRX/USDT sin necesidad de una posición', async () => {
+    renderWithProviders(<AppContent />);
+    await waitFor(() => expect(screen.getByTestId('home-page')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('nav-trade'));
+    await waitFor(() => expect(screen.getByTestId('trade-page')).toBeInTheDocument());
+
+    // Elegir TRX/USDT
+    fireEvent.click(screen.getByTestId('pair-selector-trigger'));
+    await waitFor(() => expect(screen.getByTestId('pair-selector-menu')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('pair-option-TRXUSDT'));
+    await waitFor(() => expect(screen.getByTestId('pair-selector-label')).toHaveTextContent('TRX/USDT'));
+
+    // No hay posición abierta, así que el SELL ofrece el saldo de la wallet.
+    fireEvent.click(screen.getByTestId('trade-side-sell'));
+    await waitFor(() => expect(screen.getByTestId('trade-sell-amount')).toBeInTheDocument());
+    expect(screen.getByTestId('trade-sell-amount')).toHaveTextContent('Selling from wallet');
+    // TRX/USDT muestra 1 decimal y formatQty recorta el cero sobrante.
+    expect(screen.getByTestId('trade-sell-amount')).toHaveTextContent('5 TRX');
+    expect(screen.getByTestId('trade-buy-submit')).not.toBeDisabled();
+
+    // 5 TRX × 3.50 = 17.50, menos 0.1% de fee = 17.4825
+    await waitFor(() =>
+      expect(screen.getByTestId('trade-wallet-sell-credit')).toHaveTextContent('$17.48')
+    );
+
+    fireEvent.click(screen.getByTestId('trade-buy-submit'));
+    await waitFor(() =>
+      expect(screen.getByTestId('trade-order-result')).toHaveTextContent('from wallet')
+    );
+
+    // El TRX salió de la wallet y el USDT entró.
+    fireEvent.click(screen.getByTestId('nav-wallet'));
+    await waitFor(() => expect(screen.getByTestId('wallet-page')).toBeInTheDocument());
+    expect(screen.getByTestId('balance-card-trx')).toHaveTextContent('0.00');
+    await waitFor(() => {
+      const total = Number(
+        screen.getByTestId('wallet-total-balance-amount').textContent.replace(/[^0-9.]/g, '')
+      );
+      expect(close(total, 250 + 5 * 3.5 * 0.999, 0.01)).toBe(true);
+    });
+  });
+
+  it('en un par sin saldo interno el SELL sigue pidiendo una posición', async () => {
+    renderWithProviders(<TradePage />);
+    await waitFor(() => expect(screen.getByTestId('trade-last-price')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('pair-selector-trigger'));
+    await waitFor(() => expect(screen.getByTestId('pair-selector-menu')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('pair-option-BTCUSDT'));
+    await waitFor(() => expect(screen.getByTestId('pair-selector-label')).toHaveTextContent('BTC/USDT'));
+
+    fireEvent.click(screen.getByTestId('trade-side-sell'));
+    await waitFor(() => expect(screen.getByTestId('trade-sell-empty')).toBeInTheDocument());
+    expect(screen.getByTestId('trade-buy-submit')).toBeDisabled();
   });
 });

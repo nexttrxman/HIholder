@@ -26,6 +26,8 @@ import {
   calcUnrealizedPnl,
   isPriceWithinTolerance,
   fetchMarkPrice,
+  validateWalletSale,
+  pairForWalletAsset,
   CONFIG,
   TRADE_CONFIG,
   resolvePendingClaim,
@@ -656,6 +658,72 @@ async function handleTradeClose(request, env) {
 }
 
 // ============================================
+// SELL FROM WALLET - convierte TRX/TON de la wallet interna a USDT
+// ============================================
+// Distinto de /trade/close, que liquida una posición abierta. Esto vende un
+// activo que el usuario ya tenía acreditado (bonus de referidos en TRX, por
+// ejemplo) y que antes quedaba trabado: se veía en la wallet sin forma de uso.
+async function handleSellAsset(request, env) {
+  const { initData, asset, amount, price } = await request.json();
+  const telegramUser = await validateInitDataAny(initData, env.BOT_TOKEN);
+
+  if (!telegramUser) {
+    return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
+  }
+
+  const db = supabase(env);
+  const tgId = telegramUser.id.toString();
+
+  const wallets = await db.query('internal_wallets', 'select', { filters: { user_id: tgId } });
+  const wallet = (Array.isArray(wallets) ? wallets : [])[0];
+  if (!wallet) return jsonResponse({ ok: false, error: 'Wallet not found' }, 404);
+
+  const have =
+    parseFloat(asset === 'TRX' ? wallet.trx_balance : wallet.ton_balance) || 0;
+
+  // Sin amount explícito se vende todo el saldo del activo.
+  const validation = validateWalletSale({ asset, amount: amount ?? have, balance: have });
+  if (!validation.ok) {
+    return jsonResponse({ ok: false, error: validation.error }, 400);
+  }
+
+  // El precio del exchange manda sobre el que trae el cliente.
+  const markPrice = await fetchMarkPrice(pairForWalletAsset(asset));
+  const fillPrice = markPrice ?? Number(price);
+  if (!Number.isFinite(fillPrice) || fillPrice <= 0) {
+    return jsonResponse({ ok: false, error: 'Price unavailable. Try again in a moment.' }, 502);
+  }
+  if (markPrice && price && !isPriceWithinTolerance(price, markPrice)) {
+    return jsonResponse(
+      { ok: false, error: 'Price moved. Refresh and try again.', fill_price: markPrice },
+      409
+    );
+  }
+
+  const result = await db.rpc('sell_wallet_asset', {
+    p_user_id: tgId,
+    p_asset: asset,
+    p_amount: validation.amount,
+    p_price: fillPrice,
+  });
+
+  if (!result || result.ok !== true) {
+    return jsonResponse({ ok: false, error: result?.error || 'Sale failed' }, 400);
+  }
+
+  return jsonResponse({
+    ok: true,
+    asset,
+    amount: parseFloat(result.amount),
+    price: fillPrice,
+    fee: parseFloat(result.fee),
+    credited: parseFloat(result.credit),
+    new_balance: parseFloat(result.new_balance),
+    asset_balance: parseFloat(result.asset_balance),
+  });
+}
+
+// ============================================
 // TRADE LEVELS - set / edit Take Profit and Stop Loss
 // ============================================
 async function handleTradeLevels(request, env) {
@@ -846,6 +914,7 @@ export default {
           case '/referrals':      return await handleReferrals(request, env);
           case '/trade':          return await handleTrade(request, env);
           case '/trade/close':    return await handleTradeClose(request, env);
+          case '/trade/sell-asset': return await handleSellAsset(request, env);
           case '/trade/levels':   return await handleTradeLevels(request, env);
           case '/positions':      return await handlePositions(request, env);
           case '/checkin':        return await handleCheckin(request, env);

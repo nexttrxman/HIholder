@@ -1,10 +1,17 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { closeTradePosition, getPositions, placeTrade, setTradeLevels } from '@/services/api';
+import {
+  closeTradePosition,
+  getPositions,
+  placeTrade,
+  sellWalletAsset as apiSellWalletAsset,
+  setTradeLevels,
+} from '@/services/api';
 import { useWallet } from '@/contexts/WalletContext';
 import { fetch24h, getPair } from '@/services/market';
 import {
   calcCloseTrade,
   calcOpenTrade,
+  calcWalletSale,
   calcUnrealizedPnl,
   checkLevelTrigger,
   validateLevels,
@@ -17,9 +24,6 @@ const TradeContext = createContext(null);
 const POSITIONS_KEY = 'tk_positions_v1';
 const REALIZED_KEY = 'tk_realized_v1';
 const DEFAULT_MARK_POLL_MS = 10000;
-// Se cotiza siempre, aunque no haya posiciones abiertas: el TRX del saldo
-// interno se convierte a USDT para el total del portafolio.
-const TRX_PAIR = 'TRXUSDT';
 const TRIGGER_BANNER_MS = 6000;
 
 function readJson(key, fallback) {
@@ -47,7 +51,13 @@ const toNumberOrNull = (value) => {
 };
 
 export function TradeProvider({ children, markPollMs = DEFAULT_MARK_POLL_MS }) {
-  const { usdtBalance, trxBalance, applyUsdtDelta, pushLocalTransaction, refreshData } = useWallet();
+  const {
+    usdtBalance,
+    applyUsdtDelta,
+    applyAssetDelta,
+    pushLocalTransaction,
+    refreshData,
+  } = useWallet();
 
   const [positions, setPositions] = useState([]);
   const [realizedPnl, setRealizedPnl] = useState(0);
@@ -94,7 +104,11 @@ export function TradeProvider({ children, markPollMs = DEFAULT_MARK_POLL_MS }) {
   );
 
   useEffect(() => {
-    const pairs = [...new Set([...(openPairsKey ? openPairsKey.split('|') : []), TRX_PAIR])];
+    const pairs = openPairsKey ? openPairsKey.split('|') : [];
+    if (pairs.length === 0) {
+      setMarks({});
+      return undefined;
+    }
 
     let active = true;
 
@@ -289,6 +303,77 @@ export function TradeProvider({ children, markPollMs = DEFAULT_MARK_POLL_MS }) {
   );
 
   // ============================================
+  // SELL WALLET ASSET (TRX/TON -> USDT)
+  // ============================================
+  /**
+   * Vende saldo de la wallet interna, no una posición abierta. Es lo que permite
+   * usar el bonus de referidos en TRX: antes se veía en la wallet pero el único
+   * SELL del panel cerraba posiciones del book simulado.
+   */
+  const sellWalletAsset = useCallback(
+    async ({ asset, amount, price }) => {
+      const qty = Number(amount);
+      const mark = Number(price);
+
+      if (asset !== 'TRX' && asset !== 'TON') {
+        const message = 'Only TRX or TON can be sold from the wallet';
+        setError(message);
+        return { ok: false, error: message };
+      }
+      if (!Number.isFinite(qty) || qty <= 0 || !Number.isFinite(mark) || mark <= 0) {
+        const message = 'Invalid sale';
+        setError(message);
+        return { ok: false, error: message };
+      }
+
+      // Misma matemática que sell_wallet_asset(): proceeds menos la fee de un
+      // lado. Sin PnL, porque un bonus de referidos no tiene precio de entrada.
+      const fill = calcWalletSale({ amount: qty, price: mark });
+      if (!fill.ok) {
+        setError(fill.error);
+        return { ok: false, error: fill.error };
+      }
+
+      setBusy(true);
+      setError(null);
+
+      try {
+        if (source === 'backend') {
+          const res = await apiSellWalletAsset({ asset, amount: qty, price: mark });
+          if (!res || !res.ok) {
+            const message = res?.error || 'Sale rejected';
+            setError(message);
+            return { ok: false, error: message };
+          }
+          await refreshData();
+          return { ok: true, credit: Number(res.credited) || 0, fee: Number(res.fee) || 0 };
+        }
+
+        applyAssetDelta(asset, -qty);
+        applyUsdtDelta(fill.credit);
+        pushLocalTransaction({
+          id: `walletsale_${asset}_${Date.now()}`,
+          type: 'sell',
+          asset: 'USDT',
+          amount: fill.credit,
+          status: 'confirmed',
+          timestamp: Date.now(),
+          description: `Sell ${qty} ${asset} from wallet @ ${mark}`,
+        });
+
+        return { ok: true, credit: fill.credit, fee: fill.fee };
+      } catch (err) {
+        const message = err?.message || 'Sale failed';
+        setError(message);
+        return { ok: false, error: message };
+      } finally {
+        setBusy(false);
+      }
+    },
+    [source, applyAssetDelta, applyUsdtDelta, pushLocalTransaction, refreshData]
+  );
+
+  // ============================================
   // EDIT LIMITS
   // ============================================
   const updateLevels = useCallback(
@@ -428,22 +513,13 @@ export function TradeProvider({ children, markPollMs = DEFAULT_MARK_POLL_MS }) {
   );
 
   /**
-   * Total = saldo USDT + posiciones a mercado (con su PnL) + TRX valorado.
-   * Se calcula acá porque los marks viven en este contexto, y lo consumen tanto
-   * Home como Wallet para mostrar el mismo número.
+   * Total = saldo USDT libre + posiciones abiertas a mercado (que arrastran su
+   * PnL). Se calcula acá porque los marks viven en este contexto, y lo consumen
+   * Home y Wallet para que los dos muestren el mismo número.
    */
-  const trxPrice = marks[TRX_PAIR] ?? null;
-
   const portfolio = useMemo(
-    () =>
-      computePortfolio({
-        usdtBalance,
-        trxBalance,
-        trxPrice,
-        positionsValue,
-        unrealizedPnl,
-      }),
-    [usdtBalance, trxBalance, trxPrice, positionsValue, unrealizedPnl]
+    () => computePortfolio({ usdtBalance, positionsValue, unrealizedPnl }),
+    [usdtBalance, positionsValue, unrealizedPnl]
   );
 
   const clearError = useCallback(() => setError(null), []);
@@ -456,7 +532,6 @@ export function TradeProvider({ children, markPollMs = DEFAULT_MARK_POLL_MS }) {
     unrealizedPnl,
     positionsValue,
     portfolio,
-    trxPrice,
     source,
     busy,
     error,
@@ -465,6 +540,7 @@ export function TradeProvider({ children, markPollMs = DEFAULT_MARK_POLL_MS }) {
     lastTrigger,
     openTrade,
     closeTrade,
+    sellWalletAsset,
     updateLevels,
     refresh: load,
     clearError,

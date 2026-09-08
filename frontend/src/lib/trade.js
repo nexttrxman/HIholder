@@ -193,6 +193,37 @@ export function formatQty(value, decimals = 4) {
   return n.toLocaleString('en-US', { maximumFractionDigits: decimals });
 }
 
+/**
+ * Activo de la wallet interna que se puede vender en cada par. Espejo de
+ * PAIR_WALLET_ASSET en cloudflare-worker/lib.js.
+ */
+export const PAIR_WALLET_ASSET = {
+  TRXUSDT: 'TRX',
+  TONUSDT: 'TON',
+};
+
+export const walletAssetForPair = (pair) => PAIR_WALLET_ASSET[pair] || null;
+
+/**
+ * Venta de saldo interno a USDT. Espejo de sell_wallet_asset() en schema.sql.
+ *
+ * No usa calcCloseTrade a propósito: ahí el PnL se mide contra un precio de
+ * entrada del book, y un bonus de referidos no tiene precio de entrada. Acá el
+ * activo entra entero como proceeds menos la fee de un lado.
+ */
+export function calcWalletSale({ amount, price }) {
+  const qty = Number(amount);
+  const mark = Number(price);
+
+  if (!Number.isFinite(qty) || qty <= 0) return { ok: false, error: 'Invalid quantity' };
+  if (!Number.isFinite(mark) || mark <= 0) return { ok: false, error: 'Invalid price' };
+
+  const proceeds = qty * mark;
+  const fee = proceeds * TRADE_CONFIG.FEE_RATE;
+
+  return { ok: true, proceeds, fee, credit: proceeds - fee };
+}
+
 export function formatUsd(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return '$0.00';

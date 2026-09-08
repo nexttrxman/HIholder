@@ -114,17 +114,17 @@ describe('Wallet — total balance', () => {
   beforeEach(() => resetMockWallet());
   afterEach(() => localStorage.clear());
 
-  it('el total suma el saldo USDT y el TRX valorado al precio de mercado', async () => {
+  it('el total es el saldo USDT y el desglose no muestra el TRX', async () => {
     renderWallet();
 
-    // 250 USDT + (5 TRX × 0.30) = 251.50. Sin posiciones abiertas.
+    // Sin posiciones abiertas el total es el saldo libre: 250 USDT.
     await waitFor(() =>
-      expect(screen.getByTestId('wallet-total-balance-amount')).toHaveTextContent('$251.50')
+      expect(screen.getByTestId('wallet-total-balance-amount')).toHaveTextContent('$250.00')
     );
 
     const breakdown = screen.getByTestId('portfolio-breakdown');
     expect(breakdown).toHaveTextContent('$250.00 USDT');
-    expect(breakdown).toHaveTextContent('5.00 TRX');
-    expect(breakdown).toHaveTextContent('$1.50');
+    // El TRX vive en su tarjeta de saldo, no debajo del total.
+    expect(breakdown.textContent).not.toContain('TRX');
   });
 });

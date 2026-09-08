@@ -6,8 +6,9 @@
  * valor de mercado de las posiciones no duplica nada y arrastra el PnL: una
  * posición en pérdida vale menos de lo que costó, así que ya resta del total.
  *
- * El TRX entra convertido a USDT con el mark de TRX/USDT. Si no hay precio no se
- * inventa uno: queda afuera del total y se reporta aparte (`trxPrice: null`).
+ * El TRX de la wallet queda AFUERA del total: es otra unidad, no USDT, y se
+ * muestra por separado en su tarjeta de saldo. Mezclarlo exigiría un precio de
+ * TRX y haría que el total dependiera de un feed que puede no responder.
  */
 
 const num = (value) => {
@@ -15,30 +16,15 @@ const num = (value) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-export function computePortfolio({
-  usdtBalance = 0,
-  trxBalance = 0,
-  trxPrice = null,
-  positionsValue = 0,
-  unrealizedPnl = 0,
-} = {}) {
+export function computePortfolio({ usdtBalance = 0, positionsValue = 0, unrealizedPnl = 0 } = {}) {
   const usdt = Math.max(0, num(usdtBalance));
   const trades = Math.max(0, num(positionsValue));
-  const pnl = num(unrealizedPnl);
-
-  const price = Number(trxPrice);
-  const hasTrxPrice = Number.isFinite(price) && price > 0;
-  const trxAmount = Math.max(0, num(trxBalance));
-  const trxUsd = hasTrxPrice ? trxAmount * price : 0;
 
   return {
-    total: usdt + trades + trxUsd,
+    total: usdt + trades,
     usdt,
     trades,
-    pnl,
-    trxAmount,
-    trxPrice: hasTrxPrice ? price : null,
-    trxUsd,
+    pnl: num(unrealizedPnl),
   };
 }
 

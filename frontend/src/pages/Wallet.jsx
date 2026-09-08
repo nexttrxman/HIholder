@@ -96,7 +96,7 @@ export function WalletPage({ onOpenWithdraw, initialSection = 'balance' }) {
                 </span>
               </div>
 
-              {/* De qué sale el total: saldo libre + posiciones a mercado + TRX */}
+              {/* De qué sale el total: saldo libre + posiciones a mercado */}
               <div
                 className="mt-3 pt-3 border-t border-white/[0.06] flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs"
                 data-testid="portfolio-breakdown"
@@ -113,16 +113,6 @@ export function WalletPage({ onOpenWithdraw, initialSection = 'balance' }) {
                     <span className={portfolio.pnl >= 0 ? 'text-brand-green' : 'text-brand-red'}>
                       {portfolio.pnl >= 0 ? '+' : '-'}
                       {formatUsd(Math.abs(portfolio.pnl))}
-                    </span>
-                  </>
-                )}
-
-                {portfolio.trxAmount > 0 && (
-                  <>
-                    <span className="w-1 h-1 rounded-full bg-white/20" />
-                    <span className="text-white/40">
-                      {portfolio.trxAmount.toFixed(2)} TRX
-                      {portfolio.trxPrice ? ` · ${formatUsd(portfolio.trxUsd)}` : ''}
                     </span>
                   </>
                 )}

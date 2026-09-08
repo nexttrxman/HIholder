@@ -750,6 +750,109 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- =============================================
+-- VENDER ACTIVO DE LA WALLET INTERNA (v2.8)
+-- =============================================
+-- close_trade liquida una posición abierta del book simulado. Esto es otra
+-- cosa: convierte a USDT un activo que el usuario ya tenía acreditado en la
+-- wallet interna —típicamente el bonus de referidos en TRX— sin que haya
+-- pasado por una posición. Sin esto ese saldo quedaba trabado: se veía en la
+-- wallet pero no había forma de usarlo.
+CREATE OR REPLACE FUNCTION sell_wallet_asset(
+  p_user_id TEXT,
+  p_asset TEXT,
+  p_amount DECIMAL,
+  p_price DECIMAL
+) RETURNS JSONB AS $$
+DECLARE
+  v_wallet RECORD;
+  v_have DECIMAL;
+  v_proceeds DECIMAL;
+  v_fee DECIMAL;
+  v_credit DECIMAL;
+  v_asset_before DECIMAL;
+  v_asset_after DECIMAL;
+  v_usdt_before DECIMAL;
+  v_usdt_after DECIMAL;
+  v_fee_rate CONSTANT DECIMAL := 0.001;
+BEGIN
+  IF p_asset IS NULL OR p_asset NOT IN ('TRX', 'TON') THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Only TRX or TON can be sold from the wallet');
+  END IF;
+
+  IF p_amount IS NULL OR p_amount <= 0 THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Amount must be a positive number');
+  END IF;
+
+  IF p_price IS NULL OR p_price <= 0 THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Invalid price');
+  END IF;
+
+  SELECT * INTO v_wallet FROM internal_wallets
+  WHERE user_id = p_user_id FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Wallet not found');
+  END IF;
+
+  v_have := CASE WHEN p_asset = 'TRX' THEN v_wallet.trx_balance ELSE v_wallet.ton_balance END;
+
+  IF p_amount > v_have THEN
+    RETURN jsonb_build_object(
+      'ok', false,
+      'error', 'Insufficient ' || p_asset || ' balance',
+      'available', v_have
+    );
+  END IF;
+
+  v_proceeds := p_amount * p_price;
+  v_fee := v_proceeds * v_fee_rate;
+  v_credit := v_proceeds - v_fee;
+
+  v_asset_before := v_have;
+  v_asset_after := v_have - p_amount;
+  v_usdt_before := v_wallet.usdt_balance;
+  v_usdt_after := v_usdt_before + v_credit;
+
+  UPDATE internal_wallets
+  SET trx_balance  = CASE WHEN p_asset = 'TRX' THEN v_asset_after ELSE trx_balance END,
+      ton_balance  = CASE WHEN p_asset = 'TON' THEN v_asset_after ELSE ton_balance END,
+      usdt_balance = v_usdt_after,
+      updated_at   = NOW()
+  WHERE user_id = p_user_id;
+
+  -- Dos renglones: lo que sale del activo y lo que entra en USDT.
+  INSERT INTO wallet_ledger (
+    user_id, operation, reference_type, reference_id,
+    asset, amount, balance_before, balance_after, description
+  ) VALUES (
+    p_user_id, 'trade_sell', 'wallet_sale', NULL,
+    p_asset, p_amount, v_asset_before, v_asset_after,
+    'Sell ' || p_amount || ' ' || p_asset || ' from wallet @ ' || p_price
+  );
+
+  INSERT INTO wallet_ledger (
+    user_id, operation, reference_type, reference_id,
+    asset, amount, balance_before, balance_after, description
+  ) VALUES (
+    p_user_id, 'trade_sell', 'wallet_sale', NULL,
+    'USDT', v_credit, v_usdt_before, v_usdt_after,
+    'Wallet sale ' || p_asset || ' -> USDT (fee ' || v_fee || ')'
+  );
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'asset', p_asset,
+    'amount', p_amount,
+    'price', p_price,
+    'fee', v_fee,
+    'credit', v_credit,
+    'new_balance', v_usdt_after,
+    'asset_balance', v_asset_after
+  );
+END;
+$$ LANGUAGE plpgsql;
+
+-- =============================================
 -- ORDER LIMITS: Take Profit / Stop Loss (v2.4)
 -- =============================================
 -- Bases ya creadas: agregar las columnas si no existen.
@@ -1080,7 +1183,8 @@ REVOKE EXECUTE ON FUNCTION
   daily_checkin(TEXT),
   expire_claims_and_cycles(),
   register_referral(TEXT, TEXT, TEXT),
-  confirm_pending_referral(TEXT)
+  confirm_pending_referral(TEXT),
+  sell_wallet_asset(TEXT, TEXT, DECIMAL, DECIMAL)
 FROM PUBLIC;
 
 DO $$
@@ -1094,7 +1198,8 @@ DECLARE
     'daily_checkin(TEXT)',
     'expire_claims_and_cycles()',
     'register_referral(TEXT, TEXT, TEXT)',
-    'confirm_pending_referral(TEXT)'
+    'confirm_pending_referral(TEXT)',
+    'sell_wallet_asset(TEXT, TEXT, DECIMAL, DECIMAL)'
   ];
   r TEXT;
 BEGIN

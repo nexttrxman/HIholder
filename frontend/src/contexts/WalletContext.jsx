@@ -248,6 +248,17 @@ export function WalletProvider({ children }) {
   }, []);
 
   /**
+   * Apply an internal movement on any wallet asset (used when selling the
+   * TRX/TON balance into USDT from the Trade panel).
+   */
+  const applyAssetDelta = useCallback((asset, delta) => {
+    const amount = Number(delta) || 0;
+    if (asset === 'TRX') setTrxBalance((prev) => Math.max(0, prev + amount));
+    else if (asset === 'TON') setTonBalance((prev) => Math.max(0, prev + amount));
+    else applyUsdtDelta(amount);
+  }, [applyUsdtDelta]);
+
+  /**
    * Prepend a locally executed trade to the activity feed.
    */
   const pushLocalTransaction = useCallback((tx) => {
@@ -394,6 +405,7 @@ export function WalletProvider({ children }) {
 
     // Balance mutations (used by the Trade panel)
     applyUsdtDelta,
+    applyAssetDelta,
 
     // Deposit
     depositInfo,

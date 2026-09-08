@@ -10,6 +10,7 @@ import {
   TRADE_CONFIG,
   calcCloseTrade,
   calcOpenTrade,
+  calcWalletSale,
   formatPercent,
   formatPrice,
   formatQty,
@@ -18,6 +19,7 @@ import {
   previewLevelPnl,
   validateLevels,
   validateTradeRequest,
+  walletAssetForPair,
 } from '@/lib/trade';
 
 /**
@@ -25,16 +27,19 @@ import {
  *
  * BUY  spends internal USDT on the selected market and can attach a
  *      Take Profit / Stop Loss bracket.
- * SELL closes the open position in that market at the current price. The
+ * SELL closes the open position in that market at the current price, or —in
+ *      TRX/USDT and GRAM/USDT— sells the TRX/TON sitting in the internal
+ *      wallet (referral bonuses) straight into USDT. The
  *      simulator is long-only spot, so there is nothing to short: selling is
  *      always exiting a position you already hold.
  */
 export function OrderForm({ pair, price }) {
-  const { usdtBalance } = useWallet();
-  const { openTrade, closeTrade, positions, busy, error, clearError } = useTrade();
+  const { usdtBalance, trxBalance, tonBalance } = useWallet();
+  const { openTrade, closeTrade, sellWalletAsset, positions, busy, error, clearError } = useTrade();
   const { vibrate } = useTelegram();
 
   const [side, setSide] = useState('buy');
+  const [sellSource, setSellSource] = useState('position'); // 'position' | 'wallet'
   const [amount, setAmount] = useState('');
   const [limitsOn, setLimitsOn] = useState(false);
   const [tp, setTp] = useState('');
@@ -48,6 +53,7 @@ export function OrderForm({ pair, price }) {
     setSl('');
     setResult(null);
     setSide('buy');
+    setSellSource('position');
   }, [pair.id]);
 
   const isSell = side === 'sell';
@@ -57,6 +63,24 @@ export function OrderForm({ pair, price }) {
     () => positions.find((p) => p.pair === pair.id && p.status !== 'closed') || null,
     [positions, pair.id]
   );
+
+  // Saldo interno vendible en este par (TRX en TRX/USDT, TON en GRAM/USDT).
+  const walletAsset = walletAssetForPair(pair.id);
+  const walletQty =
+    walletAsset === 'TRX' ? Number(trxBalance) || 0 : walletAsset === 'TON' ? Number(tonBalance) || 0 : 0;
+
+  const hasPosition = !!position;
+  const hasWalletAsset = !!walletAsset && walletQty > 0;
+
+  // Si solo hay una fuente no se pregunta: se usa esa.
+  const activeSellSource =
+    sellSource === 'wallet' && hasWalletAsset
+      ? 'wallet'
+      : hasPosition
+        ? 'position'
+        : hasWalletAsset
+          ? 'wallet'
+          : 'position';
 
   const numericAmount = Number(amount);
   const fill = useMemo(() => {
@@ -139,7 +163,17 @@ export function OrderForm({ pair, price }) {
     return res.ok ? res : null;
   }, [position, price, sellQty]);
 
-  const canSubmit = isSell ? !!sellFill && !busy : !!fill && sizeValidation.ok && levels.ok && !busy;
+  const walletFill = useMemo(() => {
+    if (!hasWalletAsset || !price) return null;
+    const res = calcWalletSale({ amount: walletQty, price });
+    return res.ok ? res : null;
+  }, [hasWalletAsset, walletQty, price]);
+
+  const sellingFromWallet = isSell && activeSellSource === 'wallet';
+
+  const canSubmit = isSell
+    ? (sellingFromWallet ? !!walletFill : !!sellFill) && !busy
+    : !!fill && sizeValidation.ok && levels.ok && !busy;
 
   const handleSubmit = async () => {
     if (!canSubmit) {
@@ -150,6 +184,24 @@ export function OrderForm({ pair, price }) {
     vibrate('impact');
 
     if (isSell) {
+      if (sellingFromWallet) {
+        const res = await sellWalletAsset({ asset: walletAsset, amount: walletQty, price });
+        if (res.ok) {
+          vibrate('success');
+          setResult({
+            sold: true,
+            qty: walletQty,
+            base: pair.base,
+            credit: res.credit,
+            fromWallet: true,
+          });
+          setTimeout(() => setResult(null), 2800);
+        } else {
+          vibrate('error');
+        }
+        return;
+      }
+
       const res = await closeTrade(position.id, price, 'manual');
       if (res.ok) {
         vibrate('success');
@@ -275,21 +327,50 @@ export function OrderForm({ pair, price }) {
       </>
       )}
 
+      {/* SELL: de dónde sale lo que se vende (solo si hay dos fuentes) */}
+      {isSell && hasPosition && hasWalletAsset && (
+        <div
+          className="flex gap-1 p-1 rounded-xl bg-white/[0.04] border border-white/[0.08] mb-3"
+          data-testid="trade-sell-source-toggle"
+        >
+          {[
+            { id: 'position', label: 'Position' },
+            { id: 'wallet', label: 'Wallet' },
+          ].map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setSellSource(id)}
+              data-testid={`trade-sell-source-${id}`}
+              className={`flex-1 py-1.5 rounded-lg text-[11px] font-semibold transition-colors ${
+                activeSellSource === id
+                  ? 'bg-brand-red text-black'
+                  : 'text-white/50 hover:text-white/80'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* SELL: what is about to be sold, read-only */}
-      {isSell && position && (
+      {isSell && (sellingFromWallet ? hasWalletAsset : hasPosition) && (
         <div
           className="flex items-center justify-between gap-2 rounded-2xl bg-brand-red/[0.07] border border-brand-red/25 px-4 py-3"
           data-testid="trade-sell-amount"
         >
-          <span className="sys-label !text-brand-red/80">Selling all</span>
+          <span className="sys-label !text-brand-red/80">
+            {sellingFromWallet ? 'Selling from wallet' : 'Selling all'}
+          </span>
           <span className="font-mono text-sm font-semibold text-white tabular-nums">
-            {formatQty(sellQty, pair.qtyDecimals)} {pair.base}
+            {formatQty(sellingFromWallet ? walletQty : sellQty, pair.qtyDecimals)} {pair.base}
           </span>
         </div>
       )}
 
       {/* Sell preview */}
-      {isSell && sellFill && (
+      {isSell && !sellingFromWallet && sellFill && (
         <div className="mt-3 space-y-1.5 text-xs" data-testid="trade-sell-preview">
           <div className="flex justify-between">
             <span className="text-white/40">You receive</span>
@@ -312,7 +393,26 @@ export function OrderForm({ pair, price }) {
         </div>
       )}
 
-      {isSell && !position && (
+      {sellingFromWallet && walletFill && (
+        <div className="mt-3 space-y-1.5 text-xs" data-testid="trade-wallet-sell-preview">
+          <div className="flex justify-between">
+            <span className="text-white/40">You receive</span>
+            <span className="font-semibold text-white" data-testid="trade-wallet-sell-credit">
+              {formatUsd(walletFill.credit)}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-white/40">Price</span>
+            <span className="font-mono text-white/70">{formatPrice(price, pair.priceDecimals)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-white/40">Fee</span>
+            <span className="font-mono text-white/70">{formatUsd(walletFill.fee)}</span>
+          </div>
+        </div>
+      )}
+
+      {isSell && !hasPosition && !hasWalletAsset && (
         <p className="mt-3 flex items-center gap-2 text-[11px] text-white/45" data-testid="trade-sell-empty">
           <TrendingDown className="w-3.5 h-3.5 text-brand-red/70" />
           Nothing to sell yet — open a {pair.base} position first.
@@ -532,7 +632,8 @@ export function OrderForm({ pair, price }) {
             <span>
               {result.sold ? (
                 <>
-                  Sold {formatQty(result.qty, pair.qtyDecimals)} {result.base} — credited {formatUsd(result.credit)}
+                  Sold {formatQty(result.qty, pair.qtyDecimals)} {result.base}
+                  {result.fromWallet ? ' from wallet' : ''} — credited {formatUsd(result.credit)}
                   {typeof result.pnl === 'number'
                     ? ` · PnL ${result.pnl >= 0 ? '+' : ''}${formatUsd(result.pnl)}`
                     : ''}

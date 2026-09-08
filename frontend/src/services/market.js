@@ -20,7 +20,7 @@ export const PAIRS = [
    * dejaría huérfanas las posiciones ya abiertas. `symbols` son los tickers de
    * mercado a probar, por si el exchange ya migró el par.
    */
-  { id: 'TONUSDT', base: 'GRAM', label: 'GRAM/USDT', symbols: ['GRAMUSDT', 'TONUSDT'], color: '#0098EA', priceDecimals: 3, qtyDecimals: 2, seedPrice: 3.42, vol: 0.0042 },
+  { id: 'TONUSDT', base: 'GRAM', label: 'GRAM/USDT', symbols: ['GRAMUSDT', 'TONUSDT'], color: '#0098EA', priceDecimals: 3, qtyDecimals: 2, seedPrice: 1.37, vol: 0.0042 },
   { id: 'BTCUSDT', base: 'BTC', label: 'BTC/USDT', color: '#F7931A', priceDecimals: 2, qtyDecimals: 5, seedPrice: 108500, vol: 0.0022 },
   { id: 'ETHUSDT', base: 'ETH', label: 'ETH/USDT', color: '#627EEA', priceDecimals: 2, qtyDecimals: 4, seedPrice: 4180, vol: 0.0031 },
   { id: 'TRXUSDT', base: 'TRX', label: 'TRX/USDT', color: '#EF0027', priceDecimals: 5, qtyDecimals: 1, seedPrice: 0.312, vol: 0.0018 },

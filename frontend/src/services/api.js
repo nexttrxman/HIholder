@@ -444,6 +444,15 @@ export const closeTradePosition = async ({ positionId, price }) => {
   return result || null;
 };
 
+/**
+ * Vende saldo TRX/TON de la wallet interna a USDT.
+ * Devuelve `null` en modo dev para que el TradeContext lo ejecute localmente.
+ */
+export const sellWalletAsset = async ({ asset, amount, price }) => {
+  const result = await apiCall('/trade/sell-asset', { asset, amount, price });
+  return result || null;
+};
+
 export const getPositions = async () => {
   const result = await apiCall('/positions');
   return result || null;
@@ -616,6 +625,7 @@ export default {
   verifyPayment,
   describeApiError,
   placeTrade,
+  sellWalletAsset,
   closeTradePosition,
   setTradeLevels,
   getPositions,

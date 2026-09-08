@@ -341,6 +341,7 @@ rápidos de Deposit/Withdraw (quedan dentro de Wallet).
 |------|------|----------|
 | `POST /trade` | `{ initData, pair, amount, price }` | `{ ok, position, new_balance, mark_price }` |
 | `POST /trade/close` | `{ initData, position_id, price }` | `{ ok, pnl, pnl_pct, credited, new_balance }` |
+| `POST /trade/sell-asset` | `{ initData, asset, amount?, price }` | `{ ok, asset, amount, price, fee, credited, new_balance, asset_balance }` |
 | `POST /positions` | `{ initData }` | `{ ok, positions, realized_pnl, unrealized_pnl, positions_value }` |
 | `POST /trade/levels` | `{ initData, position_id, take_profit, stop_loss }` | `{ ok, take_profit, stop_loss }` |
 

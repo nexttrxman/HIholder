@@ -25,18 +25,9 @@ describe('computePortfolio', () => {
     expect(close(p.total, 260)).toBe(true);
   });
 
-  it('convierte el TRX al total cuando hay precio de mercado', () => {
+  it('el TRX de la wallet queda afuera del total: es otra unidad', () => {
     const p = computePortfolio({ usdtBalance: 10, trxBalance: 100, trxPrice: 0.3 });
-    expect(close(p.trxUsd, 30)).toBe(true);
-    expect(close(p.total, 40)).toBe(true);
-  });
-
-  it('sin precio de TRX no inventa uno: queda afuera del total y se reporta', () => {
-    const p = computePortfolio({ usdtBalance: 10, trxBalance: 100, trxPrice: null });
     expect(close(p.total, 10)).toBe(true);
-    expect(close(p.trxAmount, 100)).toBe(true);
-    expect(p.trxPrice).toBeNull();
-    expect(close(p.trxUsd, 0)).toBe(true);
   });
 
   it('un saldo negativo no puede arrastrar el total por debajo del capital real', () => {

@@ -265,6 +265,52 @@ async function seedUser(balance = 0) {
 }
 
 
+// ---- 5b) sell_wallet_asset: vender el saldo TRX/TON de la wallet ---------
+// Sin esto el bonus de referidos en TRX quedaba trabado: se veía en la wallet
+// pero el único SELL del panel cerraba posiciones del book simulado.
+{
+  const u = await seedUser(100);
+  await q(`UPDATE internal_wallets SET trx_balance = 6 WHERE user_id=$1`, [u]);
+
+  // 6 TRX a 0.30 = 1.80 de proceeds, fee 0.1% = 0.0018 -> 1.7982
+  const r = await one(`SELECT sell_wallet_asset($1,'TRX',6,0.30) AS r`, [u]);
+  eq('sell_wallet_asset: ok', r.r.ok, true);
+  near('sell_wallet_asset: fee 0.1% de un solo lado', r.r.fee, 0.0018, 0.0001);
+  near('sell_wallet_asset: credit 1.80 - 0.0018', r.r.credit, 1.7982, 0.0001);
+
+  const w = await one(`SELECT usdt_balance, trx_balance FROM internal_wallets WHERE user_id=$1`, [u]);
+  near('sell_wallet_asset: 100 + 1.7982 de USDT', w.usdt_balance, 101.7982, 0.0001);
+  near('sell_wallet_asset: el TRX salió de la wallet', w.trx_balance, 0, 0.0001);
+
+  const led = await one(
+    `SELECT count(*)::int n FROM wallet_ledger WHERE user_id=$1 AND reference_type='wallet_sale'`, [u]);
+  eq('sell_wallet_asset: escribe 2 renglones en el ledger (sale TRX, entra USDT)', led.n, 2);
+
+  // venta parcial
+  await q(`UPDATE internal_wallets SET trx_balance = 10 WHERE user_id=$1`, [u]);
+  const part = await one(`SELECT sell_wallet_asset($1,'TRX',4,0.50) AS r`, [u]);
+  near('sell_wallet_asset: venta parcial acredita 2.00 - 0.002', part.r.credit, 1.998, 0.0001);
+  const w2 = await one(`SELECT trx_balance FROM internal_wallets WHERE user_id=$1`, [u]);
+  near('sell_wallet_asset: quedan 6 TRX', w2.trx_balance, 6, 0.0001);
+
+  // rechazos
+  const over = await one(`SELECT sell_wallet_asset($1,'TRX',999,0.30) AS r`, [u]);
+  eq('sell_wallet_asset: rechaza vender más de lo que hay', over.r.error, 'Insufficient TRX balance');
+  const badAsset = await one(`SELECT sell_wallet_asset($1,'USDT',1,0.30) AS r`, [u]);
+  eq('sell_wallet_asset: USDT no se vende contra sí mismo',
+     badAsset.r.error, 'Only TRX or TON can be sold from the wallet');
+  eq('sell_wallet_asset: rechaza monto 0', (await one(`SELECT sell_wallet_asset($1,'TRX',0,0.30) AS r`, [u])).r.ok, false);
+  eq('sell_wallet_asset: rechaza precio 0', (await one(`SELECT sell_wallet_asset($1,'TRX',1,0) AS r`, [u])).r.ok, false);
+  eq('sell_wallet_asset: usuario sin wallet',
+     (await one(`SELECT sell_wallet_asset('tg_inexistente','TRX',1,0.30) AS r`)).r.error, 'Wallet not found');
+
+  // el CHECK de saldo no negativo sigue cubriendo la columna
+  let negativeBlocked = false;
+  try { await q(`UPDATE internal_wallets SET trx_balance = -1 WHERE user_id=$1`, [u]); }
+  catch (e) { negativeBlocked = true; }
+  check('sell_wallet_asset: la wallet sigue sin admitir saldo negativo', negativeBlocked);
+}
+
 // ---- 6) REFERIDOS: registro en pending y pago en el primer claim ----------
 // Antes no existía nada de esto: ninguna consulta insertaba en referrals, así
 // que la tabla estaba siempre vacía y el panel no actualizaba nunca.
