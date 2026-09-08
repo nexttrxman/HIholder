@@ -364,6 +364,22 @@ $$ LANGUAGE plpgsql;
 -- Función reutilizable (también ejecutable manualmente)
 CREATE OR REPLACE FUNCTION expire_claims_and_cycles() RETURNS void AS $$
 BEGIN
+  -- v2.5: un claim que expiró sin pagarse se pierde Y el ciclo vuelve a 0 holds.
+  -- El worker (/auth) ya aplica esta regla, pero este job corre cada minuto y
+  -- casi siempre gana la carrera: si volteara el claim sin resetear el ciclo,
+  -- /auth vería "3 holds completados, sin claim pendiente" (solo busca claims
+  -- con status='pending') y el botón de hold quedaría muerto hasta que termine
+  -- la ventana de 8 h. Por eso el reset va PRIMERO y usa las filas que estamos
+  -- por expirar.
+  UPDATE hold_cycles hc
+  SET holds_completed = 0
+  FROM claims c
+  WHERE c.status = 'pending'
+    AND c.expires_at < NOW()
+    AND c.cycle_id = hc.id
+    AND hc.status = 'active'
+    AND hc.holds_completed > 0;
+
   UPDATE claims
   SET status = 'expired_unclaimed'
   WHERE status = 'pending' AND expires_at < NOW();
@@ -373,6 +389,19 @@ BEGIN
   WHERE status = 'active' AND ends_at < NOW();
 END;
 $$ LANGUAGE plpgsql;
+
+-- Reparación única para bases ya desplegadas: el job viejo volteaba claims sin
+-- resetear el ciclo, dejando al usuario trabado en 3/3 sin claim pendiente.
+UPDATE hold_cycles hc
+SET holds_completed = 0
+WHERE hc.status = 'active'
+  AND hc.holds_completed > 0
+  AND EXISTS (
+    SELECT 1 FROM claims c WHERE c.cycle_id = hc.id AND c.status = 'expired_unclaimed'
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM claims c WHERE c.cycle_id = hc.id AND c.status = 'pending'
+  );
 
 -- Programa el job una sola vez (idempotente: borra el anterior si existe)
 DO $$
@@ -388,8 +417,10 @@ BEGIN
     '* * * * *',  -- cada minuto
     $cron$ SELECT expire_claims_and_cycles(); $cron$
   );
-EXCEPTION WHEN undefined_table OR undefined_function THEN
+EXCEPTION WHEN undefined_table OR undefined_function OR invalid_schema_name THEN
   -- pg_cron no disponible (entorno local). Skip silently.
+  -- invalid_schema_name (3F000) es lo que tira Postgres cuando el esquema "cron"
+  -- no existe; sin esa condición el error escapaba y abortaba todo el script.
   RAISE NOTICE 'pg_cron not available; expire_claims_and_cycles() must be called manually.';
 END $$;
 

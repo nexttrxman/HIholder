@@ -312,14 +312,27 @@ Ejecutar la sección **"TRADE POSITIONS TABLE"** y siguientes de `supabase/schem
 2. `DROP FUNCTION open_trade(TEXT, TEXT, DECIMAL, DECIMAL)` + nueva firma de 6 parámetros
 3. `CREATE FUNCTION set_trade_levels(...)`
 
-**v2.5 (claim no cobrado)** — sin migración, solo comportamiento:
+**v2.5 (claim no cobrado)** — requiere re-ejecutar la sección HOLD del schema:
 
 Un claim que vence sin pagarse se **pierde** y el ciclo vuelve a 0 holds.
-`GET /auth` ahora marca el claim como `expired_unclaimed` y resetea
+`GET /auth` marca el claim como `expired_unclaimed` y resetea
 `hold_cycles.holds_completed` a 0. Antes el ciclo quedaba clavado en 3/3 y
 `POST /hold` rechazaba para siempre hasta el reset de 8 h (regla en
 `resolvePendingClaim`, `lib.js`). El mock de desarrollo y `WalletContext`
 aplican la misma regla.
+
+La regla ahora también vive en `expire_claims_and_cycles()` (el job de pg_cron
+que corre cada minuto). Era necesario: `/auth` solo busca claims con
+`status='pending'`, y el job los volteaba a `expired_unclaimed` sin tocar el
+ciclo, así que en producción el job ganaba la carrera casi siempre y el usuario
+quedaba en 3/3 sin claim hasta el fin de la ventana de 8 h — justo el fallo que
+`resolvePendingClaim` intenta evitar. La función resetea el ciclo **antes** de
+expirar el claim, y trae un `UPDATE` de reparación única para bases ya
+desplegadas que hayan quedado trabadas.
+
+También se corrigió el `EXCEPTION` del bloque que programa el job: sin
+`invalid_schema_name` (3F000), ejecutar el schema sin pg_cron habilitado
+abortaba todo el script en lugar de degradar en silencio.
 
 **v2.6 (Daily Check-In)** — sección "DAILY CHECK-IN" de `supabase/schema.sql`:
 
