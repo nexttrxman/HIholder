@@ -896,3 +896,83 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- =============================================
 
 
+
+-- =============================================
+-- RLS (v2.6.1): defensa en profundidad
+-- =============================================
+-- Todo acceso a la base pasa por el Worker: valida el initData de Telegram con
+-- HMAC-SHA256 (lib.js validateInitData) en los 12 endpoints antes de tocar una
+-- tabla, y autentica contra PostgREST con la service key, que en Supabase tiene
+-- BYPASSRLS. La Mini App nunca recibe la anon key (no hay supabase-js en
+-- frontend/package.json).
+--
+-- Por eso estas tablas quedan con RLS habilitado y SIN políticas: los roles
+-- anon y authenticated no leen ni escriben nada, ni siquiera si la anon key se
+-- filtrara. Verificado en supabase/tests/schema.test.mjs con un rol real sin
+-- BYPASSRLS.
+--
+-- Si algún día se conecta un cliente directo a Supabase, hay que agregar
+-- políticas explícitas ACÁ primero. No habilitar el acceso sin ellas.
+DO $$
+DECLARE
+  t TEXT;
+BEGIN
+  FOREACH t IN ARRAY ARRAY[
+    'users', 'hold_cycles', 'holds', 'claims', 'claim_payments',
+    'internal_wallets', 'wallet_ledger', 'referral_pool', 'referrals',
+    'transactions', 'trade_positions', 'checkins'
+  ]
+  LOOP
+    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
+  END LOOP;
+END $$;
+
+-- =============================================
+-- PERMISOS DE FUNCIONES (v2.6.1)
+-- =============================================
+-- Postgres otorga EXECUTE a PUBLIC por defecto, y Supabase expone las funciones
+-- de public/ vía PostgREST. Con la anon key (que es pública por diseño) eso
+-- permitía invocar estas RPC directamente, saltándose la validación de initData
+-- del Worker. Se revoca de PUBLIC/anon/authenticated y se deja solo al
+-- service_role, que es el que usa el Worker.
+--
+-- Además daily_checkin era SECURITY DEFINER: corría como postgres, o sea POR
+-- ENCIMA del RLS, así que el bloque anterior no la cubría. Con RLS habilitado y
+-- el Worker usando service_role (que tiene BYPASSRLS) no hace falta, y dejarla
+-- era un camino para acreditarse saldo sin autenticar.
+ALTER FUNCTION daily_checkin(TEXT) SECURITY INVOKER;
+
+REVOKE EXECUTE ON FUNCTION
+  credit_claim(TEXT, TEXT, DECIMAL, TEXT),
+  open_trade(TEXT, TEXT, DECIMAL, DECIMAL, DECIMAL, DECIMAL),
+  close_trade(TEXT, UUID, DECIMAL),
+  set_trade_levels(TEXT, UUID, DECIMAL, DECIMAL),
+  daily_checkin(TEXT),
+  expire_claims_and_cycles()
+FROM PUBLIC;
+
+DO $$
+DECLARE
+  f TEXT;
+  funcs TEXT[] := ARRAY[
+    'credit_claim(TEXT, TEXT, DECIMAL, TEXT)',
+    'open_trade(TEXT, TEXT, DECIMAL, DECIMAL, DECIMAL, DECIMAL)',
+    'close_trade(TEXT, UUID, DECIMAL)',
+    'set_trade_levels(TEXT, UUID, DECIMAL, DECIMAL)',
+    'daily_checkin(TEXT)',
+    'expire_claims_and_cycles()'
+  ];
+  r TEXT;
+BEGIN
+  FOREACH f IN ARRAY funcs LOOP
+    -- anon/authenticated solo existen en Supabase; en Postgres liso, no.
+    FOREACH r IN ARRAY ARRAY['anon', 'authenticated'] LOOP
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+        EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM %I', f, r);
+      END IF;
+    END LOOP;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', f);
+    END IF;
+  END LOOP;
+END $$;

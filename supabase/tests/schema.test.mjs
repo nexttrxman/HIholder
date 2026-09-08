@@ -262,6 +262,92 @@ async function seedUser(balance = 0) {
 
 }
 
+
+// ---- 6) RLS: anon no ve nada, service_role sí ----------------------------
+{
+  // Las 12 tablas tienen que tener RLS habilitado
+  const rlsOff = (await q(`
+    SELECT relname FROM pg_class
+    WHERE relname IN ('users','hold_cycles','holds','claims','claim_payments',
+                      'internal_wallets','wallet_ledger','referral_pool','referrals',
+                      'transactions','trade_positions','checkins')
+      AND relrowsecurity = false`)).rows;
+  eq('RLS: habilitado en las 12 tablas', rlsOff.length, 0);
+
+  // Ninguna función sensible puede ser ejecutada por PUBLIC
+  const perms = (await q(`
+    SELECT p.proname, p.prosecdef,
+           has_function_privilege('public', p.oid, 'EXECUTE') AS pub
+    FROM pg_proc p
+    WHERE p.proname IN ('credit_claim','open_trade','close_trade',
+                        'set_trade_levels','daily_checkin','expire_claims_and_cycles')`)).rows;
+  eq('RPC: ninguna queda ejecutable por PUBLIC', perms.filter((r) => r.pub).length, 0);
+  eq('RPC: ninguna es SECURITY DEFINER', perms.filter((r) => r.prosecdef).length, 0);
+
+  const u = await seedUser(500);
+  for (const r of ['anon_probe', 'service_probe']) {
+    await q(`REASSIGN OWNED BY ${r} TO postgres`).catch(() => {});
+    await q(`DROP OWNED BY ${r}`).catch(() => {});
+    await q(`DROP ROLE IF EXISTS ${r}`).catch(() => {});
+  }
+  await q(`CREATE ROLE anon_probe LOGIN NOBYPASSRLS PASSWORD 'probe'`);
+  await q(`CREATE ROLE service_probe LOGIN BYPASSRLS PASSWORD 'probe'`);
+  await q(`GRANT USAGE ON SCHEMA public TO anon_probe, service_probe`);
+  await q(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO anon_probe, service_probe`);
+  // A anon_probe NO se le da EXECUTE a propósito: el schema se lo revoca a
+  // PUBLIC/anon, y eso es lo que se verifica más abajo.
+  await q(`GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO service_probe`);
+  await q(`GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO anon_probe, service_probe`);
+
+  const base = `postgresql://`;  // usuario:clave abajo
+  const asAnon = new pg.Client(`${base}anon_probe:probe@127.0.0.1:${PORT}/postgres`);
+  const asSvc = new pg.Client(`${base}service_probe:probe@127.0.0.1:${PORT}/postgres`);
+  await asAnon.connect();
+  await asSvc.connect();
+
+  const anonWallets = await asAnon.query(`SELECT count(*)::int n FROM internal_wallets`);
+  eq('RLS: anon no ve ninguna wallet', anonWallets.rows[0].n, 0);
+  const anonUsers = await asAnon.query(`SELECT count(*)::int n FROM users`);
+  eq('RLS: anon no ve ningún usuario', anonUsers.rows[0].n, 0);
+  const anonClaims = await asAnon.query(`SELECT count(*)::int n FROM claims`);
+  eq('RLS: anon no ve ningún claim', anonClaims.rows[0].n, 0);
+
+  // anon intenta regalarse saldo: RLS filtra la fila, no toca nada
+  const steal = await asAnon.query(`UPDATE internal_wallets SET usdt_balance = 999999 WHERE user_id = $1`, [u]);
+  eq('RLS: el UPDATE de anon no afecta filas', steal.rowCount, 0);
+  near('RLS: el saldo real queda intacto',
+    (await one(`SELECT usdt_balance b FROM internal_wallets WHERE user_id=$1`, [u])).b, 500, 0.000001);
+
+  // anon intenta auto-acreditarse un check-in
+  let anonCheckin = null;
+  try { anonCheckin = await asAnon.query(`SELECT daily_checkin($1) AS r`, [u]); }
+  catch (e) { anonCheckin = { error: e.message }; }
+  check('RLS: anon no puede ejecutar daily_checkin', /permission denied/i.test(anonCheckin?.error || ''),
+    anonCheckin?.error ? anonCheckin.error.slice(0, 55) : 'se ejecutó');
+  near('RLS: el check-in de anon no acredita nada',
+    (await one(`SELECT usdt_balance b FROM internal_wallets WHERE user_id=$1`, [u])).b, 500, 0.000001);
+
+  // anon no puede ni leer al usuario por RPC
+  let anonLedger = null;
+  try { anonLedger = (await asAnon.query(`SELECT count(*)::int n FROM wallet_ledger`)).rows[0].n; }
+  catch (e) { anonLedger = 'error'; }
+  eq('RLS: anon no ve el ledger', anonLedger, 0);
+
+  // service_probe (BYPASSRLS, como el service_role de Supabase) sí ve todo
+  const svcWallets = await asSvc.query(`SELECT count(*)::int n FROM internal_wallets`);
+  check('RLS: un rol con BYPASSRLS sí ve las wallets', svcWallets.rows[0].n > 0, `${svcWallets.rows[0].n} filas`);
+
+  await asAnon.end();
+  await asSvc.end();
+  // DROP ROLE falla si el rol conserva privilegios: se revocan primero.
+  await q(`REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon_probe, service_probe`);
+  await q(`REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon_probe, service_probe`);
+  await q(`REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM anon_probe, service_probe`);
+  await q(`REVOKE USAGE ON SCHEMA public FROM anon_probe, service_probe`);
+  await q(`DROP ROLE anon_probe`);
+  await q(`DROP ROLE service_probe`);
+}
+
 console.log(`\n${results.length - failures}/${results.length} verificaciones OK`);
 await client.end();
 await db.stop();

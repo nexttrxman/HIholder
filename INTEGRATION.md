@@ -345,6 +345,34 @@ Endpoints nuevos: `POST /checkin` y `POST /checkin/status`.
 Premios en `CHECKIN_CONFIG` (`cloudflare-worker/lib.js`, espejado en
 `frontend/src/lib/checkin.js`): 0.05 USDT/día, 0.50 USDT a la semana.
 
+**v2.6.1 (RLS y permisos de funciones)** — secciones "RLS" y "PERMISOS DE
+FUNCIONES" al final de `supabase/schema.sql`. **Hay que re-ejecutarlas.**
+
+Todo acceso a la base pasa por el Worker: valida el `initData` de Telegram con
+HMAC-SHA256 en los 12 endpoints y usa la *service key*, que en Supabase tiene
+`BYPASSRLS`. La Mini App no incluye `supabase-js` ni la *anon key*.
+
+Dos agujeros que se cerraron:
+
+1. **No había RLS en ninguna tabla.** Las tablas nuevas de Supabase quedan con
+   RLS deshabilitado, así que la *anon key* —que es pública por diseño— daba
+   lectura y escritura directa sobre `internal_wallets`. Ahora las 12 tablas
+   tienen RLS habilitado **sin políticas**: `anon` y `authenticated` no ven ni
+   modifican nada. Si algún día se conecta un cliente directo, hay que agregar
+   políticas explícitas primero.
+2. **`daily_checkin` era `SECURITY DEFINER`** y Postgres da `EXECUTE` a `PUBLIC`
+   por defecto. La combinación era grave: la función corría como `postgres`, por
+   encima del RLS, y cualquiera podía invocarla por
+   `POST /rest/v1/rpc/daily_checkin` con cualquier `p_user_id` para acreditarse
+   saldo sin pasar por Telegram ni por el Worker. Ahora es `SECURITY INVOKER` y
+   las 6 RPC revocan `EXECUTE` de `PUBLIC`/`anon`/`authenticated`, dejándolo solo
+   en `service_role`.
+
+Verificado en `supabase/tests/schema.test.mjs` con roles reales: uno sin
+`BYPASSRLS` (como `anon`) no ve filas, su `UPDATE` no afecta nada y recibe
+`permission denied for function daily_checkin`; uno con `BYPASSRLS` (como
+`service_role`) sigue viendo todo.
+
 ### Frontend
 
 | Archivo | Rol |
