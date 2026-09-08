@@ -151,27 +151,131 @@ export async function validateInitDataAny(initData, botTokens, options = {}) {
 // TON ADDRESS NORMALIZATION
 // ============================================
 /**
+ * CRC16/XMODEM (poly 0x1021, init 0x0000). Es el checksum de las direcciones
+ * user-friendly de TON: los últimos 2 bytes, big-endian, sobre los primeros 34.
+ *
+ * @param {Uint8Array} bytes
+ * @returns {number}
+ */
+export function crc16Xmodem(bytes) {
+  let crc = 0;
+  for (const b of bytes) {
+    crc ^= b << 8;
+    for (let i = 0; i < 8; i++) {
+      crc = crc & 0x8000 ? ((crc << 1) ^ 0x1021) & 0xffff : (crc << 1) & 0xffff;
+    }
+  }
+  return crc & 0xffff;
+}
+
+function base64ToBytes(b64) {
+  const std = b64.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = std + '='.repeat((4 - (std.length % 4)) % 4);
+  const bin =
+    typeof atob === 'function'
+      ? atob(padded)
+      : Buffer.from(padded, 'base64').toString('binary');
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function bytesToBase64Url(bytes) {
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  const b64 =
+    typeof btoa === 'function' ? btoa(bin) : Buffer.from(bin, 'binary').toString('base64');
+  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+const RAW_TON_RE = /^(-?\d+):([0-9a-fA-F]{64})$/;
+
+/**
+ * Convierte una dirección user-friendly (EQ.../UQ..., 48 chars base64url) a su
+ * forma cruda "workchain:hex64". Devuelve null si no es una dirección válida.
+ *
+ * Layout de 36 bytes: [tag][workchain int8][hash 32 bytes][crc16 2 bytes].
+ * El tag es 0x11 bounceable / 0x51 non-bounceable, +0x80 en testnet.
+ *
+ * @param {string} addr
+ * @returns {string|null}
+ */
+export function decodeFriendlyTonAddress(addr) {
+  if (typeof addr !== 'string' || addr.length !== 48) return null;
+  let bytes;
+  try {
+    bytes = base64ToBytes(addr);
+  } catch (e) {
+    return null;
+  }
+  if (bytes.length !== 36) return null;
+
+  if (![0x11, 0x51, 0x91, 0xd1].includes(bytes[0])) return null;
+
+  const expectedCrc = (bytes[34] << 8) | bytes[35];
+  if (crc16Xmodem(bytes.subarray(0, 34)) !== expectedCrc) return null;
+
+  const wc = bytes[1] < 128 ? bytes[1] : bytes[1] - 256;
+  if (wc !== 0 && wc !== -1) return null;
+
+  let hash = '';
+  for (let i = 2; i < 34; i++) hash += bytes[i].toString(16).padStart(2, '0');
+  return `${wc}:${hash}`;
+}
+
+/**
+ * Inverso de decodeFriendlyTonAddress. Sirve para los tests y para mostrar
+ * direcciones en formato amigable.
+ *
+ * @param {string} raw forma "workchain:hex64"
+ * @param {{bounceable?: boolean, testnet?: boolean}} [opts]
+ * @returns {string|null}
+ */
+export function encodeFriendlyTonAddress(raw, { bounceable = true, testnet = false } = {}) {
+  const m = RAW_TON_RE.exec(String(raw || '').trim());
+  if (!m) return null;
+
+  const wc = parseInt(m[1], 10);
+  if (wc !== 0 && wc !== -1) return null;
+
+  const bytes = new Uint8Array(36);
+  bytes[0] = (bounceable ? 0x11 : 0x51) | (testnet ? 0x80 : 0x00);
+  bytes[1] = wc < 0 ? wc + 256 : wc;
+  for (let i = 0; i < 32; i++) bytes[2 + i] = parseInt(m[2].substr(i * 2, 2), 16);
+
+  const crc = crc16Xmodem(bytes.subarray(0, 34));
+  bytes[34] = (crc >> 8) & 0xff;
+  bytes[35] = crc & 0xff;
+  return bytesToBase64Url(bytes);
+}
+
+/**
  * Normalize a TON address for equality comparison.
  *
  * TON addresses come in multiple formats:
- *   - Raw: "0:abc123..."  (workchain:hexHash, lowercase)
- *   - User-friendly: "EQ..." / "UQ..." / "kQ..." / "0Q..." (base64 with checksum)
+ *   - Raw: "0:abc123..."  (workchain:hexHash)
+ *   - User-friendly: "EQ..." / "UQ..." (base64url con CRC16)
  *
- * TonConnect always returns raw "0:hex" lowercase.
- * TonCenter v2 in_msg.source is also raw "0:hex" lowercase.
+ * IMPORTANTE: TonConnect UI devuelve la forma AMIGABLE (wallet.account.address
+ * es "UQ..." / "EQ...") y TonCenter v2 devuelve in_msg.source en forma CRUDA
+ * ("0:hex"). Antes esto solo hacía trim+lowercase, así que la dirección del
+ * wallet y el source on-chain no matcheaban NUNCA: el tesoro recibía el pago y
+ * la recompensa no se acreditaba jamás.
  *
- * To be defensive, we normalize:
- *   - Trim whitespace
- *   - Lowercase
- *   - For raw "wc:hex", keep as-is (already canonical)
- *   - For friendly "EQ.../UQ...", we cannot decode without TonWeb. We return
- *     the lowercased friendly form. Direct equality between raw and friendly
- *     will NOT match — but TonConnect + TonCenter both deliver raw, so this
- *     is fine for our flow.
+ * Todo se canonicaliza a crudo. Si la entrada no es parseable se devuelve
+ * trim+lowercase, que al menos no rompe comparar dos formatos iguales.
+ *
+ * @param {string} addr
+ * @returns {string}
  */
 export function normalizeTonAddress(addr) {
   if (!addr || typeof addr !== 'string') return '';
-  return addr.trim().toLowerCase();
+  const trimmed = addr.trim();
+
+  const raw = RAW_TON_RE.exec(trimmed);
+  if (raw) return `${parseInt(raw[1], 10)}:${raw[2].toLowerCase()}`;
+
+  return decodeFriendlyTonAddress(trimmed) || trimmed.toLowerCase();
 }
 
 // ============================================
