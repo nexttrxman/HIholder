@@ -1,7 +1,7 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
-import { buildManifest, DEV_APP_URL } from './tonconnect.manifest.js'
+import { buildManifest, DEV_APP_URL, PROD_APP_URL } from './tonconnect.manifest.js'
 
 // Sirve /tonconnect-manifest.json desde el propio origen. TonConnect lo
 // descarga antes de conectar; si falla, el claim muere con "manifest not
@@ -17,11 +17,10 @@ function tonconnectManifest() {
       if (configured) {
         appUrl = configured
       } else if (mode === 'production') {
-        console.warn(
-          '\n[tonconnect-manifest] VITE_APP_URL no está definido: el manifiesto ' +
-            `queda en ${DEV_APP_URL} y las wallets móviles no van a poder volver a la app.\n` +
-            ' Definilo con el origen del deploy (ej. https://tu-proyecto.pages.dev).\n'
-        )
+        appUrl = PROD_APP_URL
+      }
+      if (mode === 'production') {
+        console.log(`[tonconnect-manifest] url del manifiesto: ${appUrl}`)
       }
     },
     configureServer(server) {

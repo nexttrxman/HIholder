@@ -13,6 +13,7 @@ import {
   APP_NAME,
   ICON_PATH,
   DEV_APP_URL,
+  PROD_APP_URL,
 } from '../../tonconnect.manifest.js';
 
 // En jsdom import.meta.url no es file://, así que se resuelve desde la raíz
@@ -45,6 +46,20 @@ describe('manifiesto de TonConnect', () => {
       expect(typeof m[key]).toBe('string');
       expect(m[key].length).toBeGreaterThan(0);
     }
+  });
+
+  it('el origen de producción es el alias estable, no el hash de un deploy', () => {
+    // 798d88f1.hiholder.pages.dev cambia en cada deploy; hiholder.pages.dev no.
+    expect(PROD_APP_URL).toBe('https://hiholder.pages.dev');
+    expect(PROD_APP_URL).not.toMatch(/^https:\/\/[0-9a-f]{8}\./);
+  });
+
+  it('el manifiesto de producción arma url e iconUrl con el dominio estable', () => {
+    expect(buildManifest(PROD_APP_URL)).toEqual({
+      url: 'https://hiholder.pages.dev',
+      name: APP_NAME,
+      iconUrl: 'https://hiholder.pages.dev/tether.png',
+    });
   });
 
   it('App.jsx pide el manifiesto al propio origen', () => {

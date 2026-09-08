@@ -15,6 +15,20 @@
 export const APP_NAME = 'TronKeeper';
 export const ICON_PATH = '/tether.png';
 
+/**
+ * Origen de producción: el alias estable del proyecto en Cloudflare Pages.
+ *
+ * NO usar la URL con hash de un deploy puntual
+ * (798d88f1.hiholder.pages.dev): cambia en cada deploy, y como las wallets
+ * identifican la conexión por `url`, los usuarios tendrían que reconectar y el
+ * manifiesto apuntaría a un deploy viejo. Se puede pisar con VITE_APP_URL si
+ * más adelante se usa un dominio propio.
+ */
+export const PROD_APP_URL = 'https://hiholder.pages.dev';
+
+/** Qué se sirve en dev/preview cuando VITE_APP_URL no está definido. */
+export const DEV_APP_URL = 'http://localhost:3000';
+
 /** @param {string} appUrl origen absoluto, sin barra final */
 export function buildManifest(appUrl) {
   const base = String(appUrl || '').replace(/\/+$/, '');
@@ -25,5 +39,3 @@ export function buildManifest(appUrl) {
   };
 }
 
-/** Qué se sirve cuando VITE_APP_URL no está definido. */
-export const DEV_APP_URL = 'http://localhost:3000';
