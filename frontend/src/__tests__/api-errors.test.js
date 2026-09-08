@@ -5,14 +5,20 @@
  */
 import { describe, it, expect } from 'vitest';
 
-import { describeApiError, normalizeBaseUrl } from '../services/api';
+import {
+  describeApiError,
+  normalizeBaseUrl,
+  requireWorkerUrl,
+  MISSING_WORKER_URL,
+} from '../services/api';
 
 describe('describeApiError', () => {
   it('un fallo de red dice que no llega al backend y recuerda revisar la URL', () => {
     const msg = describeApiError(new TypeError('Failed to fetch'));
     expect(msg).toContain('Cannot reach the backend');
     expect(msg).toContain('VITE_WORKER_URL');
-    expect(msg).toContain('http');
+    // No se aserta la URL concreta: en los tests VITE_WORKER_URL no está seteado
+    // y el mensaje debe degradar bien en vez de imprimir "at .".
   });
 
   it('un error con texto de red también se trata como inalcanzable', () => {
@@ -55,5 +61,24 @@ describe('normalizeBaseUrl', () => {
     expect(normalizeBaseUrl(undefined)).toBe('');
     expect(normalizeBaseUrl(null)).toBe('');
     expect(normalizeBaseUrl('')).toBe('');
+  });
+});
+
+describe('requireWorkerUrl', () => {
+  // Antes un VITE_WORKER_URL ausente caía en un fallback hardcodeado a
+  // tkworker.tkexchange.workers.dev: la app hablaba con un Worker distinto del
+  // que se estaba configurando y devolvía Invalid initData sin ninguna pista.
+  it('devuelve la URL cuando está', () => {
+    expect(requireWorkerUrl('https://api.example')).toBe('https://api.example');
+  });
+
+  it('falla fuerte cuando falta, en vez de usar un Worker ajeno', () => {
+    expect(() => requireWorkerUrl('')).toThrow(MISSING_WORKER_URL);
+    expect(MISSING_WORKER_URL).toContain('VITE_WORKER_URL');
+  });
+
+  it('el mensaje llega a la pantalla sin prefijo confuso', () => {
+    expect(describeApiError(new Error(MISSING_WORKER_URL))).toBe(MISSING_WORKER_URL);
+    expect(describeApiError(new Error(MISSING_WORKER_URL))).not.toContain('Backend error:');
   });
 });

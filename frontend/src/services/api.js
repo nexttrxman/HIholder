@@ -18,8 +18,29 @@
  */
 export const normalizeBaseUrl = (url) => String(url ?? '').replace(/\/+$/, '');
 
-const WORKER_URL =
-  normalizeBaseUrl(import.meta.env.VITE_WORKER_URL) || 'https://tkworker.tkexchange.workers.dev';
+/**
+ * Mensaje de error cuando falta VITE_WORKER_URL. Exportado para que
+ * describeApiError lo muestre tal cual, sin el prefijo "Backend error:".
+ */
+export const MISSING_WORKER_URL =
+  'VITE_WORKER_URL is not configured. Set it in Cloudflare Pages -> Settings -> Variables (Production) and redeploy.';
+
+/**
+ * Sin esto, un VITE_WORKER_URL ausente caía en un fallback hardcodeado a
+ * tkworker.tkexchange.workers.dev: un Worker distinto del que se está
+ * configurando. La app "funcionaba" contra el backend equivocado y devolvía
+ * Invalid initData o Not found sin ninguna pista de cuál era el problema.
+ * Es mejor fallar fuerte y decir qué variable falta.
+ *
+ * @param {string} url
+ * @returns {string}
+ */
+export const requireWorkerUrl = (url) => {
+  if (!url) throw new Error(MISSING_WORKER_URL);
+  return url;
+};
+
+const WORKER_URL = normalizeBaseUrl(import.meta.env.VITE_WORKER_URL);
 const TELEGRAM_BOT_URL = import.meta.env.VITE_TELEGRAM_BOT_URL || 'https://t.me/TKcex_bot';
 const DEPOSIT_ADDRESS = import.meta.env.VITE_DEPOSIT_ADDRESS || 'TNjqVzo47ndAvH241njkMLKbda3G6FPgVs';
 const TREASURY_WALLET = 'UQCydneDGeAcamdCFS6e13Z2xoxwA5DsLkFONRdp-cavw-Th';
@@ -183,7 +204,9 @@ const apiCall = async (endpoint, body = {}) => {
     return null;
   }
 
-  const response = await fetch(`${WORKER_URL}${endpoint}`, {
+  const base = requireWorkerUrl(WORKER_URL);
+
+  const response = await fetch(`${base}${endpoint}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ initData, ...body }),
@@ -210,10 +233,13 @@ const apiCall = async (endpoint, body = {}) => {
  */
 export function describeApiError(err) {
   const message = err?.message ? String(err.message) : String(err);
+  // Un error de configuración ya viene redactado para el usuario.
+  if (message === MISSING_WORKER_URL) return message;
   // fetch lanza TypeError cuando ni siquiera llega al servidor: DNS, red,
   // URL inexistente o WORKER_URL mal configurado.
   if (err instanceof TypeError || /fetch|network|load failed|failed to fetch/i.test(message)) {
-    return `Cannot reach the backend at ${WORKER_URL}. Check that the Worker is deployed and that VITE_WORKER_URL points to it.`;
+    const where = WORKER_URL ? ` at ${WORKER_URL}` : '';
+    return `Cannot reach the backend${where}. Check that the Worker is deployed and that VITE_WORKER_URL points to it.`;
   }
   return `Backend error: ${message}`;
 }

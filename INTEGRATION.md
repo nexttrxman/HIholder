@@ -445,7 +445,7 @@ Pages van en Settings → Environment variables.
 
 | Variable | Para qué | Si falta |
 |---|---|---|
-| `VITE_WORKER_URL` | URL del Worker (`api.js`) | cae al fallback `https://tkworker.tkexchange.workers.dev` |
+| `VITE_WORKER_URL` | URL del Worker (`api.js`) | **obligatoria**: sin ella la app no arranca y lo dice en pantalla |
 | `VITE_APP_URL` | Origen de la app, usado como `url` e `iconUrl` del manifiesto de TonConnect | el manifiesto queda en `http://localhost:3000` y las wallets móviles no pueden volver a la app |
 | `VITE_TELEGRAM_BOT_URL` | Link al bot | cae a `https://t.me/TKcex_bot` |
 | `VITE_DEPOSIT_ADDRESS` | Dirección de depósito mostrada | cae a la hardcodeada en `api.js` |
