@@ -125,6 +125,36 @@ contra alguno de los tokens configurados, y la ventana anti-replay de
 | `VITE_WORKER_URL` | URL del Cloudflare Worker (sin `/` final) |
 | `VITE_TELEGRAM_BOT_URL` | URL del bot (https://t.me/TU_BOT) |
 | `VITE_DEPOSIT_ADDRESS` | Wallet TRON para depósitos |
+| `VITE_TELEGRAM_APP_NAME` | Nombre del Web App creado con `/newapp` en BotFather. **Necesario para que los referidos funcionen** |
+
+### Referidos (v2.7.0)
+
+Antes no existían: ninguna consulta insertaba en `referrals`, así que la tabla
+estaba siempre vacía y el panel no actualizaba nunca.
+
+Flujo completo:
+
+1. El link de referido es `https://t.me/<bot>/<app>?startapp=<uid>`
+   (`buildReferralLink` en `api.js`). **La forma `?start=<uid>` no sirve**: le
+   pasa el parámetro al bot, no a la Mini App, y el Worker nunca se entera.
+2. Telegram pone ese valor en `start_param` dentro del `initData`. Como el HMAC
+   cubre todos los parámetros, no se puede falsificar sin el token del bot.
+3. `handleAuth` lo lee con `extractStartParam` y llama a `register_referral`,
+   que deja una fila en `status = 'pending'`. Es idempotente por el
+   `UNIQUE(referrer_id, referred_id)` y rechaza auto-referidos.
+4. El pago lo dispara `credit_claim` en el **primer claim del referido**:
+   `confirm_pending_referral` marca `confirmed`, acredita **2 TRX** al referente
+   en `internal_wallets.trx_balance`, escribe el `wallet_ledger`
+   (`referral_bonus`) y descuenta de `referral_pool.distributed`.
+
+Si el pool se agota la fila **queda `pending`** y se reintenta en el próximo
+claim, en vez de marcarse confirmada sin pagarla.
+
+Para que funcione hay que crear el Web App con nombre en BotFather
+(`/newapp`) y setear `VITE_TELEGRAM_APP_NAME`.
+
+**Requiere re-ejecutar `supabase/schema.sql`** (agrega `register_referral` y
+`confirm_pending_referral`, y modifica `credit_claim`).
 
 ## Endpoints del Worker
 

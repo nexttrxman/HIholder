@@ -147,6 +147,36 @@ export async function validateInitDataAny(initData, botTokens, options = {}) {
   return null;
 }
 
+/**
+ * Configuración de referidos. Los valores coinciden con el esquema
+ * (referrals.reward_amount DEFAULT 2, reward_asset 'TRX') y con lo que muestra
+ * la UI ("Earn 2 TRX for each friend who joins").
+ */
+export const REFERRAL_CONFIG = {
+  REWARD_TRX: 2,
+  REWARD_ASSET: 'TRX',
+};
+
+/**
+ * Saca el start_param de un initData.
+ *
+ * Telegram incluye ahí el valor de ?startapp=... cuando la Mini App se abre por
+ * deep link. Es confiable SOLO si el initData ya pasó validateInitDataAny: el
+ * HMAC se calcula sobre todos los parámetros, start_param incluido, así que no
+ * se puede falsificar sin el token del bot.
+ *
+ * @param {string} initData
+ * @returns {string} vacío si no hay
+ */
+export function extractStartParam(initData) {
+  if (!initData || typeof initData !== 'string') return '';
+  try {
+    return new URLSearchParams(initData).get('start_param') || '';
+  } catch (e) {
+    return '';
+  }
+}
+
 // ============================================
 // TON ADDRESS NORMALIZATION
 // ============================================

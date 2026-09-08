@@ -82,3 +82,26 @@ describe('requireWorkerUrl', () => {
     expect(describeApiError(new Error(MISSING_WORKER_URL))).not.toContain('Backend error:');
   });
 });
+
+describe('buildReferralLink', () => {
+  it('con appName usa startapp, que es lo único que llega al initData', async () => {
+    const { buildReferralLink } = await import('../services/api');
+    expect(buildReferralLink('TK123', { botUrl: 'https://t.me/TKcex_bot', appName: 'keeper' })).toBe(
+      'https://t.me/TKcex_bot/keeper?startapp=TK123'
+    );
+  });
+
+  it('sin appName degrada a ?start= (le llega al bot, no a la Mini App)', async () => {
+    const { buildReferralLink } = await import('../services/api');
+    expect(buildReferralLink('TK123', { botUrl: 'https://t.me/TKcex_bot', appName: '' })).toBe(
+      'https://t.me/TKcex_bot?start=TK123'
+    );
+  });
+
+  it('saca la barra final del bot y codifica el uid', async () => {
+    const { buildReferralLink } = await import('../services/api');
+    expect(buildReferralLink('a b&c', { botUrl: 'https://t.me/bot/', appName: 'ap p' })).toBe(
+      'https://t.me/bot/ap%20p?startapp=a%20b%26c'
+    );
+  });
+});

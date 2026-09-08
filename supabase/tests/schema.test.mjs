@@ -263,7 +263,124 @@ async function seedUser(balance = 0) {
 }
 
 
-// ---- 6) RLS: anon no ve nada, service_role sí ----------------------------
+// ---- 6) REFERIDOS: registro en pending y pago en el primer claim ----------
+// Antes no existía nada de esto: ninguna consulta insertaba en referrals, así
+// que la tabla estaba siempre vacía y el panel no actualizaba nunca.
+{
+  const referrer = await seedUser(0);
+  const referred = await seedUser(0);
+  const refUid = (await one(`SELECT uid FROM users WHERE telegram_id = $1`, [referrer])).uid;
+
+  // uid inexistente / vacío
+  eq('register_referral: uid desconocido', (await one(
+    `SELECT register_referral($1,$2,NULL) AS r`, ['no_existe', referred])).r.error, 'referrer_not_found');
+  eq('register_referral: uid vacío', (await one(
+    `SELECT register_referral($1,$2,NULL) AS r`, ['   ', referred])).r.error, 'missing_referrer_uid');
+
+  // auto-referido
+  eq('register_referral: rechaza auto-referido', (await one(
+    `SELECT register_referral($1,$2,NULL) AS r`, [refUid, referrer])).r.error, 'self_referral');
+
+  // referido inexistente
+  eq('register_referral: referido inexistente', (await one(
+    `SELECT register_referral($1,$2,NULL) AS r`, [refUid, 'tg_nadie'])).r.error, 'referred_user_not_found');
+
+  // registro correcto
+  const reg = (await one(`SELECT register_referral($1,$2,$3) AS r`, [refUid, referred, 'ana'])).r;
+  eq('register_referral: registra', reg.registered, true);
+  eq('register_referral: apunta al referente correcto', reg.referrer_id, referrer);
+
+  const row = await one(`SELECT * FROM referrals WHERE referred_id = $1`, [referred]);
+  eq('referrals: status inicial pending', row.status, 'pending');
+  eq('referrals: recompensa 2', parseFloat(row.reward_amount), 2);
+  eq('referrals: activo TRX', row.reward_asset, 'TRX');
+
+  // idempotente por el UNIQUE(referrer_id, referred_id)
+  const again = (await one(`SELECT register_referral($1,$2,NULL) AS r`, [refUid, referred])).r;
+  eq('register_referral: segunda llamada no duplica', again.registered, false);
+  eq('referrals: sigue habiendo una sola fila',
+    (await one(`SELECT COUNT(*)::int AS n FROM referrals WHERE referred_id = $1`, [referred])).n, 1);
+
+  // todavía no se pagó nada
+  eq('referrer: sin TRX antes del claim',
+    parseFloat((await one(`SELECT trx_balance FROM internal_wallets WHERE user_id = $1`, [referrer])).trx_balance), 0);
+
+  // El pago lo dispara credit_claim, no una llamada manual.
+  const cyc = await one(
+    `INSERT INTO hold_cycles (user_id, ends_at, holds_completed, status)
+     VALUES ($1, NOW() + INTERVAL '6 hours', 3, 'active') RETURNING id`, [referred]);
+  await q(
+    `INSERT INTO claims (claim_id, user_id, cycle_id, total_prize, ton_fee, status, expires_at)
+     VALUES ('CLM_REF_1', $1, $2, 0.18, 0.05, 'pending', NOW() + INTERVAL '10 minutes')`,
+    [referred, cyc.id]);
+
+  const credited = (await one(
+    `SELECT credit_claim('CLM_REF_1','TXHASH_REF',0.05,'0:aa') AS r`)).r;
+  eq('credit_claim: acredita el claim', credited.ok, true);
+
+  eq('referrer: 2 TRX tras el primer claim del referido',
+    parseFloat((await one(`SELECT trx_balance FROM internal_wallets WHERE user_id = $1`, [referrer])).trx_balance), 2);
+  eq('referrals: pasa a confirmed',
+    (await one(`SELECT status FROM referrals WHERE referred_id = $1`, [referred])).status, 'confirmed');
+
+  const led = await one(
+    `SELECT * FROM wallet_ledger WHERE user_id = $1 AND operation = 'referral_bonus'`, [referrer]);
+  eq('ledger: fila referral_bonus', led.asset, 'TRX');
+  eq('ledger: monto 2', parseFloat(led.amount), 2);
+  eq('ledger: balance después', parseFloat(led.balance_after), 2);
+  eq('ledger: referencia al referido', led.reference_id, referred);
+
+  eq('pool: distributed subió 2',
+    parseFloat((await one(`SELECT distributed FROM referral_pool ORDER BY id LIMIT 1`)).distributed), 2);
+
+  // no se paga dos veces
+  const second = (await one(`SELECT confirm_pending_referral($1) AS r`, [referred])).r;
+  eq('confirm_pending_referral: sin pendiente no paga', second.confirmed, false);
+  eq('referrer: sigue en 2 TRX',
+    parseFloat((await one(`SELECT trx_balance FROM internal_wallets WHERE user_id = $1`, [referrer])).trx_balance), 2);
+
+  // un segundo claim del mismo usuario no vuelve a pagar
+  const cyc2 = await one(
+    `INSERT INTO hold_cycles (user_id, ends_at, holds_completed, status)
+     VALUES ($1, NOW() + INTERVAL '6 hours', 3, 'active') RETURNING id`, [referred]);
+  await q(
+    `INSERT INTO claims (claim_id, user_id, cycle_id, total_prize, ton_fee, status, expires_at)
+     VALUES ('CLM_REF_2', $1, $2, 0.18, 0.05, 'pending', NOW() + INTERVAL '10 minutes')`,
+    [referred, cyc2.id]);
+  await one(`SELECT credit_claim('CLM_REF_2','TXHASH_REF_2',0.05,'0:aa') AS r`);
+  eq('referrer: un segundo claim no paga de nuevo',
+    parseFloat((await one(`SELECT trx_balance FROM internal_wallets WHERE user_id = $1`, [referrer])).trx_balance), 2);
+
+  // sin pendiente: no hace nada y no rompe
+  const loner = await seedUser(0);
+  eq('confirm_pending_referral: usuario sin referente',
+    (await one(`SELECT confirm_pending_referral($1) AS r`, [loner])).r.confirmed, false);
+
+  // pool agotado: queda pending para reintentar, no se marca confirmada sin pagar
+  const r2 = await seedUser(0);
+  const d2 = await seedUser(0);
+  const uid2 = (await one(`SELECT uid FROM users WHERE telegram_id = $1`, [r2])).uid;
+  await one(`SELECT register_referral($1,$2,NULL) AS r`, [uid2, d2]);
+  await q(`UPDATE referral_pool SET distributed = total_pool`);
+  const exhausted = (await one(`SELECT confirm_pending_referral($1) AS r`, [d2])).r;
+  eq('pool agotado: no confirma', exhausted.confirmed, false);
+  eq('pool agotado: lo dice', exhausted.pool_exhausted, true);
+  eq('pool agotado: la fila sigue pending',
+    (await one(`SELECT status FROM referrals WHERE referred_id = $1`, [d2])).status, 'pending');
+  eq('pool agotado: el referente no cobra',
+    parseFloat((await one(`SELECT trx_balance FROM internal_wallets WHERE user_id = $1`, [r2])).trx_balance), 0);
+
+  // y cuando hay lugar de nuevo, se paga
+  await q(`UPDATE referral_pool SET distributed = 0`);
+  const recovered = (await one(`SELECT confirm_pending_referral($1) AS r`, [d2])).r;
+  eq('pool con lugar: confirma el pendiente', recovered.confirmed, true);
+  eq('pool con lugar: el referente cobra',
+    parseFloat((await one(`SELECT trx_balance FROM internal_wallets WHERE user_id = $1`, [r2])).trx_balance), 2);
+
+  await q(`UPDATE referral_pool SET distributed = 0`);
+}
+
+// ---- 7) RLS: anon no ve nada, service_role sí ----------------------------
 {
   // Las 12 tablas tienen que tener RLS habilitado
   const rlsOff = (await q(`
@@ -280,7 +397,9 @@ async function seedUser(balance = 0) {
            has_function_privilege('public', p.oid, 'EXECUTE') AS pub
     FROM pg_proc p
     WHERE p.proname IN ('credit_claim','open_trade','close_trade',
-                        'set_trade_levels','daily_checkin','expire_claims_and_cycles')`)).rows;
+                        'set_trade_levels','daily_checkin','expire_claims_and_cycles',
+                        'register_referral','confirm_pending_referral')`)).rows;
+  eq('RPC: las 8 funciones sensibles existen', perms.length, 8);
   eq('RPC: ninguna queda ejecutable por PUBLIC', perms.filter((r) => r.pub).length, 0);
   eq('RPC: ninguna es SECURITY DEFINER', perms.filter((r) => r.prosecdef).length, 0);
 

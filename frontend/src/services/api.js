@@ -41,7 +41,29 @@ export const requireWorkerUrl = (url) => {
 };
 
 const WORKER_URL = normalizeBaseUrl(import.meta.env.VITE_WORKER_URL);
+
 const TELEGRAM_BOT_URL = import.meta.env.VITE_TELEGRAM_BOT_URL || 'https://t.me/TKcex_bot';
+const TELEGRAM_APP_NAME = (import.meta.env.VITE_TELEGRAM_APP_NAME || '').trim();
+
+/**
+ * Arma el link de referido.
+ *
+ * Con VITE_TELEGRAM_APP_NAME usa la forma startapp
+ * (t.me/<bot>/<app>?startapp=<uid>), que es la única que hace que Telegram
+ * incluya start_param en el initData de la Mini App. Sin ese parámetro el
+ * Worker no tiene forma de saber quién trajo al usuario y el referido no se
+ * registra. La forma vieja ?start=<uid> le pasa el valor al BOT, no a la app.
+ *
+ * @param {string} uid
+ * @returns {string}
+ */
+export const buildReferralLink = (uid, { botUrl = TELEGRAM_BOT_URL, appName = TELEGRAM_APP_NAME } = {}) => {
+  const base = String(botUrl || '').replace(/\/+$/, '');
+  const param = encodeURIComponent(uid);
+  return appName
+    ? `${base}/${encodeURIComponent(appName)}?startapp=${param}`
+    : `${base}?start=${param}`;
+};
 const DEPOSIT_ADDRESS = import.meta.env.VITE_DEPOSIT_ADDRESS || 'TNjqVzo47ndAvH241njkMLKbda3G6FPgVs';
 const TREASURY_WALLET = 'UQCydneDGeAcamdCFS6e13Z2xoxwA5DsLkFONRdp-cavw-Th';
 
@@ -183,7 +205,7 @@ export const hapticFeedback = (type = 'impact') => {
 
 export const shareReferralLink = (uid) => {
   const tg = getTelegram();
-  const link = `${TELEGRAM_BOT_URL}?start=${uid}`;
+  const link = buildReferralLink(uid);
   const text = '🎁 Join TronKeeper and earn rewards! Hold to earn daily.';
   
   if (tg?.openTelegramLink) {

@@ -15,6 +15,7 @@
 
 import {
   validateInitDataAny,
+  extractStartParam,
   jsonResponse,
   generateClaimId,
   normalizeTonAddress,
@@ -119,6 +120,20 @@ async function handleAuth(request, env) {
 
     await db.query('internal_wallets', 'insert', {
       body: { user_id: tgId, usdt_balance: 0, trx_balance: 0, ton_balance: 0 }
+    });
+  }
+
+  // Referidos: Telegram pone el valor de ?startapp=<uid> en start_param.
+  // El initData ya fue validado, así que el parámetro es confiable. Se registra
+  // en 'pending'; el pago de 2 TRX al referente lo dispara confirm_pending_referral
+  // desde credit_claim, en el primer claim del referido.
+  // Un start_param inválido no puede romper el login: se ignora el resultado.
+  const startParam = extractStartParam(initData);
+  if (startParam) {
+    await db.rpc('register_referral', {
+      p_referrer_uid: startParam,
+      p_referred_id: tgId,
+      p_referred_username: telegramUser.username || null,
     });
   }
 

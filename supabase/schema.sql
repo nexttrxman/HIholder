@@ -256,6 +256,133 @@ CREATE TRIGGER internal_wallets_updated_at
 -- =============================================
 -- FUNCIÓN: Acreditar claim (atómico e idempotente)
 -- =============================================
+-- =============================================
+-- REFERRALS (v2.7.0)
+-- =============================================
+-- El registro y el pago de referidos no existían: nada insertaba en referrals,
+-- así que la tabla estaba siempre vacía y el panel no actualizaba nunca.
+--
+-- Flujo: la app se abre con ?startapp=<uid>, Telegram pone ese valor en
+-- start_param dentro del initData, el Worker llama a register_referral y queda
+-- una fila en status 'pending'. El pago se dispara en el PRIMER CLAIM del
+-- referido: credit_claim llama a confirm_pending_referral, que marca
+-- 'confirmed', acredita 2 TRX al referente y descuenta del pool.
+
+CREATE OR REPLACE FUNCTION register_referral(
+  p_referrer_uid TEXT,
+  p_referred_id TEXT,
+  p_referred_username TEXT DEFAULT NULL
+) RETURNS JSONB AS $$
+DECLARE
+  v_referrer RECORD;
+  v_rows INTEGER := 0;
+BEGIN
+  IF p_referrer_uid IS NULL OR length(trim(p_referrer_uid)) = 0 THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'missing_referrer_uid');
+  END IF;
+
+  SELECT telegram_id INTO v_referrer FROM users WHERE uid = p_referrer_uid;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'referrer_not_found');
+  END IF;
+
+  IF v_referrer.telegram_id = p_referred_id THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'self_referral');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM users WHERE telegram_id = p_referred_id) THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'referred_user_not_found');
+  END IF;
+
+  INSERT INTO referrals (
+    referrer_id, referred_id, referred_username,
+    reward_amount, reward_asset, status
+  ) VALUES (
+    v_referrer.telegram_id, p_referred_id, p_referred_username,
+    2, 'TRX', 'pending'
+  )
+  ON CONFLICT (referrer_id, referred_id) DO NOTHING;
+
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'registered', v_rows > 0,
+    'referrer_id', v_referrer.telegram_id
+  );
+END;
+$$ LANGUAGE plpgsql;
+
+
+CREATE OR REPLACE FUNCTION confirm_pending_referral(
+  p_user_id TEXT
+) RETURNS JSONB AS $$
+DECLARE
+  v_ref RECORD;
+  v_wallet RECORD;
+  v_pool RECORD;
+  v_has_pool BOOLEAN := false;
+  v_before DECIMAL;
+  v_after DECIMAL;
+BEGIN
+  SELECT * INTO v_ref FROM referrals
+  WHERE referred_id = p_user_id AND status = 'pending'
+  ORDER BY created_at
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', true, 'confirmed', false);
+  END IF;
+
+  -- Si el pool se agotó la fila queda 'pending' y se reintenta en el próximo
+  -- claim, en vez de marcarla confirmada sin pagarla.
+  SELECT * INTO v_pool FROM referral_pool ORDER BY id LIMIT 1 FOR UPDATE;
+  v_has_pool := FOUND;
+  IF v_has_pool AND v_pool.distributed + v_ref.reward_amount > v_pool.total_pool THEN
+    RETURN jsonb_build_object('ok', true, 'confirmed', false, 'pool_exhausted', true);
+  END IF;
+
+  UPDATE referrals SET status = 'confirmed' WHERE id = v_ref.id;
+
+  SELECT * INTO v_wallet FROM internal_wallets
+  WHERE user_id = v_ref.referrer_id FOR UPDATE;
+
+  IF NOT FOUND THEN
+    INSERT INTO internal_wallets (user_id, usdt_balance, trx_balance, ton_balance)
+    VALUES (v_ref.referrer_id, 0, 0, 0)
+    RETURNING * INTO v_wallet;
+  END IF;
+
+  v_before := v_wallet.trx_balance;
+  v_after := v_before + v_ref.reward_amount;
+
+  UPDATE internal_wallets SET trx_balance = v_after WHERE user_id = v_ref.referrer_id;
+
+  INSERT INTO wallet_ledger (
+    user_id, operation, reference_type, reference_id,
+    asset, amount, balance_before, balance_after, description
+  ) VALUES (
+    v_ref.referrer_id, 'referral_bonus', 'referral', v_ref.referred_id,
+    'TRX', v_ref.reward_amount, v_before, v_after,
+    'Referral bonus: ' || COALESCE(v_ref.referred_username, v_ref.referred_id)
+  );
+
+  IF v_has_pool THEN
+    UPDATE referral_pool
+    SET distributed = distributed + v_ref.reward_amount, updated_at = NOW()
+    WHERE id = v_pool.id;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'confirmed', true,
+    'referrer_id', v_ref.referrer_id,
+    'reward_amount', v_ref.reward_amount
+  );
+END;
+$$ LANGUAGE plpgsql;
+
+
 CREATE OR REPLACE FUNCTION credit_claim(
   p_claim_id TEXT,
   p_tx_hash TEXT,
@@ -345,6 +472,9 @@ BEGIN
   UPDATE hold_cycles 
   SET status = 'completed'
   WHERE id = v_claim.cycle_id;
+  
+  -- Primer claim del usuario: pagar el referido pendiente que lo trajo.
+  PERFORM confirm_pending_referral(v_claim.user_id);
   
   RETURN jsonb_build_object(
     'ok', true, 
@@ -948,7 +1078,9 @@ REVOKE EXECUTE ON FUNCTION
   close_trade(TEXT, UUID, DECIMAL),
   set_trade_levels(TEXT, UUID, DECIMAL, DECIMAL),
   daily_checkin(TEXT),
-  expire_claims_and_cycles()
+  expire_claims_and_cycles(),
+  register_referral(TEXT, TEXT, TEXT),
+  confirm_pending_referral(TEXT)
 FROM PUBLIC;
 
 DO $$
@@ -960,7 +1092,9 @@ DECLARE
     'close_trade(TEXT, UUID, DECIMAL)',
     'set_trade_levels(TEXT, UUID, DECIMAL, DECIMAL)',
     'daily_checkin(TEXT)',
-    'expire_claims_and_cycles()'
+    'expire_claims_and_cycles()',
+    'register_referral(TEXT, TEXT, TEXT)',
+    'confirm_pending_referral(TEXT)'
   ];
   r TEXT;
 BEGIN
