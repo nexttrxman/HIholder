@@ -10,12 +10,16 @@ import {
   validateLevels,
   validateTradeRequest,
 } from '@/lib/trade';
+import { computePortfolio } from '@/lib/portfolio';
 
 const TradeContext = createContext(null);
 
 const POSITIONS_KEY = 'tk_positions_v1';
 const REALIZED_KEY = 'tk_realized_v1';
 const DEFAULT_MARK_POLL_MS = 10000;
+// Se cotiza siempre, aunque no haya posiciones abiertas: el TRX del saldo
+// interno se convierte a USDT para el total del portafolio.
+const TRX_PAIR = 'TRXUSDT';
 const TRIGGER_BANNER_MS = 6000;
 
 function readJson(key, fallback) {
@@ -43,7 +47,7 @@ const toNumberOrNull = (value) => {
 };
 
 export function TradeProvider({ children, markPollMs = DEFAULT_MARK_POLL_MS }) {
-  const { usdtBalance, applyUsdtDelta, pushLocalTransaction, refreshData } = useWallet();
+  const { usdtBalance, trxBalance, applyUsdtDelta, pushLocalTransaction, refreshData } = useWallet();
 
   const [positions, setPositions] = useState([]);
   const [realizedPnl, setRealizedPnl] = useState(0);
@@ -90,11 +94,7 @@ export function TradeProvider({ children, markPollMs = DEFAULT_MARK_POLL_MS }) {
   );
 
   useEffect(() => {
-    const pairs = openPairsKey ? openPairsKey.split('|') : [];
-    if (pairs.length === 0) {
-      setMarks({});
-      return undefined;
-    }
+    const pairs = [...new Set([...(openPairsKey ? openPairsKey.split('|') : []), TRX_PAIR])];
 
     let active = true;
 
@@ -427,6 +427,25 @@ export function TradeProvider({ children, markPollMs = DEFAULT_MARK_POLL_MS }) {
     [openPositions]
   );
 
+  /**
+   * Total = saldo USDT + posiciones a mercado (con su PnL) + TRX valorado.
+   * Se calcula acá porque los marks viven en este contexto, y lo consumen tanto
+   * Home como Wallet para mostrar el mismo número.
+   */
+  const trxPrice = marks[TRX_PAIR] ?? null;
+
+  const portfolio = useMemo(
+    () =>
+      computePortfolio({
+        usdtBalance,
+        trxBalance,
+        trxPrice,
+        positionsValue,
+        unrealizedPnl,
+      }),
+    [usdtBalance, trxBalance, trxPrice, positionsValue, unrealizedPnl]
+  );
+
   const clearError = useCallback(() => setError(null), []);
   const clearTrigger = useCallback(() => setLastTrigger(null), []);
 
@@ -436,6 +455,8 @@ export function TradeProvider({ children, markPollMs = DEFAULT_MARK_POLL_MS }) {
     realizedPnl,
     unrealizedPnl,
     positionsValue,
+    portfolio,
+    trxPrice,
     source,
     busy,
     error,

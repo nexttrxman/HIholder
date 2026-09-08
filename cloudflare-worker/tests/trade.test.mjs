@@ -17,6 +17,7 @@ import {
   calcUnrealizedPnl,
   isPriceWithinTolerance,
   fetchMarkPrice,
+  pairSymbols,
   priceFromPercent,
   validateLevels,
   checkLevelTrigger,
@@ -190,6 +191,53 @@ test('isPriceWithinTolerance: missing mark price trusts the client', () => {
 });
 
 // ============================================
+// TON -> GRAM: tickers de mercado por par
+// ============================================
+// Toncoin se renombró a Gram el 15/06/2026. ALLOWED_PAIRS y trade_positions
+// siguen usando TONUSDT (cambiarlo dejaría huérfanas las posiciones abiertas),
+// pero el ticker de mercado puede ser el nuevo o el viejo según el exchange.
+test('pairSymbols: TONUSDT prueba GRAMUSDT primero y los pares sin alias usan su propio símbolo', () => {
+  assert.deepEqual(pairSymbols('TONUSDT'), ['GRAMUSDT', 'TONUSDT']);
+  assert.deepEqual(pairSymbols('BTCUSDT'), ['BTCUSDT']);
+});
+
+test('fetchMarkPrice: usa el ticker nuevo cuando el exchange ya migró', async () => {
+  const asked = [];
+  const price = await fetchMarkPrice('TONUSDT', {
+    fetchImpl: async (url) => {
+      asked.push(url);
+      return { ok: true, json: async () => ({ price: '1.4100' }) };
+    },
+  });
+  assert.equal(price, 1.41);
+  assert.equal(asked.length, 1);
+  assert.ok(asked[0].includes('symbol=GRAMUSDT'), asked[0]);
+});
+
+test('fetchMarkPrice: cae al ticker viejo si el nuevo todavía no existe', async () => {
+  const asked = [];
+  const price = await fetchMarkPrice('TONUSDT', {
+    fetchImpl: async (url) => {
+      asked.push(url);
+      if (url.includes('GRAMUSDT')) return { ok: false };
+      return { ok: true, json: async () => ({ price: '3.4120' }) };
+    },
+  });
+  assert.equal(price, 3.412);
+  assert.deepEqual(asked.map((u) => (u.includes('GRAMUSDT') ? 'GRAM' : 'TON')), ['GRAM', 'TON']);
+});
+
+test('fetchMarkPrice: un ticker que revienta no impide probar el siguiente', async () => {
+  const price = await fetchMarkPrice('TONUSDT', {
+    fetchImpl: async (url) => {
+      if (url.includes('GRAMUSDT')) throw new Error('network down');
+      return { ok: true, json: async () => ({ price: '3.4120' }) };
+    },
+  });
+  assert.equal(price, 3.412);
+});
+
+// ============================================
 // fetchMarkPrice (injected fetch)
 // ============================================
 test('fetchMarkPrice: parses the exchange ticker', async () => {
@@ -211,6 +259,11 @@ test('fetchMarkPrice: returns null on HTTP error or bad payload', async () => {
         throw new Error('network down');
       },
     }),
+    null
+  );
+  // Y si todos los tickers del par fallan, sigue siendo null (no un precio viejo).
+  assert.equal(
+    await fetchMarkPrice('BTCUSDT', { fetchImpl: async () => ({ ok: false }) }),
     null
   );
 });

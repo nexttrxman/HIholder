@@ -602,18 +602,38 @@ export function isPriceWithinTolerance(clientPrice, markPrice, tolerance = TRADE
  * Fetch the current mark price for a pair.
  * @returns {Promise<number|null>} null when the exchange is unreachable
  */
+/**
+ * Tickers de mercado por par, en orden de preferencia.
+ *
+ * Toncoin se renombró a Gram el 15/06/2026 (mismo activo, 1:1, sin swap), y los
+ * exchanges fueron moviendo el símbolo en fechas distintas. ALLOWED_PAIRS y
+ * trade_positions siguen usando TONUSDT para no dejar huérfanas las posiciones
+ * ya abiertas; acá probamos el ticker nuevo y, si el exchange todavía no migró,
+ * el viejo.
+ */
+export const PAIR_ALIASES = {
+  TONUSDT: ['GRAMUSDT', 'TONUSDT'],
+};
+
+export function pairSymbols(pair) {
+  return PAIR_ALIASES[pair] || [pair];
+}
+
 export async function fetchMarkPrice(pair, { fetchImpl = fetch } = {}) {
-  try {
-    const res = await fetchImpl(
-      `${TRADE_CONFIG.BINANCE_TICKER_URL}?symbol=${encodeURIComponent(pair)}`
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    const price = Number(data?.price);
-    return Number.isFinite(price) && price > 0 ? price : null;
-  } catch (e) {
-    return null;
+  for (const symbol of pairSymbols(pair)) {
+    try {
+      const res = await fetchImpl(
+        `${TRADE_CONFIG.BINANCE_TICKER_URL}?symbol=${encodeURIComponent(symbol)}`
+      );
+      if (!res.ok) continue;
+      const data = await res.json();
+      const price = Number(data?.price);
+      if (Number.isFinite(price) && price > 0) return price;
+    } catch (e) {
+      /* ticker no disponible: probar el siguiente */
+    }
   }
+  return null;
 }
 
 // ============================================

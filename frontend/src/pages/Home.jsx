@@ -3,6 +3,7 @@ import { HoldButton } from '@/components/earn/HoldButton';
 import { HoldSection } from '@/components/earn/HoldSection';
 import { useWallet } from '@/contexts/WalletContext';
 import { useTrade } from '@/contexts/TradeContext';
+import { formatUsd } from '@/lib/trade';
 import { ArrowDownLeft, ArrowUpRight, Gift, Clock, Wallet, TrendingUp, TrendingDown } from 'lucide-react';
 import { motion } from 'framer-motion';
 
@@ -17,16 +18,14 @@ const ACTIVITY_STYLE = {
 
 export function HomePage({ onNavigate, onClaimReady, onOpenClaim }) {
   const { 
-    transactions, 
-    usdtBalance, 
-    trxBalance,
+    transactions,
     pendingClaim,
     getClaimSecondsRemaining,
     holdsCompleted,
     remainingHolds,
     totalRefs,
   } = useWallet();
-  const { positionsValue } = useTrade();
+  const { portfolio } = useTrade();
 
   const recentTx = transactions.slice(0, 3);
   const claimSeconds = getClaimSecondsRemaining();
@@ -85,10 +84,18 @@ export function HomePage({ onNavigate, onClaimReady, onOpenClaim }) {
               <Wallet className="w-4 h-4 text-brand-green" />
             </div>
             <div>
-              <p className="text-xs text-white/40">Balance</p>
-              <p className="text-sm font-semibold text-white">${usdtBalance.toFixed(2)}</p>
-              {positionsValue > 0 && (
-                <p className="text-[10px] text-brand-green">${positionsValue.toFixed(2)} in trades</p>
+              <p className="text-xs text-white/40">Total Balance</p>
+              <p className="text-sm font-semibold text-white" data-testid="home-total-balance">
+                {formatUsd(portfolio.total)}
+              </p>
+              {portfolio.trades > 0 && (
+                <p
+                  className={`text-[10px] ${portfolio.pnl >= 0 ? 'text-brand-green' : 'text-brand-red'}`}
+                  data-testid="home-positions-value"
+                >
+                  {formatUsd(portfolio.trades)} in trades · {portfolio.pnl >= 0 ? '+' : '-'}
+                  {formatUsd(Math.abs(portfolio.pnl))}
+                </p>
               )}
             </div>
           </div>

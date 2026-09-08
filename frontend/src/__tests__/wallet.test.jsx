@@ -1,5 +1,30 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+
+/**
+ * Precios fijos para que el total del portafolio sea predecible. El resto del
+ * módulo (metadatos de pares, velas sintéticas) queda real.
+ */
+const market = vi.hoisted(() => ({ prices: { TRXUSDT: 0.3, TONUSDT: 3.5 } }));
+
+vi.mock('@/services/market', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    fetchKlines: vi.fn(async (pairId, timeframeId, limit) => ({
+      mode: 'sim',
+      candles: actual.syntheticCandles(pairId, timeframeId, limit),
+    })),
+    fetch24h: vi.fn(async (pairId) => ({
+      mode: 'live',
+      price: market.prices[pairId] ?? 1,
+      changePercent: 0,
+      high: 1,
+      low: 1,
+      volume: 0,
+    })),
+  };
+});
 
 import { resetMockWallet } from '@/services/api';
 import { WalletProvider } from '@/contexts/WalletContext';
@@ -7,9 +32,11 @@ import { TradeProvider } from '@/contexts/TradeContext';
 import { WalletPage } from '@/pages/Wallet';
 
 /**
- * Orden y presencia de los bloques de Wallet: Deposit Information arriba y
- * expandido, tarjetas de saldo, y los paneles de withdrawal al pie — todo en la
- * misma pantalla, sin cambiar de pestaña.
+ * Layout de Wallet: Deposit Information arriba y expandido, y UNA tarjeta por
+ * activo que concentra Deposit / Withdraw. El total del hero suma saldos +
+ * posiciones a mercado + TRX valorado.
+ *
+ * Saldo mock (resetMockWallet): 250 USDT y 5 TRX.
  */
 
 function renderWallet(props = {}) {
@@ -47,34 +74,57 @@ describe('Wallet — layout', () => {
     expect(screen.getByTestId('deposit-info')).toBeInTheDocument();
   });
 
-  it('tiene un panel de withdrawal por activo, al pie', () => {
+  it('tiene una sola tarjeta por activo — sin una segunda versión duplicada', () => {
     renderWallet();
-    const panels = screen.getByTestId('withdraw-panels');
-    expect(panels).toBeInTheDocument();
-    expect(screen.getByTestId('withdraw-panel-usdt')).toBeInTheDocument();
-    expect(screen.getByTestId('withdraw-panel-trx')).toBeInTheDocument();
-    expect(screen.getByTestId('withdraw-open-usdt')).toBeInTheDocument();
-    expect(screen.getByTestId('withdraw-open-trx')).toBeInTheDocument();
+    expect(screen.getByTestId('balance-card-usdt')).toBeInTheDocument();
+    expect(screen.getByTestId('balance-card-trx')).toBeInTheDocument();
+
+    // Los paneles de withdrawal del pie repetían las mismas tarjetas en otro
+    // tamaño; no van más.
+    expect(screen.queryByTestId('withdraw-panels')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('withdraw-panel-usdt')).not.toBeInTheDocument();
+
+    // Y la función sigue viva: exactamente un botón Withdraw por activo.
+    expect(screen.getAllByRole('button', { name: 'Withdraw' })).toHaveLength(2);
   });
 
-  it('el orden es: depósito, tarjetas de saldo, withdrawal', () => {
+  it('el orden es: total, depósito, tarjetas', () => {
     renderWallet();
+    const total = screen.getByTestId('wallet-total-balance');
     const deposit = screen.getByTestId('toggle-deposit');
     const usdtCard = screen.getByTestId('balance-card-usdt');
-    const withdraw = screen.getByTestId('withdraw-panels');
 
+    expect(isBefore(total, deposit)).toBe(true);
     expect(isBefore(deposit, usdtCard)).toBe(true);
-    expect(isBefore(usdtCard, withdraw)).toBe(true);
   });
 
-  it('los paneles de withdrawal abren el modal con el activo correcto', () => {
+  it('el botón Withdraw de cada tarjeta abre el modal con el activo correcto', () => {
     let opened = null;
     renderWallet({ onOpenWithdraw: (asset) => { opened = asset; } });
 
-    fireEvent.click(screen.getByTestId('withdraw-open-trx'));
+    fireEvent.click(screen.getByTestId('withdraw-trx-btn'));
     expect(opened).toBe('TRX');
 
-    fireEvent.click(screen.getByTestId('withdraw-open-usdt'));
+    fireEvent.click(screen.getByTestId('withdraw-usdt-btn'));
     expect(opened).toBe('USDT');
+  });
+});
+
+describe('Wallet — total balance', () => {
+  beforeEach(() => resetMockWallet());
+  afterEach(() => localStorage.clear());
+
+  it('el total suma el saldo USDT y el TRX valorado al precio de mercado', async () => {
+    renderWallet();
+
+    // 250 USDT + (5 TRX × 0.30) = 251.50. Sin posiciones abiertas.
+    await waitFor(() =>
+      expect(screen.getByTestId('wallet-total-balance-amount')).toHaveTextContent('$251.50')
+    );
+
+    const breakdown = screen.getByTestId('portfolio-breakdown');
+    expect(breakdown).toHaveTextContent('$250.00 USDT');
+    expect(breakdown).toHaveTextContent('5.00 TRX');
+    expect(breakdown).toHaveTextContent('$1.50');
   });
 });

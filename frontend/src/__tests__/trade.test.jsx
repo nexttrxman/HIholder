@@ -179,7 +179,7 @@ describe('Trade page', () => {
 
     // Size and send the order
     fireEvent.change(screen.getByTestId('trade-amount-input'), { target: { value: '50' } });
-    await waitFor(() => expect(screen.getByTestId('trade-preview-qty')).toHaveTextContent('14.29 TON'));
+    await waitFor(() => expect(screen.getByTestId('trade-preview-qty')).toHaveTextContent('14.29 GRAM'));
     fireEvent.click(screen.getByTestId('trade-buy-submit'));
 
     await waitFor(() => expect(screen.getByTestId('position-TONUSDT')).toBeInTheDocument());
@@ -254,7 +254,16 @@ describe('Wallet page', () => {
     fireEvent.click(screen.getByTestId('nav-wallet'));
     await waitFor(() => expect(screen.getByTestId('wallet-page')).toBeInTheDocument());
     expect(screen.queryByTestId('trade-panel')).not.toBeInTheDocument();
-    expect(screen.getByTestId('wallet-total-balance')).toHaveTextContent('$224.97'); // 250 - 25.025
+    // El total ya no es solo el saldo libre: suma la posición a mercado (PnL 0
+    // acá, el mark del mock es el mismo precio de entrada) y el TRX valorado.
+    //   224.975 saldo  +  25.00 posición  +  (5 TRX × 3.50)  =  267.475
+    const headline = screen.getByTestId('wallet-total-balance-amount');
+    await waitFor(() => {
+      const total = Number(headline.textContent.replace(/[^0-9.]/g, ''));
+      expect(close(total, 250 - 25.025 + 25 + 5 * 3.5, 0.01)).toBe(true);
+    });
+    // El saldo libre y la posición quedan a la vista en el desglose.
+    expect(screen.getByTestId('portfolio-breakdown')).toHaveTextContent('1 open position');
 
     fireEvent.click(screen.getByTestId('wallet-section-activity'));
     await waitFor(() => expect(screen.getByTestId('transaction-list')).toBeInTheDocument());
@@ -282,7 +291,8 @@ describe('market picker', () => {
     expect(screen.queryByTestId('pair-selector-menu')).not.toBeInTheDocument();
 
     // trigger shows the pair name only
-    expect(screen.getByTestId('pair-selector-label')).toHaveTextContent('TON/USDT');
+    // Toncoin se renombró a Gram: el par se muestra GRAM/USDT.
+    expect(screen.getByTestId('pair-selector-label')).toHaveTextContent('GRAM/USDT');
 
     fireEvent.click(screen.getByTestId('pair-selector-trigger'));
     await waitFor(() => expect(screen.getByTestId('pair-selector-menu')).toBeInTheDocument());
@@ -295,7 +305,7 @@ describe('market picker', () => {
     fireEvent.click(screen.getByTestId('pair-option-BTCUSDT'));
     await waitFor(() => expect(screen.queryByTestId('pair-selector-menu')).not.toBeInTheDocument());
 
-    // BTC quotes 2 decimals, TON 3 -> the price rendering proves the switch
+    // BTC quotes 2 decimals, GRAM 3 -> the price rendering proves the switch
     await waitFor(() => expect(screen.getByTestId('trade-last-price')).toHaveTextContent('3.50'));
     expect(screen.getByTestId('pair-selector-label')).toHaveTextContent('BTC/USDT');
     await waitFor(() => expect(screen.getByTestId('trade-available-balance')).toBeInTheDocument());
@@ -416,7 +426,7 @@ describe('selling', () => {
   const buyFifty = async () => {
     await waitFor(() => expect(screen.getByTestId('trade-available-balance')).toHaveTextContent('$250.00'));
     fireEvent.change(screen.getByTestId('trade-amount-input'), { target: { value: '50' } });
-    await waitFor(() => expect(screen.getByTestId('trade-preview-qty')).toHaveTextContent('14.29 TON'));
+    await waitFor(() => expect(screen.getByTestId('trade-preview-qty')).toHaveTextContent('14.29 GRAM'));
     fireEvent.click(screen.getByTestId('trade-buy-submit'));
     await waitFor(() => expect(screen.getByTestId('position-TONUSDT')).toBeInTheDocument());
   };
@@ -428,7 +438,7 @@ describe('selling', () => {
     expect(screen.getByTestId('trade-side-buy')).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByTestId('trade-side-sell')).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByTestId('trade-buy-submit')).toHaveAttribute('data-side', 'buy');
-    expect(screen.getByTestId('trade-buy-submit').textContent).toContain('Buy TON');
+    expect(screen.getByTestId('trade-buy-submit').textContent).toContain('Buy GRAM');
   });
 
   it('has nothing to sell before a position exists', async () => {
@@ -439,7 +449,7 @@ describe('selling', () => {
 
     expect(await screen.findByTestId('trade-sell-empty')).toBeInTheDocument();
     expect(screen.getByTestId('trade-buy-submit')).toBeDisabled();
-    expect(screen.getByTestId('trade-buy-submit').textContent).toContain('Sell TON');
+    expect(screen.getByTestId('trade-buy-submit').textContent).toContain('Sell GRAM');
     // the TP/SL bracket is a buy-only concept
     expect(screen.queryByTestId('trade-limits-toggle')).not.toBeInTheDocument();
   });
@@ -451,7 +461,7 @@ describe('selling', () => {
     fireEvent.click(screen.getByTestId('trade-side-sell'));
 
     const amount = await screen.findByTestId('trade-sell-amount');
-    expect(amount.textContent).toContain('14.29 TON');
+    expect(amount.textContent).toContain('14.29 GRAM');
     // no quantity field on the sell side: the close is always total
     expect(screen.queryByTestId('trade-amount-input')).not.toBeInTheDocument();
     expect(screen.queryByTestId('trade-preset-100')).not.toBeInTheDocument();
@@ -475,7 +485,7 @@ describe('selling', () => {
     // 199.95 + 49.95 credit = 249.90, the round trip cost the two fees
     await waitFor(() => expect(screen.getByTestId('trade-stat-cash')).toHaveTextContent('$249.90'));
     expect(screen.getByTestId('trade-stat-pnl')).toHaveTextContent('-$0.10');
-    expect(screen.getByTestId('trade-order-result').textContent).toContain('Sold 14.29 TON');
+    expect(screen.getByTestId('trade-order-result').textContent).toContain('Sold 14.29 GRAM');
   });
 
   it('switching back to Buy restores the amount field and the bracket', async () => {

@@ -11,7 +11,16 @@ const BINANCE_BASE = 'https://api.binance.com/api/v3';
 const REQUEST_TIMEOUT_MS = 6000;
 
 export const PAIRS = [
-  { id: 'TONUSDT', base: 'TON', label: 'TON/USDT', color: '#0098EA', priceDecimals: 3, qtyDecimals: 2, seedPrice: 3.42, vol: 0.0042 },
+  /**
+   * Toncoin se renombró a Gram el 15/06/2026 (mismo activo, 1:1, sin swap):
+   * el ticker del token es GRAM y TON queda reservado a la red.
+   *
+   * `id` sigue siendo TONUSDT porque es la clave que validan el Worker
+   * (ALLOWED_PAIRS) y la que queda persistida en trade_positions; cambiarla
+   * dejaría huérfanas las posiciones ya abiertas. `symbols` son los tickers de
+   * mercado a probar, por si el exchange ya migró el par.
+   */
+  { id: 'TONUSDT', base: 'GRAM', label: 'GRAM/USDT', symbols: ['GRAMUSDT', 'TONUSDT'], color: '#0098EA', priceDecimals: 3, qtyDecimals: 2, seedPrice: 3.42, vol: 0.0042 },
   { id: 'BTCUSDT', base: 'BTC', label: 'BTC/USDT', color: '#F7931A', priceDecimals: 2, qtyDecimals: 5, seedPrice: 108500, vol: 0.0022 },
   { id: 'ETHUSDT', base: 'ETH', label: 'ETH/USDT', color: '#627EEA', priceDecimals: 2, qtyDecimals: 4, seedPrice: 4180, vol: 0.0031 },
   { id: 'TRXUSDT', base: 'TRX', label: 'TRX/USDT', color: '#EF0027', priceDecimals: 5, qtyDecimals: 1, seedPrice: 0.312, vol: 0.0018 },
@@ -26,6 +35,15 @@ export const TIMEFRAMES = [
 ];
 
 export const getPair = (id) => PAIRS.find((p) => p.id === id) || PAIRS[0];
+
+/**
+ * Tickers de mercado de un par, en orden de preferencia. Un par puede cotizar
+ * bajo más de un símbolo durante una transición de nombre (TON -> GRAM).
+ */
+export function pairSymbols(pairOrId) {
+  const pair = typeof pairOrId === 'string' ? getPair(pairOrId) : pairOrId;
+  return [...new Set([pair.id, ...(pair.symbols || [])])];
+}
 export const getTimeframe = (id) => TIMEFRAMES.find((t) => t.id === id) || TIMEFRAMES[1];
 
 // ============================================
@@ -176,10 +194,21 @@ export async function fetchKlines(pairId, timeframeId, limit = 60) {
   const tf = getTimeframe(timeframeId);
 
   try {
-    const raw = await fetchJson(
-      `${BINANCE_BASE}/klines?symbol=${pair.id}&interval=${tf.binance}&limit=${limit}`
-    );
-    if (!Array.isArray(raw) || raw.length === 0) throw new Error('empty klines');
+    let raw = null;
+    for (const symbol of pairSymbols(pair)) {
+      try {
+        const res = await fetchJson(
+          `${BINANCE_BASE}/klines?symbol=${symbol}&interval=${tf.binance}&limit=${limit}`
+        );
+        if (Array.isArray(res) && res.length > 0) {
+          raw = res;
+          break;
+        }
+      } catch (e) {
+        /* ticker no disponible: probar el siguiente */
+      }
+    }
+    if (!raw) throw new Error('empty klines');
 
     return {
       mode: 'live',
@@ -204,7 +233,18 @@ export async function fetch24h(pairId) {
   const pair = getPair(pairId);
 
   try {
-    const data = await fetchJson(`${BINANCE_BASE}/ticker/24hr?symbol=${pair.id}`);
+    let data = null;
+    for (const symbol of pairSymbols(pair)) {
+      try {
+        const res = await fetchJson(`${BINANCE_BASE}/ticker/24hr?symbol=${symbol}`);
+        if (Number.isFinite(Number(res?.lastPrice)) && Number(res.lastPrice) > 0) {
+          data = res;
+          break;
+        }
+      } catch (e) {
+        /* ticker no disponible: probar el siguiente */
+      }
+    }
     const price = Number(data?.lastPrice);
     if (!Number.isFinite(price) || price <= 0) throw new Error('bad ticker');
 
