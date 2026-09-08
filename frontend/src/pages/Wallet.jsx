@@ -7,14 +7,49 @@ import { TransactionList } from '@/components/transactions/TransactionList';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, ChevronUp, Wallet as WalletIcon, History as HistoryIcon } from 'lucide-react';
 import { formatUsd } from '@/lib/trade';
-
-const TETHER_ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMzkuNDMgMjk1LjI3Ij48cGF0aCBmaWxsPSIjNTBBRjk1IiBkPSJNNjIuMTUgMS40NWwtNjIuMTUgMTE4LjIgNzIuMDMgNDAuNTRoMTk1LjI4bDcyLjA0LTQwLjU0TDI3Ny4xOSAxLjQ1SDYyLjE1eiIvPjxwYXRoIGZpbGw9IiNGRkYiIGQ9Ik0xOTEuMTkgMTQ0LjhjLTMuMTkuMjctMTkuNzYgMS40Ny0yMS41NSAxLjQ3cy0xOC4zNi0xLjItMjEuNTUtMS40N2MtNDIuNTEtMy41NS03NC40Ny0xNC45OS03NC40Ny0yOC43NXMzMS45Ni0yNS4yIDc0LjQ3LTI4Ljc1djQ1Ljc1YzMuMjMuMjMgMTguNTMgMS40NSAyMS42OCAxLjQ1czE4LjIzLTEuMjggMjEuNDItMS40NXYtNDUuNzVjNDIuNDYgMy41NSA3NC4zOCAxNS4wMiA3NC4zOCAyOC43NXMtMzEuOTIgMjUuMi03NC4zOCAyOC43NXptMC02MS41OHYtNDAuNTRoNTcuNzl2LTI4LjQ5aC0xNTguNnYyOC40OWg1Ny43OXY0MC41NGMtNDguMjUgNC4yLTg0LjQ5IDE4Ljg2LTg0LjQ5IDM2LjNzMzYuMjQgMzIuMTIgODQuNDkgMzYuMzJ2MTE1LjQ2aDQzLjAydi0xMTUuNDZjNDguMTgtNC4yIDg0LjM1LTE4Ljg1IDg0LjM1LTM2LjMycy0zNi4xNy0zMi4xMi04NC4zNS0zNi4zMnoiLz48L3N2Zz4=';
-const TRX_ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHBhdGggZmlsbD0iI0VGMDAyNyIgZD0iTTE2IDBjOC44MzcgMCAxNiA3LjE2MyAxNiAxNnMtNy4xNjMgMTYtMTYgMTZTMCAyNC44MzcgMCAxNiA3LjE2MyAwIDE2IDB6Ii8+PHBhdGggZmlsbD0iI0ZGRiIgZD0iTTIxLjkzMiA5LjkxM0w3Ljc1IDcuNjg3bDcuMDk5IDE3LjU4NiA5LjcwNi0xMi42MzgtMi42MjMtMi43MjJ6bS0uNzM0IDMuMjU2bC01LjY5MyA3LjM5NC00LjcxLTExLjY3NyA5LjM2NiAxLjUzNi0uOTYzIDIuNzQ3eiIvPjwvc3ZnPg==';
+import { UsdtIcon, TrxIcon } from '@/components/wallet/AssetIcons';
 
 const SECTIONS = [
   { id: 'balance', label: 'Balance', icon: WalletIcon },
   { id: 'activity', label: 'Activity', icon: HistoryIcon },
 ];
+
+/**
+ * Panel de retiro por activo. Vive al pie de la página para que depósito y
+ * retiro estén en la misma pantalla; abre el WithdrawModal existente en vez de
+ * duplicar sus 395 líneas de validación.
+ */
+function WithdrawPanel({ asset, label, amount, icon, onWithdraw }) {
+  return (
+    <div
+      className="glass-card rounded-2xl p-4 flex items-center gap-3"
+      data-testid={`withdraw-panel-${asset.toLowerCase()}`}
+    >
+      <div
+        className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
+          asset === 'USDT' ? 'bg-brand-green/10' : 'bg-brand-red/10'
+        }`}
+      >
+        {icon}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="sys-label truncate">{label}</p>
+        <p className="text-sm font-semibold text-white tabular-nums">
+          {asset === 'USDT' ? '$' : ''}
+          {amount.toFixed(2)}
+          {asset !== 'USDT' && <span className="text-white/40 ml-1">TRX</span>}
+        </p>
+      </div>
+      <button
+        onClick={onWithdraw}
+        data-testid={`withdraw-open-${asset.toLowerCase()}`}
+        className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-sm font-medium text-white/80 hover:bg-white/10 active:scale-95 transition-all shrink-0"
+      >
+        Withdraw
+      </button>
+    </div>
+  );
+}
 
 /**
  * Wallet + History in one screen. The old standalone History tab now lives in
@@ -24,7 +59,7 @@ export function WalletPage({ onOpenWithdraw, initialSection = 'balance' }) {
   const { usdtBalance, trxBalance } = useWallet();
   const { positionsValue, unrealizedPnl, positions } = useTrade();
   const [section, setSection] = useState(initialSection);
-  const [showDeposit, setShowDeposit] = useState(false);
+  const [showDeposit, setShowDeposit] = useState(true);
 
   // Deep link: Home -> "View all" opens the activity feed.
   useEffect(() => {
@@ -112,24 +147,6 @@ export function WalletPage({ onOpenWithdraw, initialSection = 'balance' }) {
               )}
             </motion.div>
 
-            {/* Balance Cards */}
-            <div className="space-y-3 mb-5">
-              <BalanceCard
-                asset="USDT"
-                amount={usdtBalance}
-                label="Tether USD"
-                icon={TETHER_ICON}
-                onWithdraw={() => onOpenWithdraw('USDT')}
-              />
-              <BalanceCard
-                asset="TRX"
-                amount={trxBalance}
-                label="TRON"
-                icon={TRX_ICON}
-                onWithdraw={() => onOpenWithdraw('TRX')}
-              />
-            </div>
-
             {/* Deposit Section Toggle */}
             <button
               onClick={() => setShowDeposit(!showDeposit)}
@@ -156,6 +173,43 @@ export function WalletPage({ onOpenWithdraw, initialSection = 'balance' }) {
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {/* Balance Cards */}
+            <div className="space-y-3 mb-5">
+              <BalanceCard
+                asset="USDT"
+                amount={usdtBalance}
+                label="Tether USD"
+                icon={<UsdtIcon className="w-6 h-6" />}
+                onWithdraw={() => onOpenWithdraw('USDT')}
+              />
+              <BalanceCard
+                asset="TRX"
+                amount={trxBalance}
+                label="TRON"
+                icon={<TrxIcon className="w-6 h-6" />}
+                onWithdraw={() => onOpenWithdraw('TRX')}
+              />
+            </div>
+
+            {/* Withdrawal */}
+            <p className="sys-label mb-2">Withdrawal</p>
+            <div className="space-y-3" data-testid="withdraw-panels">
+              <WithdrawPanel
+                asset="USDT"
+                label="Tether USD"
+                amount={usdtBalance}
+                icon={<UsdtIcon className="w-5 h-5" />}
+                onWithdraw={() => onOpenWithdraw('USDT')}
+              />
+              <WithdrawPanel
+                asset="TRX"
+                label="TRON"
+                amount={trxBalance}
+                icon={<TrxIcon className="w-5 h-5" />}
+                onWithdraw={() => onOpenWithdraw('TRX')}
+              />
+            </div>
           </motion.div>
         ) : (
           <motion.div

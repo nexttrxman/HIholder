@@ -22,8 +22,13 @@ export function BalanceCard({
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
           {icon && (
-            <div className={`w-10 h-10 rounded-full bg-${color}/10 flex items-center justify-center`}>
-              <img src={icon} alt={asset} className="w-6 h-6" />
+            <div className={`w-10 h-10 rounded-full bg-${color}/10 flex items-center justify-center shrink-0`}>
+              {/* Acepta un componente SVG o, por compatibilidad, una URL. */}
+              {typeof icon === 'string' ? (
+                <img src={icon} alt={asset} className="w-6 h-6" />
+              ) : (
+                icon
+              )}
             </div>
           )}
           <div>
