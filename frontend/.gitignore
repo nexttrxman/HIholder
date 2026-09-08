@@ -2,8 +2,8 @@
 
 # dependencies
 /node_modules
-# the project declares yarn; the npm lockfile is local-only
-package-lock.json
+# el lockfile de npm SÍ se versiona: sin él, Cloudflare Pages corre
+# `npm install` y resuelve las versiones desde cero en cada build
 /.pnp
 .pnp.js
 
