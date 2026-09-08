@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 
-import { resetMockWallet } from '@/services/api';
+import { resetMockWallet, authUser, registerHold } from '@/services/api';
 import { WalletProvider } from '@/contexts/WalletContext';
 import { TradeProvider } from '@/contexts/TradeContext';
 import { HoldButton } from '@/components/earn/HoldButton';
@@ -132,5 +132,66 @@ describe('Hold to Earn — 3 second hold + claim loop', () => {
     expect(dots[0].className).toContain('bg-brand-green');
     expect(dots[1].className).not.toContain('bg-brand-green');
     expect(dots[2].className).not.toContain('bg-brand-green');
+  });
+});
+
+// ============================================
+// Claim lifecycle: an unclaimed reward must not brick the button
+// ============================================
+describe('unclaimed claim', () => {
+  beforeEach(() => {
+    resetMockWallet();
+    localStorage.clear();
+  });
+
+  /** authUser() hands back the live claim object, so expiring it is a write. */
+  const expirePendingClaim = (auth) => {
+    auth.pending_claim.expires_at = new Date(Date.now() - 1000).toISOString();
+  };
+
+  it('reports the pending claim once the cycle is complete', async () => {
+    for (let i = 0; i < 3; i++) await registerHold(0.05);
+
+    const auth = await authUser();
+    expect(auth.pending_claim).toBeTruthy();
+    expect(auth.pending_claim.total_prize).toBe(0.15);
+    expect(auth.cycle.holds_completed).toBe(3);
+    expect(auth.cycle.remaining_holds).toBe(0);
+  });
+
+  it('forfeits an expired claim and resets the cycle to 0 holds', async () => {
+    for (let i = 0; i < 3; i++) await registerHold(0.05);
+
+    const auth = await authUser();
+    expect(auth.pending_claim).toBeTruthy();
+    expirePendingClaim(auth);
+
+    const after = await authUser();
+    expect(after.pending_claim).toBeNull();
+    expect(after.cycle.holds_completed).toBe(0);
+    expect(after.cycle.remaining_holds).toBe(3);
+  });
+
+  it('keeps the claim payable while it has not expired', async () => {
+    for (let i = 0; i < 3; i++) await registerHold(0.05);
+
+    const auth = await authUser();
+    const again = await authUser();
+
+    expect(again.pending_claim).toBeTruthy();
+    expect(again.pending_claim.claim_id).toBe(auth.pending_claim.claim_id);
+    expect(again.cycle.holds_completed).toBe(3);
+  });
+
+  it('lets the user hold again after a forfeit', async () => {
+    for (let i = 0; i < 3; i++) await registerHold(0.05);
+    expirePendingClaim(await authUser());
+
+    await authUser(); // forfeits and restarts the cycle
+
+    const hold = await registerHold(0.05);
+    expect(hold.hold_number).toBe(1);
+    expect(hold.remaining_holds).toBe(2);
+    expect(hold.cycle_complete).toBe(false);
   });
 });

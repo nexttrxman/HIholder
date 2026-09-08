@@ -29,6 +29,7 @@ import { WalletProvider } from '@/contexts/WalletContext';
 import { TradeProvider } from '@/contexts/TradeContext';
 import { AppContent } from '@/App';
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary';
+import { BottomNav } from '@/components/layout/BottomNav';
 
 function renderApp() {
   return render(
@@ -109,5 +110,47 @@ describe('ErrorBoundary', () => {
     expect(screen.getByTestId('error-boundary')).toBeInTheDocument();
 
     spy.mockRestore();
+  });
+});
+
+describe('BottomNav cues', () => {
+  it('pulses the Home tab gold while a claim is pending', () => {
+    render(<BottomNav activeTab="trade" onTabChange={() => {}} claimPending />);
+
+    const home = screen.getByTestId('nav-home');
+    expect(home).toHaveAttribute('data-claim-pending', 'true');
+    expect(home.className).toContain('text-brand-gold');
+
+    const iconWrap = home.querySelector('div');
+    expect(iconWrap.className).toContain('animate-pulse');
+    expect(iconWrap.className).toContain('shadow-glow-gold');
+  });
+
+  it('leaves Home alone when nothing is pending', () => {
+    render(<BottomNav activeTab="home" onTabChange={() => {}} />);
+
+    const home = screen.getByTestId('nav-home');
+    expect(home).not.toHaveAttribute('data-claim-pending');
+    expect(home.querySelector('div').className).not.toContain('animate-pulse');
+  });
+
+  it('renders Trade as a raised key, not a flat tab', () => {
+    render(<BottomNav activeTab="home" onTabChange={() => {}} />);
+
+    const key = screen.getByTestId('trade-key');
+    // emboss = light top edge + dark bottom + coloured drop, and it lifts out
+    // of the dock
+    expect(key.className).toContain('bg-gradient-to-b');
+    expect(key.className).toContain('inset_0_2px_1px');
+    expect(key.className).toContain('inset_0_-4px_8px');
+    expect(screen.getByTestId('nav-trade').className).toContain('-mt-7');
+  });
+
+  it('still switches tabs from the raised key', () => {
+    const onTabChange = vi.fn();
+    render(<BottomNav activeTab="home" onTabChange={onTabChange} />);
+
+    fireEvent.click(screen.getByTestId('nav-trade'));
+    expect(onTabChange).toHaveBeenCalledWith('trade');
   });
 });

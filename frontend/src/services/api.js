@@ -45,6 +45,7 @@ export const resetMockWallet = () => {
   MOCK_USER.trx_balance = 5.0;
   MOCK_CYCLE.holds_completed = 0;
   MOCK_CYCLE.remaining_holds = MAX_HOLDS_PER_CYCLE_MOCK;
+  MOCK_PENDING_CLAIM = null;
   writeMockBalance(MOCK_START_BALANCE);
 };
 
@@ -72,6 +73,26 @@ const MOCK_CYCLE = {
   holds_completed: 0,
   ends_at: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(),
   remaining_holds: MAX_HOLDS_PER_CYCLE_MOCK,
+};
+
+/** Claim awaiting payment, or null. Mirrors the worker's `claims` row. */
+let MOCK_PENDING_CLAIM = null;
+
+/**
+ * Dev-only: the claim the user still has to pay for, or null.
+ *
+ * An unclaimed claim that ran out of time is forfeited and the cycle restarts
+ * at zero holds, so the button is playable again instead of staying locked at
+ * 3/3 until the 8h window ends. Same rule the worker applies in /auth.
+ */
+const resolveMockPendingClaim = () => {
+  if (!MOCK_PENDING_CLAIM) return null;
+  if (new Date(MOCK_PENDING_CLAIM.expires_at) >= new Date()) return MOCK_PENDING_CLAIM;
+
+  MOCK_PENDING_CLAIM = null;
+  MOCK_CYCLE.holds_completed = 0;
+  MOCK_CYCLE.remaining_holds = MAX_HOLDS_PER_CYCLE_MOCK;
+  return null;
 };
 
 // ============================================
@@ -167,7 +188,7 @@ export const authUser = async () => {
       ok: true,
       user: MOCK_USER,
       cycle: MOCK_CYCLE,
-      pending_claim: null,
+      pending_claim: resolveMockPendingClaim(),
       treasury_wallet: TREASURY_WALLET,
     };
   } catch (error) {
@@ -177,7 +198,7 @@ export const authUser = async () => {
         ok: true,
         user: MOCK_USER,
         cycle: MOCK_CYCLE,
-        pending_claim: null,
+        pending_claim: resolveMockPendingClaim(),
         treasury_wallet: TREASURY_WALLET,
       };
     }
@@ -198,19 +219,23 @@ export const registerHold = async (prize) => {
     MOCK_CYCLE.remaining_holds--;
     
     const isThird = MOCK_CYCLE.holds_completed === MAX_HOLDS_PER_CYCLE_MOCK;
-    
-    return {
-      ok: true,
-      hold_number: MOCK_CYCLE.holds_completed,
-      remaining_holds: MOCK_CYCLE.remaining_holds,
-      cycle_complete: isThird,
-      claim: isThird ? {
+
+    if (isThird) {
+      MOCK_PENDING_CLAIM = {
         claim_id: `CLM_DEV_${Date.now()}`,
         total_prize: 0.15,
         ton_fee: 0.05,
         expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
         treasury_wallet: TREASURY_WALLET,
-      } : null,
+      };
+    }
+
+    return {
+      ok: true,
+      hold_number: MOCK_CYCLE.holds_completed,
+      remaining_holds: MOCK_CYCLE.remaining_holds,
+      cycle_complete: isThird,
+      claim: isThird ? MOCK_PENDING_CLAIM : null,
     };
   } catch (error) {
     console.error('Hold error:', error);
@@ -247,6 +272,7 @@ export const verifyPayment = async (claimId, senderAddress) => {
 
     // Dev mode
     MOCK_USER.usdt_balance += 0.15;
+    MOCK_PENDING_CLAIM = null;
     MOCK_CYCLE.holds_completed = 0;
     MOCK_CYCLE.remaining_holds = MAX_HOLDS_PER_CYCLE_MOCK;
 

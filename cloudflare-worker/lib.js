@@ -493,3 +493,29 @@ export function previewLevelPnl({ qty, entryPrice, targetPrice }) {
   if (!res.ok) return res;
   return { ok: true, pnl: res.pnl, pnlPct: res.pnlPct, credit: res.credit };
 }
+
+// ============================================
+// CLAIM LIFECYCLE
+// ============================================
+
+/**
+ * A claim that ran out of time unpaid is forfeited, and the cycle restarts at
+ * zero holds so the user can play again. Without the restart /hold keeps
+ * refusing (holds_completed is already at MAX_HOLDS_PER_CYCLE) and the button
+ * is dead until the 8h window ends.
+ *
+ * @param {{expires_at: string}|null|undefined} pendingClaim
+ * @param {Date} [now]
+ * @returns {{pendingClaim: object|null, forfeited: boolean, holdsCompleted: number}}
+ *          holdsCompleted is what the cycle must report after this decision.
+ */
+export function resolvePendingClaim(pendingClaim, now = new Date(), currentHolds = 0) {
+  if (!pendingClaim) {
+    return { pendingClaim: null, forfeited: false, holdsCompleted: currentHolds };
+  }
+  const expired = new Date(pendingClaim.expires_at).getTime() < now.getTime();
+  if (!expired) {
+    return { pendingClaim, forfeited: false, holdsCompleted: currentHolds };
+  }
+  return { pendingClaim: null, forfeited: true, holdsCompleted: 0 };
+}

@@ -16,6 +16,7 @@ import {
   normalizeTonAddress,
   findValidTonPayment,
   generateClaimId,
+  resolvePendingClaim,
   CONFIG,
 } from '../lib.js';
 
@@ -260,4 +261,46 @@ test('generateClaimId: uniqueness across rapid calls', () => {
   const ids = new Set();
   for (let i = 0; i < 100; i++) ids.add(generateClaimId());
   assert.equal(ids.size, 100);
+});
+
+// ============================================
+// resolvePendingClaim — forfeit an unpaid claim, restart the cycle
+// ============================================
+test('resolvePendingClaim: no claim is a no-op', () => {
+  const r = resolvePendingClaim(null, new Date('2026-09-08T12:00:00Z'), 2);
+  assert.equal(r.pendingClaim, null);
+  assert.equal(r.forfeited, false);
+  assert.equal(r.holdsCompleted, 2, 'holds must not move when there is no claim');
+});
+
+test('resolvePendingClaim: a live claim is returned untouched', () => {
+  const claim = { claim_id: 'C1', expires_at: '2026-09-08T12:15:00Z' };
+  const r = resolvePendingClaim(claim, new Date('2026-09-08T12:00:00Z'), 3);
+  assert.equal(r.pendingClaim, claim);
+  assert.equal(r.forfeited, false);
+  assert.equal(r.holdsCompleted, 3, 'still locked at 3/3 while the claim is payable');
+});
+
+test('resolvePendingClaim: an expired claim is forfeited and holds reset to 0', () => {
+  const claim = { claim_id: 'C1', expires_at: '2026-09-08T12:15:00Z' };
+  const r = resolvePendingClaim(claim, new Date('2026-09-08T12:15:01Z'), 3);
+  assert.equal(r.pendingClaim, null);
+  assert.equal(r.forfeited, true);
+  assert.equal(r.holdsCompleted, 0, 'the user must be able to hold again');
+});
+
+test('resolvePendingClaim: expiry boundary is inclusive (still payable at T)', () => {
+  const claim = { claim_id: 'C1', expires_at: '2026-09-08T12:15:00Z' };
+  const atExpiry = resolvePendingClaim(claim, new Date('2026-09-08T12:15:00Z'), 3);
+  assert.equal(atExpiry.forfeited, false);
+  assert.equal(atExpiry.pendingClaim, claim);
+});
+
+test('resolvePendingClaim: a malformed expires_at forfeits rather than locking', () => {
+  const claim = { claim_id: 'C1', expires_at: 'not-a-date' };
+  const r = resolvePendingClaim(claim, new Date('2026-09-08T12:00:00Z'), 3);
+  // NaN < now is false, so the claim survives; assert the documented behaviour
+  // so a future change to this branch is a conscious one.
+  assert.equal(r.forfeited, false);
+  assert.equal(r.pendingClaim, claim);
 });

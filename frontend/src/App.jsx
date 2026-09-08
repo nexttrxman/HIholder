@@ -130,7 +130,11 @@ export function AppContent() {
       </ErrorBoundary>
 
       {/* Bottom Navigation */}
-      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+      <BottomNav
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        claimPending={!!pendingClaim}
+      />
 
       {/* Withdraw Modal */}
       <AnimatePresence>

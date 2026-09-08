@@ -312,6 +312,15 @@ Ejecutar la sección **"TRADE POSITIONS TABLE"** y siguientes de `supabase/schem
 2. `DROP FUNCTION open_trade(TEXT, TEXT, DECIMAL, DECIMAL)` + nueva firma de 6 parámetros
 3. `CREATE FUNCTION set_trade_levels(...)`
 
+**v2.5 (claim no cobrado)** — sin migración, solo comportamiento:
+
+Un claim que vence sin pagarse se **pierde** y el ciclo vuelve a 0 holds.
+`GET /auth` ahora marca el claim como `expired_unclaimed` y resetea
+`hold_cycles.holds_completed` a 0. Antes el ciclo quedaba clavado en 3/3 y
+`POST /hold` rechazaba para siempre hasta el reset de 8 h (regla en
+`resolvePendingClaim`, `lib.js`). El mock de desarrollo y `WalletContext`
+aplican la misma regla.
+
 ### Frontend
 
 | Archivo | Rol |

@@ -27,6 +27,7 @@ import {
   fetchMarkPrice,
   CONFIG,
   TRADE_CONFIG,
+  resolvePendingClaim,
 } from './lib.js';
 
 // ============================================
@@ -155,7 +156,24 @@ async function handleAuth(request, env) {
   const claims = await db.query('claims', 'select', {
     filters: { cycle_id: cycle.id, status: 'pending' }
   });
-  const pendingClaim = claims[0];
+  let pendingClaim = claims[0];
+
+  // A claim that ran out of time unpaid is forfeited. Restart the cycle at zero
+  // holds so the user can play again; otherwise /hold keeps refusing (3/3) and
+  // the button is dead until the 8h window ends.
+  const claimState = resolvePendingClaim(pendingClaim, new Date(), cycle.holds_completed);
+  if (claimState.forfeited) {
+    await db.query('claims', 'patch', {
+      filters: { claim_id: pendingClaim.claim_id },
+      body: { status: 'expired_unclaimed' }
+    });
+    await db.query('hold_cycles', 'patch', {
+      filters: { id: cycle.id },
+      body: { holds_completed: 0 }
+    });
+    cycle = { ...cycle, holds_completed: claimState.holdsCompleted };
+  }
+  pendingClaim = claimState.pendingClaim;
 
   const referrals = await db.query('referrals', 'select', { filters: { referrer_id: tgId } });
   const totalRefs = Array.isArray(referrals) ? referrals.length : 0;
@@ -739,7 +757,7 @@ export default {
       }
 
       if (path === '/' || path === '/health') {
-        return jsonResponse({ ok: true, service: 'TronKeeper API', version: '2.4.0', treasury: CONFIG.TREASURY_WALLET });
+        return jsonResponse({ ok: true, service: 'TronKeeper API', version: '2.5.0', treasury: CONFIG.TREASURY_WALLET });
       }
 
       return jsonResponse({ error: 'Not found' }, 404);

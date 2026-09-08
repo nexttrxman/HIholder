@@ -334,6 +334,11 @@ export function WalletProvider({ children }) {
       if (remaining <= 0) {
         setPendingClaim(null);
         setClaimExpiresAt(null);
+        // The reward went unclaimed, so it is forfeited and the cycle restarts
+        // at zero holds. Without this the button stays locked at 3/3 (canHold
+        // is false) until the 8h window ends.
+        setHoldsCompleted(0);
+        setRemainingHolds(MAX_HOLDS_PER_CYCLE);
         refreshData();
       }
     };
