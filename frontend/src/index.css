@@ -174,3 +174,18 @@ html {
   user-select: none;
   -webkit-user-select: none;
 }
+
+/* Hide scrollbars on the horizontal chip rows (Telegram in-app browser) */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Tabular numbers for prices so digits do not jitter while polling */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

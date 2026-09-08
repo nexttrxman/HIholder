@@ -1,9 +1,20 @@
 import { Header } from '@/components/layout/Header';
 import { HoldButton } from '@/components/earn/HoldButton';
 import { HoldSection } from '@/components/earn/HoldSection';
+import { TradePanel } from '@/components/trade/TradePanel';
 import { useWallet } from '@/contexts/WalletContext';
-import { ArrowDownLeft, ArrowUpRight, Gift, Clock, Wallet } from 'lucide-react';
+import { useTrade } from '@/contexts/TradeContext';
+import { ArrowDownLeft, ArrowUpRight, Gift, Clock, Wallet, TrendingUp, TrendingDown } from 'lucide-react';
 import { motion } from 'framer-motion';
+
+const ACTIVITY_STYLE = {
+  deposit: { icon: ArrowDownLeft, tone: 'text-brand-green', bg: 'bg-brand-green/10', sign: '+' },
+  reward: { icon: Gift, tone: 'text-brand-green', bg: 'bg-brand-green/10', sign: '+' },
+  referral: { icon: Gift, tone: 'text-brand-green', bg: 'bg-brand-green/10', sign: '+' },
+  buy: { icon: TrendingUp, tone: 'text-brand-green', bg: 'bg-brand-green/10', sign: '-' },
+  sell: { icon: TrendingDown, tone: 'text-brand-red', bg: 'bg-brand-red/10', sign: '+' },
+  withdraw: { icon: ArrowUpRight, tone: 'text-brand-red', bg: 'bg-brand-red/10', sign: '-' },
+};
 
 export function HomePage({ onNavigate, onOpenWithdraw, onClaimReady, onOpenClaim }) {
   const { 
@@ -16,6 +27,7 @@ export function HomePage({ onNavigate, onOpenWithdraw, onClaimReady, onOpenClaim
     remainingHolds,
     totalRefs,
   } = useWallet();
+  const { positionsValue } = useTrade();
 
   const recentTx = transactions.slice(0, 3);
   const claimSeconds = getClaimSecondsRemaining();
@@ -100,6 +112,9 @@ export function HomePage({ onNavigate, onOpenWithdraw, onClaimReady, onOpenClaim
             <div>
               <p className="text-xs text-white/40">Balance</p>
               <p className="text-sm font-semibold text-white">${usdtBalance.toFixed(2)}</p>
+              {positionsValue > 0 && (
+                <p className="text-[10px] text-brand-green">${positionsValue.toFixed(2)} in trades</p>
+              )}
             </div>
           </div>
           
@@ -117,54 +132,56 @@ export function HomePage({ onNavigate, onOpenWithdraw, onClaimReady, onOpenClaim
         </div>
       </div>
 
+      {/* Trade panel - between the earn loop and the activity feed */}
+      <div className="px-4 mt-5 mb-2">
+        <TradePanel variant="compact" />
+      </div>
+
       {/* Recent Activity */}
       {recentTx.length > 0 && (
         <div className="px-4 mt-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-white/70">Recent Activity</h3>
             <button 
-              onClick={() => onNavigate('history')}
+              onClick={() => onNavigate('wallet', 'activity')}
               className="text-xs text-brand-green hover:underline"
             >
               View all
             </button>
           </div>
           <div className="space-y-2">
-            {recentTx.map((tx) => (
-              <motion.div
-                key={tx.id}
-                className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.02] border border-white/5"
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-              >
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                  tx.type === 'withdraw' ? 'bg-brand-red/10' : 'bg-brand-green/10'
-                }`}>
-                  {tx.type === 'withdraw' ? (
-                    <ArrowUpRight className="w-4 h-4 text-brand-red" />
-                  ) : (
-                    <ArrowDownLeft className="w-4 h-4 text-brand-green" />
-                  )}
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm text-white capitalize">{tx.type}</p>
-                  <p className="text-xs text-white/40">
-                    {new Date(tx.timestamp).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
+            {recentTx.map((tx) => {
+              const style = ACTIVITY_STYLE[tx.type] || ACTIVITY_STYLE.deposit;
+              const Icon = style.icon;
+              return (
+                <motion.div
+                  key={tx.id}
+                  className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.02] border border-white/5"
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                >
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${style.bg}`}>
+                    <Icon className={`w-4 h-4 ${style.tone}`} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-white capitalize">{tx.type}</p>
+                    <p className="text-xs text-white/40 truncate">
+                      {tx.description
+                        || new Date(tx.timestamp).toLocaleDateString('en-US', {
+                             month: 'short',
+                             day: 'numeric',
+                             hour: '2-digit',
+                             minute: '2-digit',
+                           })}
+                    </p>
+                  </div>
+                  <p className={`text-sm font-semibold ${style.tone}`}>
+                    {style.sign}
+                    {tx.asset === 'USDT' ? '$' : ''}{tx.amount.toFixed(2)}
                   </p>
-                </div>
-                <p className={`text-sm font-semibold ${
-                  tx.type === 'withdraw' ? 'text-brand-red' : 'text-brand-green'
-                }`}>
-                  {tx.type === 'withdraw' ? '-' : '+'}
-                  {tx.asset === 'USDT' ? '$' : ''}{tx.amount.toFixed(2)}
-                </p>
-              </motion.div>
-            ))}
+                </motion.div>
+              );
+            })}
           </div>
         </div>
       )}

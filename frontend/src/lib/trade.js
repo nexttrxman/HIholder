@@ -1,0 +1,135 @@
+/**
+ * Trade maths shared with the Cloudflare Worker.
+ *
+ * The canonical, unit-tested implementation lives in
+ * `/cloudflare-worker/lib.js` (see tests/trade.test.mjs). This mirror keeps the
+ * frontend self-contained so the order form can preview the exact same numbers
+ * the worker will book. Keep both files in sync.
+ */
+
+export const TRADE_CONFIG = {
+  QUOTE_ASSET: 'USDT',
+  FEE_RATE: 0.001, // 0.1% per side, simulated exchange fee
+  MIN_NOTIONAL: 1, // USDT
+  MAX_NOTIONAL: 100000, // USDT
+  ALLOWED_PAIRS: ['TONUSDT', 'BTCUSDT', 'ETHUSDT', 'TRXUSDT', 'DOGEUSDT'],
+};
+
+/** Quick percentage chips shown in the order form. */
+export const AMOUNT_PRESETS = [0.25, 0.5, 0.75, 1];
+
+/**
+ * @returns {{ok:true, amount:number}|{ok:false, error:string}}
+ */
+export function validateTradeRequest({ pair, amount, balance }) {
+  const notional = Number(amount);
+
+  if (!pair || !TRADE_CONFIG.ALLOWED_PAIRS.includes(pair)) {
+    return { ok: false, error: 'Unsupported market' };
+  }
+  if (!Number.isFinite(notional) || notional <= 0) {
+    return { ok: false, error: 'Enter an amount to buy' };
+  }
+  if (notional < TRADE_CONFIG.MIN_NOTIONAL) {
+    return { ok: false, error: `Minimum order size is ${TRADE_CONFIG.MIN_NOTIONAL} USDT` };
+  }
+  if (notional > TRADE_CONFIG.MAX_NOTIONAL) {
+    return { ok: false, error: `Maximum order size is ${TRADE_CONFIG.MAX_NOTIONAL} USDT` };
+  }
+
+  const available = Number(balance) || 0;
+  const fee = notional * TRADE_CONFIG.FEE_RATE;
+  if (notional + fee > available + 1e-9) {
+    return { ok: false, error: 'Insufficient USDT balance' };
+  }
+
+  return { ok: true, amount: notional };
+}
+
+/** Size a buy: quantity received, fee charged, total USDT debited. */
+export function calcOpenTrade({ amount, price }) {
+  const notional = Number(amount);
+  const px = Number(price);
+
+  if (!Number.isFinite(notional) || notional <= 0) return { ok: false, error: 'Invalid amount' };
+  if (!Number.isFinite(px) || px <= 0) return { ok: false, error: 'Invalid price' };
+
+  const fee = notional * TRADE_CONFIG.FEE_RATE;
+  return { ok: true, qty: notional / px, fee, totalDebit: notional + fee };
+}
+
+/** Value a closing sell, net of the open-side fee (cost basis). */
+export function calcCloseTrade({ qty, entryPrice, exitPrice }) {
+  const size = Number(qty);
+  const entry = Number(entryPrice);
+  const exit = Number(exitPrice);
+
+  if (!Number.isFinite(size) || size <= 0) return { ok: false, error: 'Invalid quantity' };
+  if (!Number.isFinite(entry) || entry <= 0) return { ok: false, error: 'Invalid entry price' };
+  if (!Number.isFinite(exit) || exit <= 0) return { ok: false, error: 'Invalid exit price' };
+
+  const costBasis = size * entry;
+  const openFee = costBasis * TRADE_CONFIG.FEE_RATE;
+  const proceeds = size * exit;
+  const fee = proceeds * TRADE_CONFIG.FEE_RATE;
+  const credit = proceeds - fee;
+  const pnl = credit - costBasis - openFee;
+
+  return {
+    ok: true,
+    costBasis,
+    openFee,
+    proceeds,
+    fee,
+    credit,
+    pnl,
+    pnlPct: pnl / (costBasis + openFee),
+  };
+}
+
+/** Mark an open position to market (before the close-side fee). */
+export function calcUnrealizedPnl({ qty, entryPrice, markPrice }) {
+  const size = Number(qty);
+  const entry = Number(entryPrice);
+  const mark = Number(markPrice);
+
+  if (!Number.isFinite(size) || size <= 0) return { ok: false, error: 'Invalid quantity' };
+  if (!Number.isFinite(entry) || entry <= 0) return { ok: false, error: 'Invalid entry price' };
+  if (!Number.isFinite(mark) || mark <= 0) return { ok: false, error: 'Invalid mark price' };
+
+  const costBasis = size * entry;
+  const unrealized = size * (mark - entry);
+
+  return { ok: true, costBasis, value: size * mark, unrealized, unrealizedPct: unrealized / costBasis };
+}
+
+// ============================================
+// FORMATTERS
+// ============================================
+export function formatPrice(value, decimals = 4) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '—';
+  if (Math.abs(n) >= 1000) return n.toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+  return n.toLocaleString('en-US', { maximumFractionDigits: decimals, minimumFractionDigits: decimals });
+}
+
+export function formatQty(value, decimals = 4) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '—';
+  if (n === 0) return '0';
+  if (Math.abs(n) < 0.0001) return n.toExponential(2);
+  return n.toLocaleString('en-US', { maximumFractionDigits: decimals });
+}
+
+export function formatUsd(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '$0.00';
+  const sign = n < 0 ? '-' : '';
+  return `${sign}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+export function formatPercent(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '0.00%';
+  return `${n > 0 ? '+' : ''}${n.toFixed(2)}%`;
+}

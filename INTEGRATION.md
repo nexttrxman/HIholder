@@ -266,3 +266,62 @@ curl -X POST https://tu-worker.workers.dev/auth \
 - Toda la lógica de DB está en el Worker
 - Los retiros quedan en estado `pending` para procesamiento manual
 - El pool de referidos se inicializa con 50,000 TRX
+
+---
+
+## Trade Panel (v2.3)
+
+El panel de Trade vive en **Home** (versión compacta, en el medio de la página) y en
+**Wallet → Balance** (versión completa, entre los balances y los datos de depósito).
+
+### Nuevos endpoints del Worker
+
+| Ruta | Body | Devuelve |
+|------|------|----------|
+| `POST /trade` | `{ initData, pair, amount, price }` | `{ ok, position, new_balance, mark_price }` |
+| `POST /trade/close` | `{ initData, position_id, price }` | `{ ok, pnl, pnl_pct, credited, new_balance }` |
+| `POST /positions` | `{ initData }` | `{ ok, positions, realized_pnl, unrealized_pnl, positions_value }` |
+
+- `pair` debe ser uno de `TRADE_CONFIG.ALLOWED_PAIRS` (`TONUSDT`, `BTCUSDT`, `ETHUSDT`,
+  `TRXUSDT`, `DOGEUSDT`).
+- El worker **ignora el precio del cliente** y usa el ticker público de Binance
+  (`fetchMarkPrice`). Si Binance no responde, acepta el precio del chart dentro de un 2%
+  de tolerancia (`isPriceWithinTolerance`).
+- Fee simulado: `0.1%` por lado (`TRADE_CONFIG.FEE_RATE`).
+- Todo se descuenta del saldo interno de USDT mediante las RPC `open_trade` /
+  `close_trade` (atómicas, en `supabase/schema.sql`).
+
+### Migración de Supabase
+
+Ejecutar la sección **"TRADE POSITIONS TABLE"** y siguientes de `supabase/schema.sql`:
+
+1. `CREATE TABLE trade_positions`
+2. `ALTER TABLE wallet_ledger` para permitir `trade_buy` / `trade_sell`
+3. `CREATE FUNCTION open_trade(...)` y `close_trade(...)`
+
+### Frontend
+
+| Archivo | Rol |
+|---------|-----|
+| `src/services/market.js` | Klines/ticker de Binance + generador sintético de respaldo |
+| `src/hooks/useMarketData.js` | Polling (6s) y auto-recuperación a datos reales |
+| `src/lib/trade.js` | Espejo de la matemática del worker (validación, fee, PnL) |
+| `src/contexts/TradeContext.jsx` | Posiciones, open/close, fallback a `localStorage` |
+| `src/components/trade/CandleChart.jsx` | Chart de velas SVG propio (crosshair táctil) |
+| `src/components/trade/TradePanel.jsx` | Panel completo / compacto |
+
+Sin `initData` de Telegram (navegador, preview) el panel opera contra el balance demo
+persistido en `localStorage`, así que se puede probar el flujo completo sin backend.
+
+### History → Wallet
+
+La pestaña **History** desapareció de la barra inferior. Su contenido está en
+**Wallet → Activity** (`WalletPage` recibe `initialSection`). La navegación inferior queda
+en 4 tabs: Home, Missions, Invite, Wallet.
+
+### Tests
+
+```bash
+cd frontend && npx vitest run          # 11 tests (flujo de compra/cierre, UI, maths)
+cd cloudflare-worker && node --test tests/lib.test.mjs tests/trade.test.mjs   # 40 tests
+```

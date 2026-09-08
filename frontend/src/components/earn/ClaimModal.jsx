@@ -298,8 +298,16 @@ export function ClaimModal({ isOpen, onClose, claim }) {
                     <span className="text-white font-semibold">{tonFee} TON</span>
                   </div>
                   <p className="text-xs text-white/40">
-                    A small TON fee is required to validate your claim.
+                    A small TON fee is required to validate your claim. It is sent to the project
+                    treasury wallet, which confirms the claim on-chain before your reward is
+                    credited.
                   </p>
+                  <div className="flex items-center justify-between gap-2 pt-1">
+                    <span className="text-xs text-white/40">Destination</span>
+                    <code className="text-[10px] font-mono text-white/60 truncate">
+                      {treasuryWallet.slice(0, 6)}...{treasuryWallet.slice(-6)}
+                    </code>
+                  </div>
                 </div>
 
                 {/* Error */}

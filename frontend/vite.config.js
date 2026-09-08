@@ -15,6 +15,7 @@ export default defineConfig({
     allowedHosts: [
       'localhost',
       '127.0.0.1',
+      '.e2b.app',
       '.emergentagent.com',
       '.preview.emergentagent.com',
       '.cluster-5.preview.emergentcf.cloud',
@@ -23,5 +24,11 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+  },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: './vitest.setup.js',
+    css: false,
   },
 })

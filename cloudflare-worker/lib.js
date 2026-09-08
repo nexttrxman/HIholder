@@ -260,3 +260,155 @@ export async function findValidTonPayment({
 
   return null;
 }
+
+// ============================================
+// TRADE (simulated spot) - pure helpers
+// ============================================
+/**
+ * Simulated spot trading on top of the internal USDT balance.
+ * Everything here is deterministic and dependency-free so the maths can be
+ * unit-tested under Node.js (`node --test tests/trade.test.mjs`).
+ *
+ * The same constants/math are mirrored in frontend/src/lib/trade.js so the UI
+ * can show an accurate preview before the worker confirms the fill.
+ */
+export const TRADE_CONFIG = {
+  QUOTE_ASSET: 'USDT',
+  FEE_RATE: 0.001, // 0.1% per side, simulated exchange fee
+  MIN_NOTIONAL: 1, // USDT
+  MAX_NOTIONAL: 100000, // USDT
+  PRICE_TOLERANCE: 0.02, // client price must be within 2% of the mark price
+  BINANCE_TICKER_URL: 'https://api.binance.com/api/v3/ticker/price',
+  ALLOWED_PAIRS: ['TONUSDT', 'BTCUSDT', 'ETHUSDT', 'TRXUSDT', 'DOGEUSDT'],
+};
+
+/**
+ * Validate an incoming buy order against the user's USDT balance.
+ * @returns {{ok:true, amount:number}|{ok:false, error:string}}
+ */
+export function validateTradeRequest({ pair, amount, balance }) {
+  const notional = Number(amount);
+
+  if (!pair || !TRADE_CONFIG.ALLOWED_PAIRS.includes(pair)) {
+    return { ok: false, error: `Unsupported pair. Allowed: ${TRADE_CONFIG.ALLOWED_PAIRS.join(', ')}` };
+  }
+  if (!Number.isFinite(notional) || notional <= 0) {
+    return { ok: false, error: 'Amount must be a positive number' };
+  }
+  if (notional < TRADE_CONFIG.MIN_NOTIONAL) {
+    return { ok: false, error: `Minimum order size is ${TRADE_CONFIG.MIN_NOTIONAL} USDT` };
+  }
+  if (notional > TRADE_CONFIG.MAX_NOTIONAL) {
+    return { ok: false, error: `Maximum order size is ${TRADE_CONFIG.MAX_NOTIONAL} USDT` };
+  }
+
+  const available = Number(balance) || 0;
+  const fee = notional * TRADE_CONFIG.FEE_RATE;
+  if (notional + fee > available + 1e-9) {
+    return { ok: false, error: 'Insufficient USDT balance' };
+  }
+
+  return { ok: true, amount: notional };
+}
+
+/**
+ * Size a buy order: qty bought, fee charged and total USDT debited.
+ * @returns {{ok:true, qty:number, fee:number, totalDebit:number}|{ok:false, error:string}}
+ */
+export function calcOpenTrade({ amount, price }) {
+  const notional = Number(amount);
+  const px = Number(price);
+
+  if (!Number.isFinite(notional) || notional <= 0) {
+    return { ok: false, error: 'Invalid amount' };
+  }
+  if (!Number.isFinite(px) || px <= 0) {
+    return { ok: false, error: 'Invalid price' };
+  }
+
+  const fee = notional * TRADE_CONFIG.FEE_RATE;
+  return {
+    ok: true,
+    qty: notional / px,
+    fee,
+    totalDebit: notional + fee,
+  };
+}
+
+/**
+ * Value a closing sell: proceeds, fee, net USDT credited and realized PnL.
+ * The open-side fee is part of the cost basis, so PnL is net of both fees.
+ */
+export function calcCloseTrade({ qty, entryPrice, exitPrice }) {
+  const size = Number(qty);
+  const entry = Number(entryPrice);
+  const exit = Number(exitPrice);
+
+  if (!Number.isFinite(size) || size <= 0) return { ok: false, error: 'Invalid quantity' };
+  if (!Number.isFinite(entry) || entry <= 0) return { ok: false, error: 'Invalid entry price' };
+  if (!Number.isFinite(exit) || exit <= 0) return { ok: false, error: 'Invalid exit price' };
+
+  const costBasis = size * entry;
+  const openFee = costBasis * TRADE_CONFIG.FEE_RATE;
+  const proceeds = size * exit;
+  const fee = proceeds * TRADE_CONFIG.FEE_RATE;
+  const credit = proceeds - fee;
+  const pnl = credit - costBasis - openFee;
+  const pnlPct = pnl / (costBasis + openFee);
+
+  return { ok: true, costBasis, openFee, proceeds, fee, credit, pnl, pnlPct };
+}
+
+/**
+ * Mark-to-market an open position (before fees on the close side).
+ */
+export function calcUnrealizedPnl({ qty, entryPrice, markPrice }) {
+  const size = Number(qty);
+  const entry = Number(entryPrice);
+  const mark = Number(markPrice);
+
+  if (!Number.isFinite(size) || size <= 0) return { ok: false, error: 'Invalid quantity' };
+  if (!Number.isFinite(entry) || entry <= 0) return { ok: false, error: 'Invalid entry price' };
+  if (!Number.isFinite(mark) || mark <= 0) return { ok: false, error: 'Invalid mark price' };
+
+  const costBasis = size * entry;
+  const unrealized = size * (mark - entry);
+  return {
+    ok: true,
+    costBasis,
+    value: size * mark,
+    unrealized,
+    unrealizedPct: unrealized / costBasis,
+  };
+}
+
+/**
+ * Sanity-check a client-supplied price against the exchange mark price.
+ * Used by the worker to refuse obviously spoofed fills while still allowing a
+ * few hundred ms of drift between the chart and the order.
+ */
+export function isPriceWithinTolerance(clientPrice, markPrice, tolerance = TRADE_CONFIG.PRICE_TOLERANCE) {
+  const client = Number(clientPrice);
+  const mark = Number(markPrice);
+  if (!Number.isFinite(client) || client <= 0) return false;
+  if (!Number.isFinite(mark) || mark <= 0) return true; // no mark available -> trust client
+  return Math.abs(client - mark) / mark <= tolerance;
+}
+
+/**
+ * Fetch the current mark price for a pair.
+ * @returns {Promise<number|null>} null when the exchange is unreachable
+ */
+export async function fetchMarkPrice(pair, { fetchImpl = fetch } = {}) {
+  try {
+    const res = await fetchImpl(
+      `${TRADE_CONFIG.BINANCE_TICKER_URL}?symbol=${encodeURIComponent(pair)}`
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const price = Number(data?.price);
+    return Number.isFinite(price) && price > 0 ? price : null;
+  } catch (e) {
+    return null;
+  }
+}

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { TonConnectUIProvider } from '@tonconnect/ui-react';
 import { WalletProvider, useWallet } from '@/contexts/WalletContext';
+import { TradeProvider } from '@/contexts/TradeContext';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { BottomNav } from '@/components/layout/BottomNav';
 import { WithdrawModal } from '@/components/wallet/WithdrawModal';
@@ -12,7 +13,6 @@ import { HomePage } from '@/pages/Home';
 import { WalletPage } from '@/pages/Wallet';
 import { MissionsPage } from '@/pages/Missions';
 import { ReferralsPage } from '@/pages/Referrals';
-import { HistoryPage } from '@/pages/History';
 
 import '@/App.css';
 
@@ -22,6 +22,7 @@ const manifestUrl = 'https://raw.githubusercontent.com/AntipressTeam/TonConnectM
 function AppContent() {
   const { loading, error, pendingClaim } = useWallet();
   const [activeTab, setActiveTab] = useState('home');
+  const [walletSection, setWalletSection] = useState('balance');
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [withdrawAsset, setWithdrawAsset] = useState('USDT');
   const [claimModalOpen, setClaimModalOpen] = useState(false);
@@ -39,7 +40,8 @@ function AppContent() {
     setWithdrawOpen(true);
   };
 
-  const handleNavigate = (tab) => {
+  const handleNavigate = (tab, section) => {
+    if (tab === 'wallet' && section) setWalletSection(section);
     setActiveTab(tab);
   };
 
@@ -116,11 +118,10 @@ function AppContent() {
             />
           )}
           {activeTab === 'wallet' && (
-            <WalletPage onOpenWithdraw={handleOpenWithdraw} />
+            <WalletPage onOpenWithdraw={handleOpenWithdraw} initialSection={walletSection} />
           )}
           {activeTab === 'missions' && <MissionsPage />}
           {activeTab === 'referrals' && <ReferralsPage />}
-          {activeTab === 'history' && <HistoryPage />}
         </motion.div>
       </AnimatePresence>
 
@@ -156,7 +157,9 @@ function App() {
   return (
     <TonConnectUIProvider manifestUrl={manifestUrl}>
       <WalletProvider>
-        <AppContent />
+        <TradeProvider>
+          <AppContent />
+        </TradeProvider>
       </WalletProvider>
     </TonConnectUIProvider>
   );

@@ -374,7 +374,7 @@ export function WithdrawModal({ isOpen, onClose, initialAsset = 'USDT' }) {
                   Request Submitted
                 </h3>
                 <p className="text-sm text-white/50 mb-6">
-                  Your withdrawal request is being processed. You can track its status in History.
+                  Your withdrawal request is being processed. You can track its status in Wallet → Activity.
                 </p>
                 <button
                   onClick={handleClose}

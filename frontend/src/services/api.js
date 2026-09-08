@@ -12,10 +12,51 @@ const TREASURY_WALLET = 'UQCydneDGeAcamdCFS6e13Z2xoxwA5DsLkFONRdp-cavw-Th';
 // Dev mode detection
 const IS_DEV = typeof window !== 'undefined' && !window.Telegram?.WebApp?.initData;
 
-// Mock data for development
+// ============================================
+// DEV MODE MOCK STATE
+// ============================================
+// Without Telegram initData (browser / preview) there is no backend, so the
+// simulated trade panel needs a spendable demo balance. It is persisted to
+// localStorage so reloads keep the trades consistent.
+const MOCK_START_BALANCE = 250;
+const MOCK_BALANCE_KEY = 'tk_mock_usdt_balance';
+
+function readMockBalance() {
+  if (typeof window === 'undefined') return MOCK_START_BALANCE;
+  try {
+    const stored = Number(window.localStorage.getItem(MOCK_BALANCE_KEY));
+    return Number.isFinite(stored) && stored >= 0 ? stored : MOCK_START_BALANCE;
+  } catch (e) {
+    return MOCK_START_BALANCE;
+  }
+}
+
+function writeMockBalance(value) {
+  try {
+    window.localStorage.setItem(MOCK_BALANCE_KEY, String(value));
+  } catch (e) {
+    /* storage unavailable (private mode) - ignore */
+  }
+}
+
+/** Dev-only: restore the demo wallet (used by tests and to restart the demo). */
+export const resetMockWallet = () => {
+  MOCK_USER.usdt_balance = MOCK_START_BALANCE;
+  MOCK_USER.trx_balance = 5.0;
+  writeMockBalance(MOCK_START_BALANCE);
+};
+
+/** Dev-only: mirror an internal USDT movement into the mock balance. */
+export const applyLocalBalanceDelta = (delta) => {
+  const next = Math.max(0, (MOCK_USER.usdt_balance || 0) + Number(delta || 0));
+  MOCK_USER.usdt_balance = next;
+  writeMockBalance(next);
+  return next;
+};
+
 const MOCK_USER = {
   uid: 'TK_DEV_12345',
-  usdt_balance: 0.15,
+  usdt_balance: readMockBalance(),
   trx_balance: 5.00,
   ton_balance: 0,
   total_refs: 3,
@@ -238,6 +279,25 @@ export const requestWithdraw = async ({ asset, amount, toAddress }) => {
 };
 
 // ============================================
+// TRADE - simulated spot trading
+// ============================================
+// Returns `null` in dev mode so the caller can execute the order locally.
+export const placeTrade = async ({ pair, amount, price }) => {
+  const result = await apiCall('/trade', { pair, amount, price });
+  return result || null;
+};
+
+export const closeTradePosition = async ({ positionId, price }) => {
+  const result = await apiCall('/trade/close', { position_id: positionId, price });
+  return result || null;
+};
+
+export const getPositions = async () => {
+  const result = await apiCall('/positions');
+  return result || null;
+};
+
+// ============================================
 // TRANSACTIONS
 // ============================================
 export const getTransactions = async () => {
@@ -290,6 +350,11 @@ export default {
   registerHold,
   getClaim,
   verifyPayment,
+  placeTrade,
+  closeTradePosition,
+  getPositions,
+  applyLocalBalanceDelta,
+  resetMockWallet,
   getTransactions,
   getReferralPool,
   getTelegramUser,

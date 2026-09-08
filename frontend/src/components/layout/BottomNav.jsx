@@ -1,10 +1,10 @@
-import { Home, Wallet, Target, Users, Clock } from 'lucide-react';
+import { Home, Wallet, Target, Users } from 'lucide-react';
 
+// History is no longer a tab: it lives inside Wallet -> Activity.
 const navItems = [
   { id: 'home', icon: Home, label: 'Home' },
   { id: 'missions', icon: Target, label: 'Missions' },
   { id: 'referrals', icon: Users, label: 'Invite' },
-  { id: 'history', icon: Clock, label: 'History' },
   { id: 'wallet', icon: Wallet, label: 'Wallet' },
 ];
 

@@ -1,11 +1,14 @@
 /**
- * TronKeeper Cloudflare Worker - TON Claims System (v2.2)
+ * TronKeeper Cloudflare Worker - TON Claims + Simulated Trade (v2.3)
  *
  * Environment Variables (Secrets):
  * - BOT_TOKEN: Telegram Bot Token
  * - SUPA_URL: Supabase project URL
  * - SUPA_SERVICE_KEY: Supabase service role key
  * - TON_API_KEY: TON Center API key (recommended for higher rate limits)
+ *
+ * Trade endpoints (/trade, /trade/close, /positions) mark positions against the
+ * public Binance ticker, so no extra secret is needed.
  *
  * Treasury Wallet (V5): UQCydneDGeAcamdCFS6e13Z2xoxwA5DsLkFONRdp-cavw-Th
  */
@@ -17,7 +20,12 @@ import {
   normalizeTonAddress,
   decodeTonComment,
   findValidTonPayment,
+  validateTradeRequest,
+  calcUnrealizedPnl,
+  isPriceWithinTolerance,
+  fetchMarkPrice,
   CONFIG,
+  TRADE_CONFIG,
 } from './lib.js';
 
 // ============================================
@@ -467,6 +475,183 @@ async function handleReferrals(request, env) {
 }
 
 // ============================================
+// TRADE - open a simulated spot position with internal USDT
+// ============================================
+async function handleTrade(request, env) {
+  const { initData, pair, amount, price } = await request.json();
+  const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
+
+  if (!telegramUser) {
+    return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
+  }
+
+  const db = supabase(env);
+  const tgId = telegramUser.id.toString();
+
+  const wallets = await db.query('internal_wallets', 'select', { filters: { user_id: tgId } });
+  const wallet = (Array.isArray(wallets) ? wallets : [])[0];
+  if (!wallet) return jsonResponse({ ok: false, error: 'Wallet not found' }, 404);
+
+  const balance = parseFloat(wallet.usdt_balance) || 0;
+  const validation = validateTradeRequest({ pair, amount, balance });
+  if (!validation.ok) {
+    return jsonResponse({ ok: false, error: validation.error }, 400);
+  }
+
+  // The exchange mark price wins over whatever the client chart sent.
+  const markPrice = await fetchMarkPrice(pair);
+  const fillPrice = markPrice ?? Number(price);
+
+  if (!Number.isFinite(fillPrice) || fillPrice <= 0) {
+    return jsonResponse({ ok: false, error: 'Price unavailable. Try again in a moment.' }, 502);
+  }
+  if (markPrice && price && !isPriceWithinTolerance(price, markPrice)) {
+    return jsonResponse(
+      { ok: false, error: 'Price moved. Refresh the chart and try again.', fill_price: markPrice },
+      409
+    );
+  }
+
+  const result = await db.rpc('open_trade', {
+    p_user_id: tgId,
+    p_pair: pair,
+    p_amount: validation.amount,
+    p_price: fillPrice,
+  });
+
+  if (!result || result.ok !== true) {
+    return jsonResponse({ ok: false, error: result?.error || 'Trade failed' }, 400);
+  }
+
+  return jsonResponse({
+    ok: true,
+    position: result.position,
+    new_balance: parseFloat(result.new_balance),
+    mark_price: markPrice || null,
+    fee_rate: TRADE_CONFIG.FEE_RATE,
+  });
+}
+
+// ============================================
+// TRADE CLOSE - realize PnL back into internal USDT
+// ============================================
+async function handleTradeClose(request, env) {
+  const { initData, position_id, price } = await request.json();
+  const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
+
+  if (!telegramUser) {
+    return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
+  }
+  if (!position_id) {
+    return jsonResponse({ ok: false, error: 'Missing position_id' }, 400);
+  }
+
+  const db = supabase(env);
+  const tgId = telegramUser.id.toString();
+
+  const rows = await db.query('trade_positions', 'select', { filters: { id: position_id } });
+  const position = (Array.isArray(rows) ? rows : [])[0];
+  if (!position) return jsonResponse({ ok: false, error: 'Position not found' }, 404);
+  if (position.user_id !== tgId) return jsonResponse({ ok: false, error: 'Unauthorized' }, 403);
+  if (position.status !== 'open') {
+    return jsonResponse({ ok: false, error: 'Position already closed' }, 400);
+  }
+
+  const markPrice = await fetchMarkPrice(position.pair);
+  const fillPrice = markPrice ?? Number(price);
+  if (!Number.isFinite(fillPrice) || fillPrice <= 0) {
+    return jsonResponse({ ok: false, error: 'Price unavailable. Try again in a moment.' }, 502);
+  }
+
+  const result = await db.rpc('close_trade', {
+    p_user_id: tgId,
+    p_position_id: position_id,
+    p_price: fillPrice,
+  });
+
+  if (!result || result.ok !== true) {
+    return jsonResponse({ ok: false, error: result?.error || 'Close failed' }, 400);
+  }
+
+  return jsonResponse({
+    ok: true,
+    pnl: parseFloat(result.pnl),
+    pnl_pct: parseFloat(result.pnl_pct),
+    credited: parseFloat(result.credit),
+    new_balance: parseFloat(result.new_balance),
+  });
+}
+
+// ============================================
+// POSITIONS - open positions + realized PnL
+// ============================================
+async function handlePositions(request, env) {
+  const { initData } = await request.json();
+  const telegramUser = await validateInitData(initData, env.BOT_TOKEN);
+
+  if (!telegramUser) {
+    return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
+  }
+
+  const db = supabase(env);
+  const tgId = telegramUser.id.toString();
+
+  const rows = await db.query('trade_positions', 'select', {
+    filters: { user_id: tgId },
+    order: 'opened_at.desc',
+    limit: 100,
+  });
+  const all = Array.isArray(rows) ? rows : [];
+
+  // Best-effort mark prices; positions stay listed even if the exchange is down.
+  const pairs = [...new Set(all.filter(p => p.status === 'open').map(p => p.pair))];
+  const marks = {};
+  await Promise.all(
+    pairs.map(async (pair) => {
+      marks[pair] = await fetchMarkPrice(pair);
+    })
+  );
+
+  const positions = all.map((p) => {
+    const qty = parseFloat(p.qty);
+    const entry = parseFloat(p.entry_price);
+    const mark = marks[p.pair];
+    const live = p.status === 'open' && mark ? calcUnrealizedPnl({ qty, entryPrice: entry, markPrice: mark }) : null;
+
+    return {
+      id: p.id,
+      pair: p.pair,
+      qty,
+      entry_price: entry,
+      cost_basis: parseFloat(p.cost_basis),
+      fee_paid: parseFloat(p.fee_paid),
+      status: p.status,
+      opened_at: p.opened_at,
+      closed_at: p.closed_at,
+      mark_price: mark ?? null,
+      value: live ? live.value : (p.status === 'closed' ? parseFloat(p.credit || 0) : null),
+      unrealized_pnl: live ? live.unrealized : null,
+      unrealized_pct: live ? live.unrealizedPct : null,
+      realized_pnl: p.status === 'closed' ? parseFloat(p.realized_pnl) : null,
+    };
+  });
+
+  const open = positions.filter(p => p.status === 'open');
+  const realized = positions.reduce((sum, p) => sum + (p.realized_pnl || 0), 0);
+  const unrealized = open.reduce((sum, p) => sum + (p.unrealized_pnl || 0), 0);
+
+  return jsonResponse({
+    ok: true,
+    positions: open,
+    closed: positions.filter(p => p.status === 'closed').slice(0, 20),
+    realized_pnl: realized,
+    unrealized_pnl: unrealized,
+    positions_value: open.reduce((sum, p) => sum + (p.value || 0), 0),
+    fee_rate: TRADE_CONFIG.FEE_RATE,
+  });
+}
+
+// ============================================
 // MAIN HANDLER
 // ============================================
 export default {
@@ -488,11 +673,14 @@ export default {
           case '/verify-payment': return handleVerifyPayment(request, env);
           case '/transactions':   return handleTransactions(request, env);
           case '/referrals':      return handleReferrals(request, env);
+          case '/trade':          return handleTrade(request, env);
+          case '/trade/close':    return handleTradeClose(request, env);
+          case '/positions':      return handlePositions(request, env);
         }
       }
 
       if (path === '/' || path === '/health') {
-        return jsonResponse({ ok: true, service: 'TronKeeper API', version: '2.2.0', treasury: CONFIG.TREASURY_WALLET });
+        return jsonResponse({ ok: true, service: 'TronKeeper API', version: '2.3.0', treasury: CONFIG.TREASURY_WALLET });
       }
 
       return jsonResponse({ error: 'Not found' }, 404);

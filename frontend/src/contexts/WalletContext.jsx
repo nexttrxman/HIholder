@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import {
   authUser,
   registerHold,
@@ -8,6 +8,7 @@ import {
   getReferralPool,
   getTelegramUser,
   initTelegram,
+  applyLocalBalanceDelta,
   DEPOSIT_INFO,
   TON_CONFIG,
 } from '@/services/api';
@@ -16,6 +17,30 @@ const WalletContext = createContext(null);
 
 const HOLD_DURATION = 3000; // 3 seconds to hold
 const MAX_HOLDS_PER_CYCLE = 3;
+
+// Trades executed without a backend (dev/preview) live here so History keeps
+// showing them after a reload.
+const LOCAL_TX_KEY = 'tk_local_tx_v1';
+const LOCAL_TX_LIMIT = 60;
+
+function readLocalTransactions() {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(LOCAL_TX_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function writeLocalTransactions(list) {
+  try {
+    window.localStorage.setItem(LOCAL_TX_KEY, JSON.stringify(list));
+  } catch (e) {
+    /* storage unavailable - ignore */
+  }
+}
 
 export function WalletProvider({ children }) {
   // User state
@@ -45,8 +70,18 @@ export function WalletProvider({ children }) {
   const [referralPool, setReferralPool] = useState({ total: 50000, remaining: 50000 });
 
   // Transactions
-  const [transactions, setTransactions] = useState([]);
+  const [serverTransactions, setTransactions] = useState([]);
+  const [localTransactions, setLocalTransactions] = useState(readLocalTransactions);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
+
+  // Backend ledger + locally executed trades (dev mode), newest first.
+  const transactions = useMemo(
+    () =>
+      [...localTransactions, ...serverTransactions].sort(
+        (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
+      ),
+    [localTransactions, serverTransactions]
+  );
 
   // User identification
   const [uid, setUid] = useState(null);
@@ -202,6 +237,27 @@ export function WalletProvider({ children }) {
   }, [usdtBalance, refreshData]);
 
   /**
+   * Apply an internal USDT movement (trading) to the cached balance.
+   * Also mirrors it into the dev-mode mock so reloads stay consistent.
+   */
+  const applyUsdtDelta = useCallback((delta) => {
+    const amount = Number(delta) || 0;
+    setUsdtBalance((prev) => Math.max(0, prev + amount));
+    applyLocalBalanceDelta(amount);
+  }, []);
+
+  /**
+   * Prepend a locally executed trade to the activity feed.
+   */
+  const pushLocalTransaction = useCallback((tx) => {
+    setLocalTransactions((prev) => {
+      const next = [tx, ...prev].slice(0, LOCAL_TX_LIMIT);
+      writeLocalTransactions(next);
+      return next;
+    });
+  }, []);
+
+  /**
    * Load transaction history
    */
   const loadTransactions = useCallback(async () => {
@@ -324,8 +380,14 @@ export function WalletProvider({ children }) {
 
     // Transactions
     transactions,
+    serverTransactions,
+    localTransactions,
     loadingTransactions,
     loadTransactions,
+    pushLocalTransaction,
+
+    // Balance mutations (used by the Trade panel)
+    applyUsdtDelta,
 
     // Deposit
     depositInfo,
