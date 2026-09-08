@@ -809,7 +809,21 @@ export default {
       }
 
       if (path === '/' || path === '/health') {
-        return jsonResponse({ ok: true, service: 'TronKeeper API', version: '2.6.0', treasury: CONFIG.TREASURY_WALLET });
+        // Solo presencia (booleanos), nunca valores: 'Invalid initData' sale igual
+        // si BOT_TOKEN falta, si está mal escrito o si es de otro bot, y desde
+        // afuera no hay forma de distinguirlo.
+        return jsonResponse({
+          ok: true,
+          service: 'TronKeeper API',
+          version: '2.6.0',
+          treasury: CONFIG.TREASURY_WALLET,
+          env: {
+            BOT_TOKEN: Boolean(env.BOT_TOKEN),
+            SUPA_URL: Boolean(env.SUPA_URL),
+            SUPA_SERVICE_KEY: Boolean(env.SUPA_SERVICE_KEY),
+            TON_API_KEY: Boolean(env.TON_API_KEY),
+          },
+        });
       }
 
       return jsonResponse({ error: 'Not found' }, 404);
