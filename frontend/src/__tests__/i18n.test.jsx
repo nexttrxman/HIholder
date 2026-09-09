@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { describe, it, expect } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
 import {
   DEFAULT_LANGUAGE,
@@ -158,6 +159,60 @@ describe('LanguageProvider', () => {
     expect(screen.getByTestId('dir').textContent).toBe('rtl');
     expect(document.documentElement.dir).toBe('rtl');
     expect(document.documentElement.lang).toBe('fa');
+  });
+
+  it('NO congela el texto que React actualiza (precio, etiqueta del par)', async () => {
+    // Regresión del bug de Trade: apply() guardaba el "original" de TODOS los
+    // nodos, incluso los no traducibles. Cuando React actualizaba el precio, el
+    // observer lo comparaba contra ese original viejo y lo escribía de vuelta,
+    // así que el precio y el selector de pares quedaban congelados.
+    localStorage.clear();
+    function LivePrice() {
+      const [price, setPrice] = useState('1.39');
+      return (
+        <button type="button" data-testid="bump" onClick={() => setPrice((p) => (p === '1.39' ? '1.40' : '1.41'))}>
+          <span data-testid="price">{price}</span>
+        </button>
+      );
+    }
+    function LiveLabel() {
+      const [label, setLabel] = useState('Total Balance');
+      return (
+        <button type="button" data-testid="swap" onClick={() => setLabel('Balance')}>
+          <span data-testid="label">{label}</span>
+        </button>
+      );
+    }
+    render(
+      <LanguageProvider>
+        <LanguageSwitcher />
+        <LivePrice />
+        <LiveLabel />
+      </LanguageProvider>
+    );
+
+    fireEvent.click(screen.getByTestId('language-switcher'));
+    fireEvent.click(screen.getByTestId('language-option-es'));
+    await act(async () => {});
+
+    // Las lecturas van con waitFor a propósito: el traductor corre en un
+    // requestAnimationFrame, así que una lectura sincrónica pasaría aunque el
+    // observer todavía no hubiera tenido la chance de pisar el valor.
+    const price = () => screen.getByTestId('price').textContent;
+    const label = () => screen.getByTestId('label').textContent;
+
+    await waitFor(() => expect(price()).toBe('1.39'));
+    await waitFor(() => expect(label()).toBe('Saldo total'));
+
+    // El precio no es traducible y tiene que seguir respondiendo a React.
+    fireEvent.click(screen.getByTestId('bump'));
+    await waitFor(() => expect(price()).toBe('1.40'));
+    fireEvent.click(screen.getByTestId('bump'));
+    await waitFor(() => expect(price()).toBe('1.41'));
+
+    // Y un nodo que SÍ se traducía tiene que poder cambiar a otra cadena.
+    fireEvent.click(screen.getByTestId('swap'));
+    await waitFor(() => expect(label()).toBe('Saldo'));
   });
 
   it('recupera el idioma guardado', () => {

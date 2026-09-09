@@ -89,11 +89,32 @@ export function LanguageProvider({ children }) {
     const apply = (node) => {
       const current = node.nodeValue;
       if (current == null) return;
-      const original = originals.has(node) ? originals.get(node) : current;
-      const target = dict ? translateText(original, dict) : original;
+      const known = originals.get(node);
+
+      if (!dict) {
+        // Volvimos al idioma fuente: restaurar el original si lo teníamos.
+        if (known !== undefined && current !== known) node.nodeValue = known;
+        originals.delete(node);
+        return;
+      }
+
+      // ¿El nodo sigue mostrando NUESTRA traducción, o React escribió algo nuevo?
+      // Sin esta distinción, un nodo que React actualiza (el precio, la etiqueta
+      // del par) quedaba congelado contra el valor viejo que habíamos guardado.
+      const stillOurs = known !== undefined && current === translateText(known, dict);
+      const original = stillOurs ? known : current;
+      const target = translateText(original, dict);
+
+      if (target === original) {
+        // No es una cadena traducible. No guardar NADA: si guardáramos el valor
+        // actual como "original", el próximo update de React sobre este nodo se
+        // revertiría contra él.
+        originals.delete(node);
+        return;
+      }
+
       if (current !== target) node.nodeValue = target;
-      if (dict) originals.set(node, original);
-      else originals.delete(node);
+      originals.set(node, original);
     };
 
     const walk = (from) => {
@@ -114,13 +135,21 @@ export function LanguageProvider({ children }) {
 
     // React re-renderiza al cambiar de pestaña, al llegar datos del backend y en
     // cada animación: sin esto el texto volvería al inglés.
+    // Las mutaciones se ACUMULAN. El primer intento procesaba solo las del
+    // primer callback y descartaba el resto con un `if (queued) return`: todo lo
+    // que React renderizaba mientras había un requestAnimationFrame en vuelo se
+    // quedaba sin traducir hasta el próximo cambio.
+    let pending = [];
     let queued = false;
     const observer = new MutationObserver((mutations) => {
+      pending.push(...mutations);
       if (queued) return;
       queued = true;
       requestAnimationFrame(() => {
         queued = false;
-        for (const m of mutations) {
+        const batch = pending;
+        pending = [];
+        for (const m of batch) {
           if (m.type === 'characterData') {
             if (m.target.nodeType === Node.TEXT_NODE && !shouldSkip(m.target)) apply(m.target);
           } else {
