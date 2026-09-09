@@ -83,26 +83,28 @@ export function LanguageProvider({ children }) {
     root.dir = dir;
 
     const dict = dictionaryFor(language);
-    // WeakMap para no retener nodos que React descarta.
+    // WeakMap de {original, traducido} para no retener nodos que React descarta.
     const originals = originalsRef.current;
 
     const apply = (node) => {
       const current = node.nodeValue;
       if (current == null) return;
-      const known = originals.get(node);
+      // Guardamos {original, traducido}, no solo el original. Saber EXACTAMENTE
+      // qué escribimos es lo único que permite distinguirlo de un texto nuevo de
+      // React sin adivinar: comparar contra el diccionario actual no alcanza,
+      // porque al pasar de español a ruso el texto en pantalla es español y el
+      // diccionario ruso no lo reconoce como propio.
+      const rec = originals.get(node);
 
       if (!dict) {
         // Volvimos al idioma fuente: restaurar el original si lo teníamos.
-        if (known !== undefined && current !== known) node.nodeValue = known;
+        if (rec && current !== rec.original) node.nodeValue = rec.original;
         originals.delete(node);
         return;
       }
 
-      // ¿El nodo sigue mostrando NUESTRA traducción, o React escribió algo nuevo?
-      // Sin esta distinción, un nodo que React actualiza (el precio, la etiqueta
-      // del par) quedaba congelado contra el valor viejo que habíamos guardado.
-      const stillOurs = known !== undefined && current === translateText(known, dict);
-      const original = stillOurs ? known : current;
+      const stillOurs = rec !== undefined && current === rec.translated;
+      const original = stillOurs ? rec.original : current;
       const target = translateText(original, dict);
 
       if (target === original) {
@@ -114,7 +116,7 @@ export function LanguageProvider({ children }) {
       }
 
       if (current !== target) node.nodeValue = target;
-      originals.set(node, original);
+      originals.set(node, { original, translated: target });
     };
 
     const walk = (from) => {

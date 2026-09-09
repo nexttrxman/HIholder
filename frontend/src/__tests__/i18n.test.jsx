@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { useState } from 'react';
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
@@ -13,6 +14,7 @@ import {
   normalizeKey,
   translateText,
 } from '@/i18n';
+import { DO_NOT_TRANSLATE, extractUiStrings, looksLikeProse } from '@/i18n/extractUiStrings';
 import { LanguageProvider, useLanguage } from '@/i18n/LanguageProvider';
 import { LanguageSwitcher } from '@/components/layout/LanguageSwitcher';
 
@@ -64,6 +66,39 @@ describe('diccionarios', () => {
         expect(DICTIONARIES[code][key], `${code} -> ${key}`).toBeTruthy();
       }
     }
+  });
+});
+
+describe('cobertura de la UI', () => {
+  it('toda cadena visible de los .jsx está en los seis diccionarios o en la lista de excepción', () => {
+    const srcRoot = path.resolve(__dirname, '..');
+    const found = extractUiStrings(srcRoot);
+
+    const faltantes = [];
+    for (const [texto, archivo] of found) {
+      if (texto in DO_NOT_TRANSLATE) continue;
+      for (const code of Object.keys(DICTIONARIES)) {
+        if (!DICTIONARIES[code][texto]) faltantes.push(`${code}: "${texto}"  (${archivo})`);
+      }
+    }
+
+    // El test falla listando lo que falta, que es justo lo que necesitás para
+    // completarlo. Si una cadena no debe traducirse, va en DO_NOT_TRANSLATE con
+    // su motivo, no se borra de acá.
+    expect(faltantes).toEqual([]);
+  });
+
+  it('ninguna excepción de DO_NOT_TRANSLATE quedó huérfana', () => {
+    const found = extractUiStrings(path.resolve(__dirname, '..'));
+    // Solo tiene sentido exigir que aparezcan las excepciones que el extractor
+    // llegaría a ver: "USDT" o "MAX" son un solo token y el filtro de prosa las
+    // descarta antes de comparar.
+    const huerfanas = Object.keys(DO_NOT_TRANSLATE)
+      .filter((k) => looksLikeProse(k))
+      .filter((k) => !found.has(k));
+    // Si el texto cambió en el componente, la excepción deja de servir y la
+    // cadena vuelve a quedar en inglés sin que nadie se entere.
+    expect(huerfanas).toEqual([]);
   });
 });
 
