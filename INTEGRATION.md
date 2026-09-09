@@ -266,3 +266,12 @@ curl -X POST https://tu-worker.workers.dev/auth \
 - Toda la lógica de DB está en el Worker
 - Los retiros quedan en estado `pending` para procesamiento manual
 - El pool de referidos se inicializa con 50,000 TRX
+
+## Migración a VPS propio (híbrida, sin pagar por usuarios)
+
+Para eliminar el costo por usuarios de Supabase manteniendo el Worker tal cual,
+ver la guía completa paso a paso: **[/vps/GUIA-VPS.md](../vps/GUIA-VPS.md)**.
+
+Resumen: se monta PostgreSQL + PostgREST (mismo API `/rest/v1/*`) + Caddy con
+HTTPS en un VPS Hetzner (~20 €/mes fijos), se migran los datos y se actualizan
+2 secrets del Worker (`SUPA_URL`, `SUPA_SERVICE_KEY`). Cero cambios de código.

@@ -1,0 +1,21 @@
+# ============================================================
+# Caddy - HTTPS automático (Let's Encrypt) + reverse proxy
+# {$DB_DOMAIN} viene del .env via docker-compose
+# ============================================================
+
+{$DB_DOMAIN} {
+	encode gzip
+
+	log {
+		output stdout
+		format console
+	}
+
+	header {
+		# Oculta versiones
+		-Server
+	}
+
+	# Todo el tráfico -> PostgREST (solo responde con JWT válido)
+	reverse_proxy postgrest:3000
+}

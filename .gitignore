@@ -171,3 +171,9 @@ credentials.json
 *.pem
 *.key
 .credentials
+
+# VPS self-hosted: secretos y backups (NUNCA commitear)
+vps/.env
+vps/backups/
+*.dump
+supabase-data-*.sql
