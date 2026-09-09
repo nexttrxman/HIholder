@@ -425,3 +425,21 @@ test('fetchMarkPrice: si ningún ticker es plausible devuelve null, no un precio
   });
   assert.equal(price, null);
 });
+
+test('fetchMarkPrice: cae a Binance Futures cuando spot no lista el par', async () => {
+  const asked = [];
+  const price = await fetchMarkPrice('HYPEUSDT', {
+    fetchImpl: async (url) => {
+      asked.push(url.includes('fapi.binance.com') ? 'futures' : 'spot');
+      if (url.includes('fapi.binance.com')) return { ok: true, json: async () => ({ price: '82.90' }) };
+      return { ok: false };
+    },
+  });
+  assert.equal(price, 82.9);
+  assert.deepEqual(asked, ['spot', 'futures']);
+});
+
+test('fetchMarkPrice: si ningún venue responde, null (el precio del cliente no se valida a ciegas)', async () => {
+  const price = await fetchMarkPrice('HYPEUSDT', { fetchImpl: async () => ({ ok: false }) });
+  assert.equal(price, null);
+});

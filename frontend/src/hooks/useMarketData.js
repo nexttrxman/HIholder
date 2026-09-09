@@ -1,4 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+/**
+ * El feed está vivo si lo está el gráfico O el ticker. Binance spot no lista
+ * todos los pares (HYPE solo cotiza en Futures), así que puede darse un ticker
+ * real con velas sintéticas: el precio que se muestra es el real.
+ */
+const combinedMode = (klines, tick) =>
+  klines?.mode === 'live' || tick?.mode === 'live' ? 'live' : 'sim';
+
 import {
   advanceSynthetic,
   fetch24h,
@@ -30,8 +38,9 @@ export function useMarketData(pairId, timeframeId, { candleCount = 60, pollMs = 
         fetchKlines(pair, timeframe, candleCount),
         fetch24h(pair),
       ]);
-      modeRef.current = klines.mode;
-      setMode(klines.mode);
+      const nextMode = combinedMode(klines, tick);
+      modeRef.current = nextMode;
+      setMode(nextMode);
       setCandles(klines.candles);
       setTicker(tick);
       setUpdatedAt(Date.now());
@@ -51,8 +60,9 @@ export function useMarketData(pairId, timeframeId, { candleCount = 60, pollMs = 
         fetch24h(pairId),
       ]);
       if (!active) return;
-      modeRef.current = klines.mode;
-      setMode(klines.mode);
+      const nextMode = combinedMode(klines, tick);
+      modeRef.current = nextMode;
+      setMode(nextMode);
       setCandles(klines.candles);
       setTicker(tick);
       setUpdatedAt(Date.now());
@@ -72,8 +82,9 @@ export function useMarketData(pairId, timeframeId, { candleCount = 60, pollMs = 
             fetch24h(pairId),
           ]);
           if (!active) return;
-          modeRef.current = klines.mode;
-          setMode(klines.mode);
+          const nextMode = combinedMode(klines, tick);
+          modeRef.current = nextMode;
+          setMode(nextMode);
           setCandles(klines.candles);
           setTicker(tick);
           setUpdatedAt(Date.now());
@@ -92,12 +103,15 @@ export function useMarketData(pairId, timeframeId, { candleCount = 60, pollMs = 
   const refresh = useCallback(() => pull(pairId, timeframeId, { silent: true }), [pull, pairId, timeframeId]);
 
   const lastCandle = candles.length > 0 ? candles[candles.length - 1] : null;
-  const lastPrice = mode === 'sim'
-    ? (lastCandle?.c ?? ticker?.price ?? 0)
-    : (ticker?.price ?? lastCandle?.c ?? 0);
-  const changePercent = mode === 'sim'
-    ? windowChangePercent(candles)
-    : (ticker?.changePercent ?? windowChangePercent(candles));
+  // Un ticker vivo manda sobre el cierre de la última vela, aunque las velas
+  // vengan del generador sintético.
+  const priceIsLive = ticker?.mode === 'live';
+  const lastPrice = priceIsLive
+    ? (ticker.price ?? lastCandle?.c ?? 0)
+    : (lastCandle?.c ?? ticker?.price ?? 0);
+  const changePercent = priceIsLive
+    ? (ticker.changePercent ?? windowChangePercent(candles))
+    : windowChangePercent(candles);
 
   return {
     candles,

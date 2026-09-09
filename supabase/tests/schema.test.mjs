@@ -117,9 +117,13 @@ async function seedUser(balance = 0) {
   eq('cron: claim pasa a expired_unclaimed', claim.status, 'expired_unclaimed');
 
   const c = await one(`SELECT holds_completed FROM hold_cycles WHERE id=$1`, [cyc.id]);
-  // v2.7.1: ya no se pierden. El claim expirado se regenera desde /get-claim
-  // con el mismo premio acumulado, en vez de obligar a esperar las 8 h.
-  eq('cron: el ciclo conserva los 3 holds (regla v2.7.1)', c.holds_completed, 3);
+  // v2.8.1: el claim expirado se pierde y los 3 holds con él. El ciclo vuelve a
+  // 0 para que se pueda holdear de nuevo sin esperar a que termine la ventana;
+  // el bloqueo de 8 h rige solo tras un claim exitoso.
+  eq('cron: el ciclo vuelve a 0 holds tras el claim vencido (regla v2.8.1)', c.holds_completed, 0);
+
+  const cl = await one(`SELECT status FROM claims WHERE cycle_id=$1`, [cyc.id]);
+  eq('cron: el claim queda marcado como vencido sin cobrar', cl.status, 'expired_unclaimed');
 }
 
 // ---- 3) open_trade / close_trade ----------------------------------------

@@ -340,34 +340,15 @@ async function handleGetClaim(request, env) {
     return jsonResponse({ ok: true, claim: null });
   }
 
-  let claims = await db.query('claims', 'select', {
+  const claims = await db.query('claims', 'select', {
     filters: { cycle_id: cycle.id, status: 'pending' }
   });
-  let claim = claims[0];
+  const claim = claims[0];
 
-  // Los 3 holds están hechos pero no hay claim pendiente: el anterior venció sin
-  // pagarse. Se regenera con el mismo premio acumulado en vez de dejar al
-  // usuario trabado hasta que termine la ventana de 8 h.
-  if (!claim && cycle.holds_completed >= CONFIG.MAX_HOLDS_PER_CYCLE) {
-    const holds = await db.query('holds', 'select', { filters: { cycle_id: cycle.id } });
-    const totalPrize = (Array.isArray(holds) ? holds : [])
-      .reduce((sum, h) => sum + parseFloat(h.prize_amount), 0);
-
-    if (totalPrize > 0) {
-      const created = await db.query('claims', 'insert', {
-        body: {
-          claim_id: generateClaimId(),
-          user_id: tgId,
-          cycle_id: cycle.id,
-          total_prize: totalPrize,
-          ton_fee: CONFIG.TON_FEE,
-          status: 'pending',
-          expires_at: new Date(Date.now() + CONFIG.CLAIM_EXPIRY_MINUTES * 60 * 1000).toISOString(),
-        },
-      });
-      claim = created[0] || null;
-    }
-  }
+  // Sin regeneración a propósito (v2.8.1): un claim que venció sin pagarse se
+  // pierde junto con sus 3 holds, y /auth ya dejó el ciclo en 0 para que el
+  // usuario pueda holdear de nuevo. Regenerar acá permitía cobrar dos veces el
+  // mismo trabajo.
 
   if (!claim) {
     return jsonResponse({ ok: true, claim: null });

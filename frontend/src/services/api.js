@@ -155,10 +155,10 @@ const resolveMockPendingClaim = () => {
   if (new Date(MOCK_PENDING_CLAIM.expires_at) >= new Date()) return MOCK_PENDING_CLAIM;
 
   MOCK_PENDING_CLAIM = null;
-  // v2.7.1: el claim vencido se pierde pero los 3 holds se conservan, igual que
-  // en el worker. /get-claim regenera el claim con el mismo premio.
-  MOCK_CYCLE.holds_completed = MAX_HOLDS_PER_CYCLE_MOCK;
-  MOCK_CYCLE.remaining_holds = 0;
+  // v2.8.1: el claim vencido se pierde y los 3 holds con él, igual que en el
+  // worker. El ciclo vuelve a 0 y se puede holdear de nuevo sin esperar 8 h.
+  MOCK_CYCLE.holds_completed = 0;
+  MOCK_CYCLE.remaining_holds = MAX_HOLDS_PER_CYCLE_MOCK;
   return null;
 };
 
@@ -350,13 +350,9 @@ export const getClaim = async () => {
     const result = await apiCall('/get-claim');
     if (result) return result;
 
-    // Dev/preview: espeja al worker. Si los 3 holds están hechos y no hay claim
-    // pendiente (el anterior venció sin pagarse), se regenera con el mismo
-    // premio en vez de dejar al usuario trabado.
+    // Dev/preview: espeja al worker, y el worker NO regenera (v2.8.1). Un claim
+    // vencido se pierde junto con sus 3 holds; hay que volver a hacerlos.
     resolveMockPendingClaim();
-    if (!MOCK_PENDING_CLAIM && MOCK_CYCLE.holds_completed >= MAX_HOLDS_PER_CYCLE_MOCK) {
-      MOCK_PENDING_CLAIM = makeMockClaim();
-    }
     return { ok: true, claim: MOCK_PENDING_CLAIM };
   } catch (error) {
     console.error('Get claim error:', error);

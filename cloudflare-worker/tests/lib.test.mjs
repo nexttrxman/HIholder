@@ -286,14 +286,15 @@ test('resolvePendingClaim: a live claim is returned untouched', () => {
   assert.equal(r.holdsCompleted, 3, 'still locked at 3/3 while the claim is payable');
 });
 
-test('resolvePendingClaim: el claim expira pero los 3 holds se conservan', () => {
+test('resolvePendingClaim: el claim expira y los 3 holds se pierden con él', () => {
   const claim = { claim_id: 'C1', expires_at: '2026-09-08T12:15:00Z' };
   const r = resolvePendingClaim(claim, new Date('2026-09-08T12:15:01Z'), 3);
   assert.equal(r.pendingClaim, null);
   assert.equal(r.forfeited, true);
-  // Cambio de contrato: antes iban a 0 y había que esperar las 8 h. Ahora se
-  // conservan para que /get-claim regenere el claim con el mismo premio.
-  assert.equal(r.holdsCompleted, CONFIG.MAX_HOLDS_PER_CYCLE);
+  // v2.8.1: el ciclo vuelve a 0 y el usuario puede holdear de nuevo enseguida.
+  // El bloqueo de 8 h rige solo tras un claim exitoso (el ciclo queda en 3/3).
+  assert.equal(r.holdsCompleted, 0);
+  assert.notEqual(r.holdsCompleted, CONFIG.MAX_HOLDS_PER_CYCLE);
 });
 
 test('CONFIG: fee y rango de premio por hold', () => {

@@ -482,6 +482,10 @@ export const TRADE_CONFIG = {
   MAX_NOTIONAL: 100000, // USDT
   PRICE_TOLERANCE: 0.02, // client price must be within 2% of the mark price
   BINANCE_TICKER_URL: 'https://api.binance.com/api/v3/ticker/price',
+  // Binance spot no lista todos los pares (HYPE solo cotiza en Futures). Sin el
+  // segundo venue el mark price salía null y el precio del cliente pasaba sin
+  // validación del servidor.
+  BINANCE_FUTURES_TICKER_URL: 'https://fapi.binance.com/fapi/v1/ticker/price',
   ALLOWED_PAIRS: [
     'TONUSDT', 'BTCUSDT', 'ETHUSDT', 'SOLUSDT',
     'HYPEUSDT', 'UNIUSDT', 'TRXUSDT', 'DOGEUSDT',
@@ -679,7 +683,7 @@ export const MARK_SEEDS = {
   BTCUSDT: 79000,
   ETHUSDT: 2490,
   SOLUSDT: 103,
-  HYPEUSDT: 65,
+  HYPEUSDT: 83,
   UNIUSDT: 6.9,
   TRXUSDT: 0.312,
   DOGEUSDT: 0.09,
@@ -703,19 +707,19 @@ export function pairSymbols(pair) {
 }
 
 export async function fetchMarkPrice(pair, { fetchImpl = fetch } = {}) {
-  const seed = PAIR_ALIASES[pair]?.seed ?? MARK_SEEDS[pair];
+  const venues = [TRADE_CONFIG.BINANCE_TICKER_URL, TRADE_CONFIG.BINANCE_FUTURES_TICKER_URL];
 
-  for (const symbol of pairSymbols(pair)) {
-    try {
-      const res = await fetchImpl(
-        `${TRADE_CONFIG.BINANCE_TICKER_URL}?symbol=${encodeURIComponent(symbol)}`
-      );
-      if (!res.ok) continue;
-      const data = await res.json();
-      const price = Number(data?.price);
-      if (isPlausiblePrice(price, seed ?? MARK_SEEDS[symbol])) return price;
-    } catch (e) {
-      /* ticker no disponible o implausible: probar el siguiente */
+  for (const venue of venues) {
+    for (const symbol of pairSymbols(pair)) {
+      try {
+        const res = await fetchImpl(`${venue}?symbol=${encodeURIComponent(symbol)}`);
+        if (!res.ok) continue;
+        const data = await res.json();
+        const price = Number(data?.price);
+        if (isPlausiblePrice(price, PAIR_ALIASES[pair]?.seed ?? MARK_SEEDS[symbol])) return price;
+      } catch (e) {
+        /* venue/símbolo no disponible o implausible: probar el siguiente */
+      }
     }
   }
   return null;
@@ -807,10 +811,16 @@ export function previewLevelPnl({ qty, entryPrice, targetPrice }) {
 // ============================================
 
 /**
- * A claim that ran out of time unpaid is forfeited, and the cycle restarts at
- * zero holds so the user can play again. Without the restart /hold keeps
- * refusing (holds_completed is already at MAX_HOLDS_PER_CYCLE) and the button
- * is dead until the 8h window ends.
+ * Regla de forfeit (v2.8.1, vuelve a la original):
+ *
+ * Un claim que venció sin pagarse SE PIERDE y los 3 holds con él — el ciclo
+ * vuelve a 0 y el usuario puede holdear de nuevo enseguida, sin esperar las 8 h.
+ * El bloqueo de 8 horas existe solo después de un claim exitoso: el ciclo queda
+ * en 3/3 y /hold lo rechaza hasta que vence la ventana.
+ *
+ * Durante un par de versiones esto devolvía MAX_HOLDS_PER_CYCLE y /get-claim
+ * regeneraba el claim con el mismo premio. Eso permitía perder la ventana y
+ * volver a cobrar sin repetir los holds.
  *
  * @param {{expires_at: string}|null|undefined} pendingClaim
  * @param {Date} [now]
@@ -825,11 +835,7 @@ export function resolvePendingClaim(pendingClaim, now = new Date(), currentHolds
   if (!expired) {
     return { pendingClaim, forfeited: false, holdsCompleted: currentHolds };
   }
-  // El claim venció sin pagarse. Antes se perdían los 3 holds y había que
-  // esperar a que terminara la ventana de 8 h; ahora se restauran para que el
-  // usuario pueda regenerar el claim (lo hace /get-claim). El trabajo de los
-  // 3 holds no se pierde por un timeout de la red.
-  return { pendingClaim: null, forfeited: true, holdsCompleted: CONFIG.MAX_HOLDS_PER_CYCLE };
+  return { pendingClaim: null, forfeited: true, holdsCompleted: 0 };
 }
 
 // ============================================

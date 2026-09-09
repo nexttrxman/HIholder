@@ -610,12 +610,11 @@ describe('markets', () => {
   });
 
   it('cada par tiene una semilla coherente con su precio real', () => {
-    // 08/09/2026: GRAM 1.39, BTC 79k, ETH 2490, SOL 103, HYPE 65, UNI 6.90,
-    // TRX 0.312, DOGE 0.09. Si alguien cambia una semilla, este test pregunta
+    // Precios al 08/09/2026. Si alguien cambia una semilla, este test pregunta
     // si fue a propósito.
     const expected = {
       TONUSDT: 1.39, BTCUSDT: 79000, ETHUSDT: 2490, SOLUSDT: 103,
-      HYPEUSDT: 65, UNIUSDT: 6.9, TRXUSDT: 0.312, DOGEUSDT: 0.09,
+      HYPEUSDT: 83, UNIUSDT: 6.9, TRXUSDT: 0.312, DOGEUSDT: 0.09,
     };
     for (const pair of PAIRS) {
       expect(pair.seedPrice, pair.id).toBe(expected[pair.id]);
@@ -659,3 +658,4 @@ describe('pair selector', () => {
     await waitFor(() => expect(screen.getByTestId('pair-selector-label')).toHaveTextContent('HYPE/USDT'));
   });
 });
+

@@ -7,8 +7,20 @@
  * third-party requests. The UI always shows which source is active.
  */
 
-const BINANCE_BASE = 'https://api.binance.com/api/v3';
 const REQUEST_TIMEOUT_MS = 6000;
+
+/**
+ * Venues de mercado, en orden de preferencia.
+ *
+ * Binance **spot** no lista todos los pares: HYPE cotiza en Binance Futures, no
+ * en spot. Con un solo venue esos pares fallaban siempre y caían al generador
+ * sintético, mostrando un precio inventado de forma permanente. Los dos venues
+ * devuelven el mismo formato de respuesta, así que el resto del código no cambia.
+ */
+const VENUES = [
+  { name: 'binance-spot', base: 'https://api.binance.com/api/v3' },
+  { name: 'binance-futures', base: 'https://fapi.binance.com/fapi/v1' },
+];
 
 export const PAIRS = [
   /**
@@ -24,7 +36,7 @@ export const PAIRS = [
   { id: 'BTCUSDT', base: 'BTC', label: 'BTC/USDT', color: '#F7931A', priceDecimals: 2, qtyDecimals: 5, seedPrice: 79000, vol: 0.0022 },
   { id: 'ETHUSDT', base: 'ETH', label: 'ETH/USDT', color: '#627EEA', priceDecimals: 2, qtyDecimals: 4, seedPrice: 2490, vol: 0.0031 },
   { id: 'SOLUSDT', base: 'SOL', label: 'SOL/USDT', color: '#14F195', priceDecimals: 2, qtyDecimals: 3, seedPrice: 103, vol: 0.0035 },
-  { id: 'HYPEUSDT', base: 'HYPE', label: 'HYPE/USDT', color: '#97FCE4', priceDecimals: 2, qtyDecimals: 3, seedPrice: 65, vol: 0.0045 },
+  { id: 'HYPEUSDT', base: 'HYPE', label: 'HYPE/USDT', color: '#97FCE4', priceDecimals: 2, qtyDecimals: 3, seedPrice: 83, vol: 0.0045 },
   { id: 'UNIUSDT', base: 'UNI', label: 'UNI/USDT', color: '#FF007A', priceDecimals: 3, qtyDecimals: 2, seedPrice: 6.9, vol: 0.0038 },
   { id: 'TRXUSDT', base: 'TRX', label: 'TRX/USDT', color: '#EF0027', priceDecimals: 5, qtyDecimals: 1, seedPrice: 0.312, vol: 0.0018 },
   { id: 'DOGEUSDT', base: 'DOGE', label: 'DOGE/USDT', color: '#C2A633', priceDecimals: 5, qtyDecimals: 1, seedPrice: 0.09, vol: 0.0052 },
@@ -222,38 +234,35 @@ export async function fetchKlines(pairId, timeframeId, limit = 60) {
   const pair = getPair(pairId);
   const tf = getTimeframe(timeframeId);
 
-  try {
-    let raw = null;
+  for (const venue of VENUES) {
     for (const symbol of pairSymbols(pair)) {
       try {
         const res = await fetchJson(
-          `${BINANCE_BASE}/klines?symbol=${symbol}&interval=${tf.binance}&limit=${limit}`
+          `${venue.base}/klines?symbol=${symbol}&interval=${tf.binance}&limit=${limit}`
         );
         const lastClose = Array.isArray(res) ? Number(res[res.length - 1]?.[4]) : NaN;
         if (Array.isArray(res) && res.length > 0 && isPlausiblePrice(lastClose, pair.seedPrice)) {
-          raw = res;
-          break;
+          return {
+            mode: 'live',
+            source: venue.name,
+            symbol,
+            candles: res.map((k) => ({
+              t: Number(k[0]),
+              o: Number(k[1]),
+              h: Number(k[2]),
+              l: Number(k[3]),
+              c: Number(k[4]),
+              v: Number(k[5]),
+            })),
+          };
         }
       } catch (e) {
-        /* ticker no disponible: probar el siguiente */
+        /* venue/símbolo no disponible: probar el siguiente */
       }
     }
-    if (!raw) throw new Error('empty klines');
-
-    return {
-      mode: 'live',
-      candles: raw.map((k) => ({
-        t: Number(k[0]),
-        o: Number(k[1]),
-        h: Number(k[2]),
-        l: Number(k[3]),
-        c: Number(k[4]),
-        v: Number(k[5]),
-      })),
-    };
-  } catch (err) {
-    return { mode: 'sim', candles: syntheticCandles(pairId, timeframeId, limit) };
   }
+
+  return { mode: 'sim', source: 'synthetic', candles: syntheticCandles(pairId, timeframeId, limit) };
 }
 
 /**
@@ -262,47 +271,45 @@ export async function fetchKlines(pairId, timeframeId, limit = 60) {
 export async function fetch24h(pairId) {
   const pair = getPair(pairId);
 
-  try {
-    let data = null;
+  for (const venue of VENUES) {
     for (const symbol of pairSymbols(pair)) {
       try {
-        const res = await fetchJson(`${BINANCE_BASE}/ticker/24hr?symbol=${symbol}`);
-        if (isPlausiblePrice(res?.lastPrice, pair.seedPrice)) {
-          data = res;
-          break;
+        const data = await fetchJson(`${venue.base}/ticker/24hr?symbol=${symbol}`);
+        if (isPlausiblePrice(data?.lastPrice, pair.seedPrice)) {
+          const price = Number(data.lastPrice);
+          return {
+            mode: 'live',
+            source: venue.name,
+            symbol,
+            price,
+            changePercent: Number(data.priceChangePercent) || 0,
+            high: Number(data.highPrice) || price,
+            low: Number(data.lowPrice) || price,
+            volume: Number(data.quoteVolume) || 0,
+          };
         }
       } catch (e) {
-        /* ticker no disponible: probar el siguiente */
+        /* venue/símbolo no disponible: probar el siguiente */
       }
     }
-    const price = Number(data?.lastPrice);
-    if (!Number.isFinite(price) || price <= 0) throw new Error('bad ticker');
-
-    return {
-      mode: 'live',
-      price,
-      changePercent: Number(data.priceChangePercent) || 0,
-      high: Number(data.highPrice) || price,
-      low: Number(data.lowPrice) || price,
-      volume: Number(data.quoteVolume) || 0,
-    };
-  } catch (err) {
-    const candles = syntheticCandles(pairId, '1h', 25);
-    const price = candles[candles.length - 1].c;
-    const ref = candles[0].o;
-    const high = Math.max(...candles.map((c) => c.h));
-    const low = Math.min(...candles.map((c) => c.l));
-    const volume = candles.reduce((sum, c) => sum + c.v, 0) * price;
-
-    return {
-      mode: 'sim',
-      price,
-      changePercent: ((price - ref) / ref) * 100,
-      high,
-      low,
-      volume,
-    };
   }
+
+  const candles = syntheticCandles(pairId, '1h', 25);
+  const price = candles[candles.length - 1].c;
+  const ref = candles[0].o;
+  const high = Math.max(...candles.map((c) => c.h));
+  const low = Math.min(...candles.map((c) => c.l));
+  const volume = candles.reduce((sum, c) => sum + c.v, 0) * price;
+
+  return {
+    mode: 'sim',
+    source: 'synthetic',
+    price,
+    changePercent: ((price - ref) / ref) * 100,
+    high,
+    low,
+    volume,
+  };
 }
 
 /** Change over the visible window — used when the 24h ticker is unavailable. */

@@ -159,7 +159,7 @@ describe('unclaimed claim', () => {
     expect(auth.cycle.remaining_holds).toBe(0);
   });
 
-  it('forfeits an expired claim but keeps the 3 holds', async () => {
+  it('forfeits an expired claim and the 3 holds go with it', async () => {
     for (let i = 0; i < 3; i++) await registerHold(0.25);
 
     const auth = await authUser();
@@ -168,9 +168,22 @@ describe('unclaimed claim', () => {
 
     const after = await authUser();
     expect(after.pending_claim).toBeNull();
-    // v2.7.1: ya no se pierden los holds; /get-claim regenera el claim.
+    // v2.8.1: el claim vencido se pierde y los holds también, pero el ciclo
+    // vuelve a 0 en vez de esperar a que termine la ventana de 8 h.
+    expect(after.cycle.holds_completed).toBe(0);
+    expect(after.cycle.remaining_holds).toBe(3);
+  });
+
+  it('lets the user hold again straight away after a forfeit', async () => {
+    for (let i = 0; i < 3; i++) await registerHold(0.25);
+    expirePendingClaim(await authUser());
+    await authUser();
+
+    // Sin esperar nada: los 3 holds nuevos generan un claim nuevo.
+    for (let i = 0; i < 3; i++) await registerHold(0.25);
+    const after = await authUser();
+    expect(after.pending_claim).toBeTruthy();
     expect(after.cycle.holds_completed).toBe(3);
-    expect(after.cycle.remaining_holds).toBe(0);
   });
 
   it('keeps the claim payable while it has not expired', async () => {
@@ -184,18 +197,17 @@ describe('unclaimed claim', () => {
     expect(again.cycle.holds_completed).toBe(3);
   });
 
-  it('regenerates the claim after a forfeit instead of making the user wait', async () => {
+  it('does NOT regenerate the claim after a forfeit', async () => {
     for (let i = 0; i < 3; i++) await registerHold(0.25);
+    const first = (await getClaim()).claim;
+    expect(first).toBeTruthy();
+
     expirePendingClaim(await authUser());
+    await authUser();
 
-    await authUser(); // pierde el claim pero conserva los 3 holds
-
-    // v2.7.1: /get-claim regenera el claim para cobrar sin esperar 8 h.
-    // (El tope de 3 holds lo impone el worker en handleHold; el mock de dev no.)
+    // Regenerar acá dejaba cobrar el mismo trabajo dos veces.
     const { claim } = await getClaim();
-    expect(claim).toBeTruthy();
-    expect(claim.total_prize).toBe(0.75);
-    expect(new Date(claim.expires_at).getTime()).toBeGreaterThan(Date.now());
+    expect(claim).toBeNull();
   });
 });
 
