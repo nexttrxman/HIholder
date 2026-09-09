@@ -69,7 +69,7 @@ if (loadError) {
 
 // Las 5 funciones que llama el worker tienen que existir con esa firma
 for (const [fn, args] of [
-  ['credit_claim', 'p_claim_id text, p_tx_hash text, p_amount numeric, p_from_address text'],
+  ['credit_claim', 'p_claim_id text, p_tx_hash text, p_amount numeric, p_from_address text, p_cooldown_hours integer'],
   ['open_trade', 'p_user_id text, p_pair text, p_amount numeric, p_price numeric, p_take_profit numeric, p_stop_loss numeric'],
   ['close_trade', 'p_user_id text, p_position_id uuid, p_price numeric'],
   ['set_trade_levels', 'p_user_id text, p_position_id uuid, p_take_profit numeric, p_stop_loss numeric'],
@@ -90,6 +90,14 @@ const old = await one(
    AND pg_get_function_identity_arguments(oid)='p_user_id text, p_pair text, p_amount numeric, p_price numeric'`,
 );
 eq('open_trade de 4 params fue eliminada', old.n, 0);
+
+// credit_claim sumó p_cooldown_hours: la firma vieja tiene que haber caído, o la
+// llamada de 4 parámetros queda ambigua entre las dos sobrecargas.
+const oldCredit = await one(
+  `SELECT count(*)::int n FROM pg_proc WHERE proname='credit_claim'
+   AND pg_get_function_identity_arguments(oid)='p_claim_id text, p_tx_hash text, p_amount numeric, p_from_address text'`,
+);
+eq('credit_claim de 4 params fue eliminada', oldCredit.n, 0);
 
 // ---- helpers de seed ------------------------------------------------------
 let seq = 0;
@@ -268,6 +276,46 @@ async function seedUser(balance = 0) {
 
 }
 
+
+// ---- 5a) credit_claim: el cooldown de 8 h tras cobrar --------------------
+// Bug de producción: el ciclo se marcaba 'completed' y /auth abría uno nuevo en
+// el siguiente login, así que se podía holdear de nuevo inmediatamente.
+{
+  const u = await seedUser(0);
+  const cyc = await one(
+    `INSERT INTO hold_cycles (user_id, ends_at, holds_completed, status)
+     VALUES ($1, NOW() + INTERVAL '6 hours', 3, 'active') RETURNING id`, [u]);
+  await q(
+    `INSERT INTO claims (claim_id, user_id, cycle_id, total_prize, ton_fee, status, expires_at)
+     VALUES ('CLM_CD_1', $1, $2, 0.60, 0.15, 'pending', NOW() + INTERVAL '10 minutes')`,
+    [u, cyc.id]);
+
+  const r = (await one(`SELECT credit_claim('CLM_CD_1','TX_CD',0.15,'0:aa',8) AS r`)).r;
+  eq('credit_claim: acredita', r.ok, true);
+
+  const c = await one(`SELECT status, holds_completed, ends_at FROM hold_cycles WHERE id=$1`, [cyc.id]);
+  eq('credit_claim: el ciclo queda completado', c.status, 'completed');
+  eq('credit_claim: y en 3/3, así que /hold lo rechaza', c.holds_completed, 3);
+
+  const hoursLeft = (c.ends_at.getTime() - Date.now()) / 3600000;
+  check('credit_claim: ends_at queda ~8 h adelante (el cooldown)',
+    hoursLeft > 7.9 && hoursLeft <= 8.01, `${hoursLeft.toFixed(3)} h`);
+
+  // Sin el parámetro el DEFAULT tiene que dar lo mismo.
+  const u2 = await seedUser(0);
+  const cyc2 = await one(
+    `INSERT INTO hold_cycles (user_id, ends_at, holds_completed, status)
+     VALUES ($1, NOW() + INTERVAL '6 hours', 3, 'active') RETURNING id`, [u2]);
+  await q(
+    `INSERT INTO claims (claim_id, user_id, cycle_id, total_prize, ton_fee, status, expires_at)
+     VALUES ('CLM_CD_2', $1, $2, 0.60, 0.15, 'pending', NOW() + INTERVAL '10 minutes')`,
+    [u2, cyc2.id]);
+  await one(`SELECT credit_claim('CLM_CD_2','TX_CD_2',0.15,'0:aa') AS r`);
+  const c2 = await one(`SELECT ends_at FROM hold_cycles WHERE id=$1`, [cyc2.id]);
+  const h2 = (c2.ends_at.getTime() - Date.now()) / 3600000;
+  check('credit_claim: el DEFAULT de p_cooldown_hours también son 8 h',
+    h2 > 7.9 && h2 <= 8.01, `${h2.toFixed(3)} h`);
+}
 
 // ---- 5b) sell_wallet_asset: vender el saldo TRX/TON de la wallet ---------
 // Sin esto el bonus de referidos en TRX quedaba trabado: se veía en la wallet

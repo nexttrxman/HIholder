@@ -57,6 +57,14 @@ const TELEGRAM_APP_NAME = (import.meta.env.VITE_TELEGRAM_APP_NAME || '').trim();
  * @param {string} uid
  * @returns {string}
  */
+/**
+ * 'startapp' abre la Mini App con start_param y el referido se registra.
+ * 'start' abre el chat del bot: el parámetro le llega al bot, NO a la Web App,
+ * así que el referido nunca se registra. Se necesita VITE_TELEGRAM_APP_NAME
+ * (el nombre del Web App creado con /newapp en BotFather) en el build de Pages.
+ */
+export const REFERRAL_LINK_MODE = TELEGRAM_APP_NAME ? 'startapp' : 'start';
+
 export const buildReferralLink = (uid, { botUrl = TELEGRAM_BOT_URL, appName = TELEGRAM_APP_NAME } = {}) => {
   const base = String(botUrl || '').replace(/\/+$/, '');
   const param = encodeURIComponent(uid);
@@ -142,6 +150,21 @@ const MOCK_CYCLE = {
 
 /** Claim awaiting payment, or null. Mirrors the worker's `claims` row. */
 let MOCK_PENDING_CLAIM = null;
+
+const CYCLE_HOURS_MOCK = 8;
+
+/**
+ * Espeja /auth: si la ventana del ciclo ya pasó se abre una nueva a 0 holds.
+ * Mientras no haya pasado, el ciclo se devuelve tal cual —incluido el
+ * 'completed' con 3 holds que deja el cooldown posterior al claim.
+ */
+const rollMockCycle = () => {
+  if (new Date(MOCK_CYCLE.ends_at) >= new Date()) return MOCK_CYCLE;
+  MOCK_CYCLE.holds_completed = 0;
+  MOCK_CYCLE.remaining_holds = MAX_HOLDS_PER_CYCLE_MOCK;
+  MOCK_CYCLE.ends_at = new Date(Date.now() + CYCLE_HOURS_MOCK * 60 * 60 * 1000).toISOString();
+  return MOCK_CYCLE;
+};
 
 /**
  * Dev-only: the claim the user still has to pay for, or null.
@@ -292,7 +315,7 @@ export const authUser = async () => {
     return {
       ok: true,
       user: MOCK_USER,
-      cycle: MOCK_CYCLE,
+      cycle: rollMockCycle(),
       pending_claim: resolveMockPendingClaim(),
       treasury_wallet: TREASURY_WALLET,
     };
@@ -302,7 +325,7 @@ export const authUser = async () => {
       return {
         ok: true,
         user: MOCK_USER,
-        cycle: MOCK_CYCLE,
+        cycle: rollMockCycle(),
         pending_claim: resolveMockPendingClaim(),
         treasury_wallet: TREASURY_WALLET,
       };
@@ -376,8 +399,11 @@ export const verifyPayment = async (claimId, senderAddress) => {
     // Dev mode
     MOCK_USER.usdt_balance += 0.15;
     MOCK_PENDING_CLAIM = null;
-    MOCK_CYCLE.holds_completed = 0;
-    MOCK_CYCLE.remaining_holds = MAX_HOLDS_PER_CYCLE_MOCK;
+    // Claim cobrado: el ciclo queda completo y bloqueado 8 h, igual que en el
+    // worker (credit_claim mueve ends_at a NOW() + cooldown).
+    MOCK_CYCLE.holds_completed = MAX_HOLDS_PER_CYCLE_MOCK;
+    MOCK_CYCLE.remaining_holds = 0;
+    MOCK_CYCLE.ends_at = new Date(Date.now() + CYCLE_HOURS_MOCK * 60 * 60 * 1000).toISOString();
 
     return {
       ok: true,

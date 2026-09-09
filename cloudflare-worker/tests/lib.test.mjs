@@ -17,6 +17,7 @@ import {
   findValidTonPayment,
   generateClaimId,
   resolvePendingClaim,
+  resolveAuthCycle,
   isoWeekKey,
   utcDayKey,
   computeStreak,
@@ -397,4 +398,45 @@ test('summarizeCheckins: tolerates a missing/empty list', () => {
   assert.equal(s.weekly_complete, false);
   assert.equal(s.daily_reward, CHECKIN_CONFIG.DAILY_REWARD_USDT);
   assert.equal(s.weekly_bonus, CHECKIN_CONFIG.WEEKLY_BONUS_USDT);
+});
+
+// ============================================
+// resolveAuthCycle — el cooldown post-claim
+// ============================================
+test('resolveAuthCycle: sin ciclos hay que crear uno', () => {
+  const r = resolveAuthCycle(null, new Date('2026-09-08T12:00:00Z'));
+  assert.equal(r.mustCreate, true);
+  assert.equal(r.mustExpire, false);
+});
+
+test('resolveAuthCycle: ciclo activo vigente se respeta', () => {
+  const cycle = { id: 'c1', status: 'active', holds_completed: 1, ends_at: '2026-09-08T18:00:00Z' };
+  const r = resolveAuthCycle(cycle, new Date('2026-09-08T12:00:00Z'));
+  assert.equal(r.cycle, cycle);
+  assert.equal(r.mustCreate, false);
+});
+
+test('resolveAuthCycle: un ciclo COMPLETED vigente es el cooldown y NO se crea otro', () => {
+  // Este es el bug de producción: /auth filtraba por status='active', no veía el
+  // ciclo completado y abría uno nuevo, así que se podía holdear apenas cobrar.
+  const cycle = { id: 'c1', status: 'completed', holds_completed: 3, ends_at: '2026-09-08T20:00:00Z' };
+  const r = resolveAuthCycle(cycle, new Date('2026-09-08T12:00:00Z'));
+  assert.equal(r.mustCreate, false, 'no debe abrir un ciclo nuevo durante el cooldown');
+  assert.equal(r.cycle, cycle);
+  assert.equal(r.cycle.holds_completed, 3, 'canHold() tiene que dar false');
+});
+
+test('resolveAuthCycle: pasado el cooldown se abre un ciclo nuevo', () => {
+  const cycle = { id: 'c1', status: 'completed', holds_completed: 3, ends_at: '2026-09-08T20:00:00Z' };
+  const r = resolveAuthCycle(cycle, new Date('2026-09-08T20:00:01Z'));
+  assert.equal(r.mustCreate, true);
+  assert.equal(r.mustExpire, false, 'un completed no se marca expired otra vez');
+});
+
+test('resolveAuthCycle: un activo vencido se marca expired y se reemplaza', () => {
+  const cycle = { id: 'c9', status: 'active', holds_completed: 2, ends_at: '2026-09-08T11:00:00Z' };
+  const r = resolveAuthCycle(cycle, new Date('2026-09-08T12:00:00Z'));
+  assert.equal(r.mustCreate, true);
+  assert.equal(r.mustExpire, true);
+  assert.equal(r.expiredId, 'c9');
 });

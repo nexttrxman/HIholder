@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
-import { resetMockWallet, authUser, registerHold, getClaim } from '@/services/api';
+import { resetMockWallet, authUser, registerHold, getClaim, verifyPayment } from '@/services/api';
 import { WalletProvider } from '@/contexts/WalletContext';
 import { TradeProvider } from '@/contexts/TradeContext';
 import { HoldButton } from '@/components/earn/HoldButton';
@@ -195,6 +195,25 @@ describe('unclaimed claim', () => {
     expect(again.pending_claim).toBeTruthy();
     expect(again.pending_claim.claim_id).toBe(auth.pending_claim.claim_id);
     expect(again.cycle.holds_completed).toBe(3);
+  });
+
+  it('tras cobrar el claim queda bloqueado 8 h, no se puede holdear de nuevo', async () => {
+    for (let i = 0; i < 3; i++) await registerHold(0.25);
+    const { claim } = await getClaim();
+    expect(claim).toBeTruthy();
+
+    await verifyPayment(claim.claim_id, 'UQsender');
+
+    // Bug de producción: acá el ciclo volvía a 0 holds y el botón se reabría
+    // apenas recargar. El cooldown tiene que durar la ventana de 8 h.
+    const after = await authUser();
+    expect(after.pending_claim).toBeNull();
+    expect(after.cycle.holds_completed).toBe(3);
+    expect(after.cycle.remaining_holds).toBe(0);
+
+    const hoursLeft = (new Date(after.cycle.ends_at).getTime() - Date.now()) / 3600000;
+    expect(hoursLeft).toBeGreaterThan(7.9);
+    expect(hoursLeft).toBeLessThanOrEqual(8.01);
   });
 
   it('does NOT regenerate the claim after a forfeit', async () => {

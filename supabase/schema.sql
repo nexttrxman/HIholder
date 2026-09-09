@@ -383,11 +383,17 @@ END;
 $$ LANGUAGE plpgsql;
 
 
+-- Se cambia la firma (agrega p_cooldown_hours), y en Postgres CREATE OR REPLACE
+-- con otra lista de argumentos crea una SOBRECARGA en vez de reemplazar: las dos
+-- versiones convivirían y la llamada de 4 parámetros quedaría ambigua.
+DROP FUNCTION IF EXISTS credit_claim(TEXT, TEXT, DECIMAL, TEXT);
+
 CREATE OR REPLACE FUNCTION credit_claim(
   p_claim_id TEXT,
   p_tx_hash TEXT,
   p_amount DECIMAL,
-  p_from_address TEXT
+  p_from_address TEXT,
+  p_cooldown_hours INTEGER DEFAULT 8
 ) RETURNS JSONB AS $$
 DECLARE
   v_claim RECORD;
@@ -468,9 +474,17 @@ BEGIN
   SET status = 'credited', paid_at = NOW(), credited_at = NOW()
   WHERE claim_id = p_claim_id;
   
-  -- Marcar ciclo como completado
-  UPDATE hold_cycles 
-  SET status = 'completed'
+  -- El ciclo se cierra y queda BLOQUEADO p_cooldown_hours: ends_at pasa a ser el
+  -- momento en que se puede volver a holdear, y /auth no abre un ciclo nuevo
+  -- mientras no haya pasado.
+  --
+  -- Antes solo se marcaba 'completed'. Como /auth creaba un ciclo fresco cuando
+  -- no encontraba ninguno activo, el usuario podía holdear de nuevo apenas
+  -- recargaba la app, sin esperar las 8 horas.
+  UPDATE hold_cycles
+  SET status = 'completed',
+      holds_completed = 3,
+      ends_at = NOW() + make_interval(hours => GREATEST(COALESCE(p_cooldown_hours, 8), 0))
   WHERE id = v_claim.cycle_id;
   
   -- Primer claim del usuario: pagar el referido pendiente que lo trajo.
@@ -1179,7 +1193,7 @@ END $$;
 ALTER FUNCTION daily_checkin(TEXT) SECURITY INVOKER;
 
 REVOKE EXECUTE ON FUNCTION
-  credit_claim(TEXT, TEXT, DECIMAL, TEXT),
+  credit_claim(TEXT, TEXT, DECIMAL, TEXT, INTEGER),
   open_trade(TEXT, TEXT, DECIMAL, DECIMAL, DECIMAL, DECIMAL),
   close_trade(TEXT, UUID, DECIMAL),
   set_trade_levels(TEXT, UUID, DECIMAL, DECIMAL),
@@ -1194,7 +1208,7 @@ DO $$
 DECLARE
   f TEXT;
   funcs TEXT[] := ARRAY[
-    'credit_claim(TEXT, TEXT, DECIMAL, TEXT)',
+    'credit_claim(TEXT, TEXT, DECIMAL, TEXT, INTEGER)',
     'open_trade(TEXT, TEXT, DECIMAL, DECIMAL, DECIMAL, DECIMAL)',
     'close_trade(TEXT, UUID, DECIMAL)',
     'set_trade_levels(TEXT, UUID, DECIMAL, DECIMAL)',

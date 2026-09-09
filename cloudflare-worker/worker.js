@@ -28,6 +28,7 @@ import {
   fetchMarkPrice,
   validateWalletSale,
   pairForWalletAsset,
+  resolveAuthCycle,
   CONFIG,
   TRADE_CONFIG,
   resolvePendingClaim,
@@ -132,29 +133,45 @@ async function handleAuth(request, env) {
   // Un start_param inválido no puede romper el login: se ignora el resultado.
   const startParam = extractStartParam(initData);
   if (startParam) {
-    await db.rpc('register_referral', {
+    const ref = await db.rpc('register_referral', {
       p_referrer_uid: startParam,
       p_referred_id: tgId,
       p_referred_username: telegramUser.username || null,
     });
+    // Un start_param inválido no puede romper el login, pero el fallo tiene que
+    // quedar en los logs: tragárselo en silencio es exactamente por lo que un
+    // referido que no se registra no se puede diagnosticar desde afuera.
+    if (!ref || ref.ok !== true) {
+      console.error('register_referral rechazó el alta', {
+        referrer_uid: startParam,
+        referred_id: tgId,
+        error: ref?.error || 'sin respuesta del RPC',
+      });
+    }
   }
 
+  // El último ciclo de CUALQUIER estado, no solo los activos: un ciclo
+  // 'completed' con ends_at en el futuro es el cooldown posterior al claim, y
+  // hay que respetarlo. Filtrar por status='active' hacía que /auth no lo viera
+  // y abriera un ciclo nuevo en el siguiente login, así que el usuario podía
+  // holdear de nuevo inmediatamente después de cobrar.
   let cycles = await db.query('hold_cycles', 'select', {
-    filters: { user_id: tgId, status: 'active' },
+    filters: { user_id: tgId },
     order: 'created_at.desc',
     limit: 1
   });
-  let cycle = cycles[0];
+  const decision = resolveAuthCycle(cycles[0], new Date());
 
-  if (cycle && new Date(cycle.ends_at) < new Date()) {
+  if (decision.mustExpire) {
     await db.query('hold_cycles', 'patch', {
-      filters: { id: cycle.id },
+      filters: { id: decision.expiredId },
       body: { status: 'expired' }
     });
-    cycle = null;
   }
 
-  if (!cycle) {
+  let cycle = decision.cycle;
+
+  if (decision.mustCreate) {
     const now = new Date();
     const endsAt = new Date(now.getTime() + CONFIG.CYCLE_DURATION_HOURS * 60 * 60 * 1000);
     cycles = await db.query('hold_cycles', 'insert', {
@@ -441,7 +458,10 @@ async function handleVerifyPayment(request, env) {
     return jsonResponse({ ok: false, error: 'Transaction already used for another claim' }, 400);
   }
 
+  // El cooldown post-claim vive en CONFIG, no hardcodeado en el SQL: el DEFAULT
+  // de la función es solo la red si alguien la llama sin el parámetro.
   const result = await db.rpc('credit_claim', {
+    p_cooldown_hours: CONFIG.CYCLE_DURATION_HOURS,
     p_claim_id: claim_id,
     p_tx_hash: payment.tx_hash,
     p_amount: payment.amount_nano / 1e9,

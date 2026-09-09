@@ -838,6 +838,39 @@ export function resolvePendingClaim(pendingClaim, now = new Date(), currentHolds
   return { pendingClaim: null, forfeited: true, holdsCompleted: 0 };
 }
 
+/**
+ * Qué ciclo reportar en /auth.
+ *
+ * La clave es que un ciclo 'completed' con ends_at en el futuro es el COOLDOWN
+ * posterior a un claim cobrado: hay que respetarlo. Filtrar la consulta por
+ * status='active' lo ocultaba y /auth abría un ciclo nuevo en el siguiente
+ * login, así que el usuario podía holdear de nuevo apenas recargaba.
+ *
+ * @param {object|null} latestCycle último ciclo del usuario, de cualquier estado
+ * @param {Date} [now]
+ * @returns {{cycle: object|null, mustCreate: boolean, mustExpire: boolean, expiredId: string|null}}
+ */
+export function resolveAuthCycle(latestCycle, now = new Date()) {
+  if (!latestCycle) {
+    return { cycle: null, mustCreate: true, mustExpire: false, expiredId: null };
+  }
+
+  const endsAt = new Date(latestCycle.ends_at).getTime();
+  const stillRunning = Number.isFinite(endsAt) && endsAt >= now.getTime();
+
+  if (stillRunning) {
+    // active -> se puede seguir holdeando; completed -> bloqueado hasta ends_at.
+    return { cycle: latestCycle, mustCreate: false, mustExpire: false, expiredId: null };
+  }
+
+  return {
+    cycle: null,
+    mustCreate: true,
+    mustExpire: latestCycle.status === 'active',
+    expiredId: latestCycle.status === 'active' ? latestCycle.id : null,
+  };
+}
+
 // ============================================
 // DAILY CHECK-IN
 // ============================================
