@@ -90,11 +90,34 @@ await q(`
   )`);
 await q(`INSERT INTO referrals (referrer_id, referred_id) VALUES ('111','222')`);
 
+// wallet_ledger viejo: MISMAS columnas, pero con una lista de operation más
+// corta y filas escritas por el schema anterior. Esto es lo que abortaba el
+// script con 23514.
+await q(`
+  CREATE TABLE wallet_ledger (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    operation TEXT NOT NULL CHECK (operation IN ('claim_credit','deposit','withdrawal','reward')),
+    reference_type TEXT,
+    reference_id TEXT,
+    asset TEXT NOT NULL,
+    amount DECIMAL(18,9) NOT NULL,
+    balance_before DECIMAL(18,9) NOT NULL,
+    balance_after DECIMAL(18,9) NOT NULL,
+    description TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`);
+await q(`
+  INSERT INTO wallet_ledger (user_id, operation, asset, amount, balance_before, balance_after)
+  VALUES ('999','reward','USDT',0.30,0,0.30), ('999','claim_credit','USDT',0.45,0.30,0.75)`);
+
 // referral_pool viejo: sin distributed
 await q(`CREATE TABLE referral_pool (id SERIAL PRIMARY KEY, total_pool DECIMAL(18,8))`);
 await q(`INSERT INTO referral_pool (total_pool) VALUES (50000)`);
 
 check('estado viejo armado', await exists('claims') && !(await exists('hold_cycles')));
+eq('wallet_ledger viejo tiene la fila que violaba el CHECK',
+  (await one(`SELECT COUNT(*)::int n FROM wallet_ledger WHERE operation='reward'`)).n, 1);
 
 // ---- 2) schema.sql encima --------------------------------------------------
 let sql = fs.readFileSync(SCHEMA, 'utf8');
@@ -142,6 +165,37 @@ for (const [rel, col] of [
     `SELECT COUNT(*)::int n FROM information_schema.columns
      WHERE table_schema='public' AND table_name=$1 AND column_name=$2`, [rel, col]);
   eq(`nueva ${rel}.${col}`, r.n, 1);
+}
+
+// ---- 4b) wallet_ledger: el CHECK nuevo no borra el historial viejo ---------
+{
+  const con = await one(
+    `SELECT convalidated, pg_get_constraintdef(oid) AS def
+     FROM pg_constraint WHERE conname='wallet_ledger_operation_check'`);
+  eq('el CHECK de wallet_ledger existe', !!con, 'true');
+  eq('quedó NOT VALID porque había filas viejas', con.convalidated, false);
+  check('el CHECK cubre las operaciones nuevas',
+    /checkin_weekly/.test(con.def) && /trade_sell/.test(con.def), con.def);
+
+  eq('la fila vieja sigue ahí', 
+    (await one(`SELECT COUNT(*)::int n FROM wallet_ledger WHERE operation='reward'`)).n, 1);
+
+  // Una fila nueva válida pasa...
+  await q(`INSERT INTO wallet_ledger
+    (user_id, operation, asset, amount, balance_before, balance_after)
+    VALUES ('999','checkin_daily','USDT',0.05,0.75,0.80)`);
+  check('una operación nueva válida se acepta', true);
+
+  // ...y una inválida se rechaza igual.
+  let rechazada = false;
+  try {
+    await q(`INSERT INTO wallet_ledger
+      (user_id, operation, asset, amount, balance_before, balance_after)
+      VALUES ('999','cualquier_cosa','USDT',1,0,1)`);
+  } catch (e) {
+    rechazada = e.code === '23514';
+  }
+  eq('una operación inválida se rechaza (23514)', rechazada, true);
 }
 
 // ---- 5) Idempotencia: correrlo de nuevo no rompe nada ----------------------

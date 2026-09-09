@@ -98,6 +98,52 @@ BEGIN
 END $$;
 
 -- =============================================
+-- HELPER: CHECK de wallet_ledger.operation tolerante al historial viejo
+-- =============================================
+-- ALTER TABLE ... ADD CONSTRAINT ... CHECK (...) valida las filas que ya están.
+-- Una base creada con un schema anterior tiene operaciones que la lista nueva no
+-- contempla, y el ADD revienta con 23514 abortando todo el script.
+--
+-- Con NOT VALID el CHECK se aplica solo a las filas nuevas: el historial viejo
+-- no bloquea el deploy y a partir de ahora se valida igual. La función avisa qué
+-- valores quedaron afuera, para normalizarlos y validar del todo cuando se quiera:
+--
+--   ALTER TABLE wallet_ledger VALIDATE CONSTRAINT wallet_ledger_operation_check;
+CREATE OR REPLACE FUNCTION wallet_ledger_apply_operation_check(permitidas TEXT[])
+RETURNS TEXT AS $$
+DECLARE
+  v_fuera TEXT;
+BEGIN
+  IF to_regclass('public.wallet_ledger') IS NULL THEN
+    RETURN 'wallet_ledger no existe todavía';
+  END IF;
+
+  SELECT string_agg(DISTINCT operation, ', ' ORDER BY operation)
+    INTO v_fuera
+  FROM wallet_ledger
+  WHERE operation <> ALL (permitidas);
+
+  ALTER TABLE wallet_ledger DROP CONSTRAINT IF EXISTS wallet_ledger_operation_check;
+
+  IF v_fuera IS NULL THEN
+    EXECUTE format(
+      'ALTER TABLE wallet_ledger ADD CONSTRAINT wallet_ledger_operation_check CHECK (operation = ANY (%L))',
+      permitidas);
+    RETURN 'CHECK validado';
+  END IF;
+
+  EXECUTE format(
+    'ALTER TABLE wallet_ledger ADD CONSTRAINT wallet_ledger_operation_check CHECK (operation = ANY (%L)) NOT VALID',
+    permitidas);
+
+  RAISE NOTICE 'wallet_ledger: % fila(s) con operation fuera de la lista nueva: %. CHECK agregado como NOT VALID (las filas nuevas se validan igual). Para validarlo del todo, normalizá esos valores y corré ALTER TABLE wallet_ledger VALIDATE CONSTRAINT wallet_ledger_operation_check;',
+    (SELECT count(*) FROM wallet_ledger WHERE operation <> ALL (permitidas)), v_fuera;
+
+  RETURN 'CHECK NOT VALID (historial viejo: ' || v_fuera || ')';
+END;
+$$ LANGUAGE plpgsql;
+
+-- =============================================
 -- USERS TABLE
 -- =============================================
 CREATE TABLE IF NOT EXISTS users (
@@ -693,11 +739,15 @@ CREATE INDEX IF NOT EXISTS idx_trade_positions_opened_at ON trade_positions(open
 -- Ledger: permitir operaciones de trading
 -- (necesario en bases ya creadas con el CHECK viejo)
 -- =============================================
-ALTER TABLE wallet_ledger DROP CONSTRAINT IF EXISTS wallet_ledger_operation_check;
-ALTER TABLE wallet_ledger ADD CONSTRAINT wallet_ledger_operation_check CHECK (operation IN (
+-- ADD CONSTRAINT ... CHECK valida las filas existentes. En una base con
+-- historial viejo eso aborta TODO el script con 23514 y, como el SQL Editor
+-- corre en una transacción, no se aplica nada. Se delega en el bloque único del
+-- final del archivo, que agrega el CHECK como NOT VALID si hay filas fuera de la
+-- lista.
+SELECT wallet_ledger_apply_operation_check(ARRAY[
   'claim_credit', 'referral_bonus', 'deposit', 'withdrawal', 'fee_deduction',
   'trade_buy', 'trade_sell'
-));
+]);
 
 -- =============================================
 -- FUNCIÓN: abrir posición (atómica)
@@ -1104,11 +1154,10 @@ $$ LANGUAGE plpgsql;
 -- semanal al completar 7 días de la semana ISO. Todo queda en Supabase.
 
 -- 1) Nuevas operaciones permitidas en el ledger
-ALTER TABLE wallet_ledger DROP CONSTRAINT IF EXISTS wallet_ledger_operation_check;
-ALTER TABLE wallet_ledger ADD CONSTRAINT wallet_ledger_operation_check CHECK (operation IN (
+SELECT wallet_ledger_apply_operation_check(ARRAY[
   'claim_credit', 'referral_bonus', 'deposit', 'withdrawal', 'fee_deduction',
   'trade_buy', 'trade_sell', 'checkin_daily', 'checkin_weekly'
-));
+]);
 
 -- 2) Una fila por usuario por día UTC. El UNIQUE es lo que hace idempotente
 --    al endpoint: dos clicks rápidos no pueden acreditar dos veces.
