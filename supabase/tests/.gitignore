@@ -1,4 +1,6 @@
 node_modules/
-pgdata/
-pgdata2/
 package-lock.json
+
+# PostgreSQL embebido: cada suite usa su propio datadir
+pgdata/
+pgdata-*/
