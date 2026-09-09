@@ -7,6 +7,7 @@ import { BottomNav } from '@/components/layout/BottomNav';
 import { WithdrawModal } from '@/components/wallet/WithdrawModal';
 import { ClaimModal } from '@/components/earn/ClaimModal';
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary';
+import { LanguageProvider } from '@/i18n/LanguageProvider';
 import { AnimatePresence, motion } from 'framer-motion';
 
 // Pages
@@ -169,6 +170,7 @@ export function AppContent() {
 
 function App() {
   return (
+    <LanguageProvider>
     <TonConnectUIProvider manifestUrl={manifestUrl}>
       <WalletProvider>
         <TradeProvider>
@@ -176,6 +178,7 @@ function App() {
         </TradeProvider>
       </WalletProvider>
     </TonConnectUIProvider>
+    </LanguageProvider>
   );
 }
 

@@ -1,4 +1,5 @@
 import { useWallet } from '@/contexts/WalletContext';
+import { LanguageSwitcher } from '@/components/layout/LanguageSwitcher';
 
 export function Header() {
   const { user, usdtBalance, trxBalance } = useWallet();
@@ -18,6 +19,7 @@ export function Header() {
       {/* Identity */}
       <div className="flex items-center gap-3 min-w-0">
         <div className="relative">
+          <LanguageSwitcher />
           <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-teal/35 via-brand-blue/25 to-transparent flex items-center justify-center border border-brand-teal/25 shadow-glow-teal overflow-hidden">
             {user?.photo_url ? (
               <img src={user.photo_url} alt="Avatar" className="w-full h-full rounded-full object-cover" />
