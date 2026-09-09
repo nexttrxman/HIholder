@@ -9,6 +9,95 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pg_cron";
 
 -- =============================================
+-- 0. MIGRACIÓN PROTEGIDA DE TABLAS PREEXISTENTES
+-- =============================================
+-- CREATE TABLE IF NOT EXISTS NO migra: si la tabla ya existe con otra forma, la
+-- saltea en silencio y las funciones quedan referenciando columnas que no están.
+-- El error recién aparece en runtime, adentro de un RPC, y se ve como un
+-- "no funciona" sin causa aparente.
+--
+-- Este bloque revisa cada tabla que podría preexistir y, si le falta algo, la
+-- renombra a <tabla>_legacy SIN BORRAR NADA. Si ya tiene la forma correcta no la
+-- toca: el script es idempotente y se puede correr varias veces.
+DO $$
+DECLARE
+  v_missing TEXT;
+BEGIN
+  -- users es la raíz de todas las FK. No se renombra nunca: si le falta uid,
+  -- que explote acá con un mensaje claro en vez de corromper referencias.
+  IF to_regclass('public.users') IS NOT NULL THEN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_schema='public' AND table_name='users' AND column_name='uid') THEN
+      RAISE EXCEPTION 'users existe sin la columna uid. Revisala a mano antes de correr este script.';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_schema='public' AND table_name='users' AND column_name='ton_wallet_address') THEN
+      ALTER TABLE public.users ADD COLUMN ton_wallet_address TEXT;
+      RAISE NOTICE 'users: agregada ton_wallet_address';
+    END IF;
+  END IF;
+
+  -- claims
+  IF to_regclass('public.claims') IS NOT NULL THEN
+    SELECT string_agg(c.col, ', ' ORDER BY c.col) INTO v_missing
+    FROM (VALUES ('claim_id'),('cycle_id'),('total_prize'),('ton_fee'),('expires_at')) AS c(col)
+    WHERE NOT EXISTS (
+      SELECT 1 FROM information_schema.columns x
+      WHERE x.table_schema='public' AND x.table_name='claims' AND x.column_name = c.col);
+    IF v_missing IS NOT NULL THEN
+      -- claim_payments referencia claims(claim_id): si se renombra una, se
+      -- renombra la otra, o CREATE TABLE IF NOT EXISTS dejaría la FK apuntando
+      -- a la tabla legacy.
+      IF to_regclass('public.claim_payments') IS NOT NULL THEN
+        EXECUTE 'ALTER TABLE public.claim_payments RENAME TO claim_payments_legacy';
+        RAISE NOTICE 'claim_payments -> claim_payments_legacy (se movió junto con claims)';
+      END IF;
+      EXECUTE 'ALTER TABLE public.claims RENAME TO claims_legacy';
+      RAISE NOTICE 'claims -> claims_legacy (faltaban: %)', v_missing;
+    END IF;
+  END IF;
+
+  -- transactions
+  IF to_regclass('public.transactions') IS NOT NULL THEN
+    SELECT string_agg(c.col, ', ' ORDER BY c.col) INTO v_missing
+    FROM (VALUES ('type'),('asset'),('amount'),('status')) AS c(col)
+    WHERE NOT EXISTS (
+      SELECT 1 FROM information_schema.columns x
+      WHERE x.table_schema='public' AND x.table_name='transactions' AND x.column_name = c.col);
+    IF v_missing IS NOT NULL THEN
+      EXECUTE 'ALTER TABLE public.transactions RENAME TO transactions_legacy';
+      RAISE NOTICE 'transactions -> transactions_legacy (faltaban: %)', v_missing;
+    END IF;
+  END IF;
+
+  -- referrals
+  IF to_regclass('public.referrals') IS NOT NULL THEN
+    SELECT string_agg(c.col, ', ' ORDER BY c.col) INTO v_missing
+    FROM (VALUES ('reward_amount'),('reward_asset'),('status')) AS c(col)
+    WHERE NOT EXISTS (
+      SELECT 1 FROM information_schema.columns x
+      WHERE x.table_schema='public' AND x.table_name='referrals' AND x.column_name = c.col);
+    IF v_missing IS NOT NULL THEN
+      EXECUTE 'ALTER TABLE public.referrals RENAME TO referrals_legacy';
+      RAISE NOTICE 'referrals -> referrals_legacy (faltaban: %)', v_missing;
+    END IF;
+  END IF;
+
+  -- referral_pool
+  IF to_regclass('public.referral_pool') IS NOT NULL THEN
+    SELECT string_agg(c.col, ', ' ORDER BY c.col) INTO v_missing
+    FROM (VALUES ('total_pool'),('distributed')) AS c(col)
+    WHERE NOT EXISTS (
+      SELECT 1 FROM information_schema.columns x
+      WHERE x.table_schema='public' AND x.table_name='referral_pool' AND x.column_name = c.col);
+    IF v_missing IS NOT NULL THEN
+      EXECUTE 'ALTER TABLE public.referral_pool RENAME TO referral_pool_legacy';
+      RAISE NOTICE 'referral_pool -> referral_pool_legacy (faltaban: %)', v_missing;
+    END IF;
+  END IF;
+END $$;
+
+-- =============================================
 -- USERS TABLE
 -- =============================================
 CREATE TABLE IF NOT EXISTS users (
