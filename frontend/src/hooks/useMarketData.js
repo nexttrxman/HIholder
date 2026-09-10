@@ -21,7 +21,18 @@ import {
  * - sim:  advances a deterministic synthetic series locally and retries the
  *   exchange every 5th poll so it self-heals when the network comes back
  */
-export function useMarketData(pairId, timeframeId, { candleCount = 60, pollMs = 6000 } = {}) {
+/**
+ * `pollMs` era 6000: dos pedidos (klines + ticker 24h) cada 6 s. En un gráfico
+ * cuyo timeframe mínimo es 15m la vela no cambia en 6 segundos, así que la
+ * mitad de esos pedidos devolvía exactamente lo mismo. 15 s sigue siendo
+ * perceptiblemente "en vivo" para el último precio y recorta ~60% del tráfico.
+ *
+ * El gráfico no se queda quieto entre medio: los polls que no van a la exchange
+ * avanzan una vela sintética (advanceSynthetic abajo).
+ */
+export const DEFAULT_POLL_MS = 15000;
+
+export function useMarketData(pairId, timeframeId, { candleCount = 60, pollMs = DEFAULT_POLL_MS } = {}) {
   const [candles, setCandles] = useState([]);
   const [ticker, setTicker] = useState(null);
   const [mode, setMode] = useState('loading'); // 'loading' | 'live' | 'sim'

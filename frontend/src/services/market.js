@@ -312,6 +312,94 @@ export async function fetch24h(pairId) {
   };
 }
 
+/**
+ * Cotización 24h de varios pares en un solo pedido por venue.
+ *
+ * `loadMarks` hacía un `fetch24h` por par en paralelo: con 3 posiciones
+ * abiertas eran 4 pedidos cada 10 s, y todos desde el navegador del usuario.
+ * Binance acepta `?symbols=["BTCUSDT","TRXUSDT"]` y devuelve un array, así que
+ * eso colapsa a 1 pedido. Menos conexiones desde el móvil y menos entradas
+ * contra el límite RAW_REQUESTS por IP.
+ *
+ * IMPORTANTE — el fallback por símbolo no es decorativo: si un símbolo no
+ * existe, Binance responde 400 para TODO el pedido batcheado. Sin el fallback,
+ * un GRAMUSDT sin listar en spot dejaría sin precio también a BTC, ETH y el
+ * resto. Por eso: un intento batcheado y, si falla, de a uno como antes.
+ *
+ * Los pares que ningún venue resuelve quedan fuera del Map: el llamador decide
+ * (loadMarks conserva el último precio conocido en vez de pisarlo con null).
+ *
+ * @param {string[]} pairIds
+ * @returns {Promise<Map<string, object>>} keyed by pair.id
+ */
+export async function fetch24hMany(pairIds) {
+  const pairs = [...new Set(pairIds || [])].map(getPair);
+  const out = new Map();
+
+  for (const venue of VENUES) {
+    const pending = pairs.filter((p) => !out.has(p.id));
+    if (pending.length === 0) break;
+
+    // Varios pares pueden aceptar el mismo símbolo; el Map va símbolo -> pares.
+    const wanted = new Map();
+    for (const pair of pending) {
+      for (const symbol of pairSymbols(pair)) {
+        if (!wanted.has(symbol)) wanted.set(symbol, []);
+        wanted.get(symbol).push(pair);
+      }
+    }
+    const symbols = [...wanted.keys()];
+
+    const ingest = (rows) => {
+      for (const data of Array.isArray(rows) ? rows : [rows]) {
+        for (const pair of wanted.get(data?.symbol) || []) {
+          if (out.has(pair.id)) continue;
+          if (!isPlausiblePrice(data?.lastPrice, pair.seedPrice)) continue;
+          const price = Number(data.lastPrice);
+          out.set(pair.id, {
+            mode: 'live',
+            source: venue.name,
+            symbol: data.symbol,
+            price,
+            changePercent: Number(data.priceChangePercent) || 0,
+            high: Number(data.highPrice) || price,
+            low: Number(data.lowPrice) || price,
+            volume: Number(data.quoteVolume) || 0,
+          });
+        }
+      }
+    };
+
+    // Con un solo símbolo conviene ?symbol= (pesa menos que el array).
+    let batched = false;
+    if (symbols.length > 1) {
+      try {
+        const qs = encodeURIComponent(JSON.stringify(symbols));
+        const res = await fetchJson(`${venue.base}/ticker/24hr?symbols=${qs}`);
+        if (Array.isArray(res)) {
+          ingest(res);
+          batched = true;
+        }
+      } catch (e) {
+        /* 400 Invalid symbol o venue caído: resolver de a uno */
+      }
+    }
+
+    if (!batched) {
+      for (const symbol of symbols) {
+        if (!wanted.get(symbol).some((p) => !out.has(p.id))) continue;
+        try {
+          ingest(await fetchJson(`${venue.base}/ticker/24hr?symbol=${symbol}`));
+        } catch (e) {
+          /* probar el siguiente símbolo */
+        }
+      }
+    }
+  }
+
+  return out;
+}
+
 /** Change over the visible window — used when the 24h ticker is unavailable. */
 export function windowChangePercent(candles) {
   if (!candles || candles.length < 2) return 0;

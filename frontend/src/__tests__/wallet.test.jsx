@@ -23,6 +23,21 @@ vi.mock('@/services/market', async (importOriginal) => {
       low: 1,
       volume: 0,
     })),
+    // TradeContext ahora llama a fetch24hMany (un pedido para todos los pares).
+    // Sin este mock caía a la implementación real, que en jsdom no tiene red y
+    // devolvía un Map vacío: sin mark de TRX el Total Balance quedaba corto.
+    fetch24hMany: vi.fn(async (pairIds) => new Map(
+      [...new Set(pairIds)].map((pairId) => [pairId, {
+        mode: 'live',
+        source: 'mock',
+        symbol: pairId,
+        price: market.prices[pairId] ?? 1,
+        changePercent: 0,
+        high: 1,
+        low: 1,
+        volume: 0,
+      }])
+    )),
   };
 });
 

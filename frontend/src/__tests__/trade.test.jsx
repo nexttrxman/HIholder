@@ -24,6 +24,20 @@ vi.mock('@/services/market', async (importOriginal) => {
       low: market.price * 0.98,
       volume: 1250000,
     })),
+    // Ver el comentario en wallet.test.jsx: sin este mock el mark nunca llega y
+    // el Stop Loss no se dispara.
+    fetch24hMany: vi.fn(async (pairIds) => new Map(
+      [...new Set(pairIds)].map((pairId) => [pairId, {
+        mode: 'live',
+        source: 'mock',
+        symbol: pairId,
+        price: market.price,
+        changePercent: market.changePercent,
+        high: market.price * 1.02,
+        low: market.price * 0.98,
+        volume: 1250000,
+      }])
+    )),
   };
 });
 

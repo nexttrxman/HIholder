@@ -7,7 +7,7 @@ import {
   setTradeLevels,
 } from '@/services/api';
 import { useWallet } from '@/contexts/WalletContext';
-import { fetch24h, getPair } from '@/services/market';
+import { fetch24hMany, getPair } from '@/services/market';
 import {
   calcCloseTrade,
   calcOpenTrade,
@@ -23,7 +23,14 @@ const TradeContext = createContext(null);
 
 const POSITIONS_KEY = 'tk_positions_v1';
 const REALIZED_KEY = 'tk_realized_v1';
-const DEFAULT_MARK_POLL_MS = 10000;
+const DEFAULT_MARK_POLL_MS = 15000;
+/**
+ * Sin posiciones abiertas el único mark que se usa es el de TRX, para el Total
+ * Balance. Ese número no necesita refrescarse cada 15 s: el saldo no se mueve
+ * solo. Con posiciones abiertas sí hace falta más frecuencia, porque ahí el
+ * mark dispara los TP/SL.
+ */
+const IDLE_MARK_POLL_MS = 30000;
 // Se cotiza siempre, aunque no haya posiciones abiertas: el TRX de la wallet se
 // convierte a USD para el total del portafolio.
 const TRX_PAIR = 'TRXUSDT';
@@ -113,28 +120,30 @@ export function TradeProvider({ children, markPollMs = DEFAULT_MARK_POLL_MS }) {
     let active = true;
 
     const loadMarks = async () => {
-      const entries = await Promise.all(
-        pairs.map(async (pair) => {
-          try {
-            const tick = await fetch24h(pair);
-            return [pair, tick.price];
-          } catch (e) {
-            return [pair, null];
-          }
-        })
-      );
+      // Un solo pedido por venue para todos los pares, en vez de un fetch24h
+      // por par. Con 3 posiciones abiertas eran 4 llamadas cada ciclo desde el
+      // navegador del usuario; ahora es 1. Ver fetch24hMany en services/market.
+      let ticks;
+      try {
+        ticks = await fetch24hMany(pairs);
+      } catch (e) {
+        ticks = new Map();
+      }
       if (!active) return;
       setMarks((prev) => {
         const next = { ...prev };
-        for (const [pair, price] of entries) {
-          if (price) next[pair] = price;
+        for (const [pair, tick] of ticks) {
+          // fetch24hMany omite los pares que ningún venue pudo resolver; el
+          // último precio conocido se conserva en vez de pisarse con null.
+          if (tick?.price) next[pair] = tick.price;
         }
         return next;
       });
     };
 
     loadMarks();
-    const interval = setInterval(loadMarks, markPollMs);
+    const period = openPairsKey ? markPollMs : Math.max(markPollMs, IDLE_MARK_POLL_MS);
+    const interval = setInterval(loadMarks, period);
     return () => {
       active = false;
       clearInterval(interval);
