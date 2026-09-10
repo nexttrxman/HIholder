@@ -197,4 +197,9 @@ export default {
   'Done': 'Listo',
   'All': 'Todas',
   'More': 'Más',
+
+  // Puerta de Telegram (fuera de la Mini App no se muestra la wallet)
+  'This app runs inside Telegram. Open it from the bot to see your balance and start earning.': 'Esta app funciona dentro de Telegram. Abrila desde el bot para ver tu saldo y empezar a ganar.',
+  'Open in Telegram': 'Abrir en Telegram',
+  'Nothing is displayed here on purpose: balances only exist inside your Telegram session.': 'Acá no se muestra nada a propósito: los saldos solo existen dentro de tu sesión de Telegram.',
 };

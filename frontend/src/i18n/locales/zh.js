@@ -191,4 +191,9 @@ export default {
   'Done': '完成',
   'All': '全部',
   'More': '更多',
+
+  // Puerta de Telegram (fuera de la Mini App no se muestra la wallet)
+  'This app runs inside Telegram. Open it from the bot to see your balance and start earning.': '此应用在 Telegram 内运行。请通过机器人打开，以查看余额并开始赚取收益。',
+  'Open in Telegram': '在 Telegram 中打开',
+  'Nothing is displayed here on purpose: balances only exist inside your Telegram session.': '此处刻意不显示任何内容：余额仅存在于您的 Telegram 会话中。',
 };

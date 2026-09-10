@@ -18,6 +18,7 @@ import { MissionsPage } from '@/pages/Missions';
 import { ReferralsPage } from '@/pages/Referrals';
 
 import '@/App.css';
+import { TelegramGate, shouldShowTelegramGate } from '@/components/layout/TelegramGate';
 
 // TonConnect exige un manifiesto público con url/name/iconUrl. Se sirve desde
 // el propio origen (lo genera el plugin tonconnectManifest en vite.config.js)
@@ -169,6 +170,16 @@ export function AppContent() {
 }
 
 function App() {
+  // Fuera de Telegram no hay initData. Sin initData la app entera corre en modo
+  // mock con un saldo inventado, así que en producción se muestra la puerta en
+  // vez de montar los providers. Ver shouldShowTelegramGate.
+  const initData =
+    typeof window === 'undefined' ? null : window.Telegram?.WebApp?.initData || null;
+
+  if (shouldShowTelegramGate({ isProd: import.meta.env.PROD, initData })) {
+    return <TelegramGate />;
+  }
+
   return (
     <LanguageProvider>
     <TonConnectUIProvider manifestUrl={manifestUrl}>

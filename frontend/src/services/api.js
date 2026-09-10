@@ -42,7 +42,7 @@ export const requireWorkerUrl = (url) => {
 
 const WORKER_URL = normalizeBaseUrl(import.meta.env.VITE_WORKER_URL);
 
-const TELEGRAM_BOT_URL = import.meta.env.VITE_TELEGRAM_BOT_URL || 'https://t.me/TKcex_bot';
+export const TELEGRAM_BOT_URL = import.meta.env.VITE_TELEGRAM_BOT_URL || 'https://t.me/TKcex_bot';
 const TELEGRAM_APP_NAME = (import.meta.env.VITE_TELEGRAM_APP_NAME || '').trim();
 
 /**
