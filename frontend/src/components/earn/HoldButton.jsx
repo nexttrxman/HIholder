@@ -35,8 +35,9 @@ export function HoldButton({ onClaimReady }) {
   const isCompletedRef = useRef(false);
 
   const calculatePrize = () => {
-    // 0.15 a 0.35 USDT por hold (3 holds = hasta 1.05). El worker acota el
-    // mismo rango en handleHold, así que no se puede mandar otra cosa.
+    // ESTIMACIÓN para la animación, no el premio real: el valor definitivo lo
+    // sortea el Worker (rollHoldPrize en lib.js) y vuelve en result.prize.
+    // Mandar el máximo ya no sirve de nada, el servidor lo ignora.
     return Math.floor(Math.random() * 21 + 15) / 100;
   };
 
@@ -99,6 +100,8 @@ export function HoldButton({ onClaimReady }) {
     
     // Register hold with backend
     const result = await doHold(prize);
+    // El Worker sortea el premio de verdad; se pisa la estimación mostrada.
+    if (result?.success && result.prize) setPrizeAmount(result.prize);
     
     setTimeout(() => {
       setShowPrize(true);

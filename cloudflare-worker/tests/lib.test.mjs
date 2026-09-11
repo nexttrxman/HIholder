@@ -24,6 +24,7 @@ import {
   summarizeCheckins,
   CHECKIN_CONFIG,
   CONFIG,
+  rollHoldPrize,
 } from '../lib.js';
 
 // ============================================
@@ -439,4 +440,79 @@ test('resolveAuthCycle: un activo vencido se marca expired y se reemplaza', () =
   assert.equal(r.mustCreate, true);
   assert.equal(r.mustExpire, true);
   assert.equal(r.expiredId, 'c9');
+});
+
+// ============================================================
+// rollHoldPrize — el premio lo sortea el servidor, no el cliente
+// ============================================================
+// Antes el premio venía en el body del pedido. Estaba acotado al rango, pero
+// cualquiera con la consola abierta mandaba siempre el máximo y cobraba ~40%
+// más de lo previsto. Estos tests fijan la distribución que reemplazó eso.
+
+/** RNG determinístico: devuelve el valor que se le indique. */
+const fixedRandom = (value) => ({
+  getRandomValues(buf) {
+    buf[0] = value;
+    return buf;
+  },
+});
+
+test('rollHoldPrize: el extremo inferior da HOLD_PRIZE_MIN', () => {
+  assert.equal(rollHoldPrize(fixedRandom(0)), CONFIG.HOLD_PRIZE_MIN);
+});
+
+test('rollHoldPrize: el extremo superior da HOLD_PRIZE_MAX', () => {
+  // 2^32 - 1 mod 21 === 4, pero el caso que importa es el último paso válido.
+  const steps = Math.round((CONFIG.HOLD_PRIZE_MAX - CONFIG.HOLD_PRIZE_MIN) * 100) + 1;
+  assert.equal(rollHoldPrize(fixedRandom(steps - 1)), CONFIG.HOLD_PRIZE_MAX);
+});
+
+test('rollHoldPrize: nunca se sale del rango, ni con 20000 sorteos', () => {
+  for (let i = 0; i < 20000; i += 1) {
+    const p = rollHoldPrize();
+    assert.ok(p >= CONFIG.HOLD_PRIZE_MIN, `${p} < MIN`);
+    assert.ok(p <= CONFIG.HOLD_PRIZE_MAX, `${p} > MAX`);
+  }
+});
+
+test('rollHoldPrize: solo toma los 21 valores de 0.01 (sin decimales raros)', () => {
+  const vistos = new Set();
+  for (let i = 0; i < 20000; i += 1) vistos.add(rollHoldPrize());
+
+  const esperado = new Set();
+  for (let c = 15; c <= 35; c += 1) esperado.add(c / 100);
+
+  assert.equal(vistos.size, esperado.size);
+  for (const v of vistos) assert.ok(esperado.has(v), `valor inesperado ${v}`);
+});
+
+test('rollHoldPrize: la distribución es parecida a uniforme', () => {
+  const N = 21000;
+  const cuenta = new Map();
+  for (let i = 0; i < N; i += 1) {
+    const p = rollHoldPrize();
+    cuenta.set(p, (cuenta.get(p) || 0) + 1);
+  }
+
+  const esperado = N / 21;
+  for (const [valor, n] of cuenta) {
+    // Tolerancia holgada: es un test de regresión, no de estadística.
+    assert.ok(
+      Math.abs(n - esperado) / esperado < 0.25,
+      `${valor} salió ${n} veces, se esperaban ~${esperado}`
+    );
+  }
+});
+
+test('rollHoldPrize: el promedio queda a mitad de camino, no pegado al techo', () => {
+  let suma = 0;
+  const N = 20000;
+  for (let i = 0; i < N; i += 1) suma += rollHoldPrize();
+  const promedio = suma / N;
+
+  const mitad = (CONFIG.HOLD_PRIZE_MIN + CONFIG.HOLD_PRIZE_MAX) / 2;
+  assert.ok(
+    Math.abs(promedio - mitad) < 0.01,
+    `promedio ${promedio.toFixed(4)}, se esperaba ~${mitad}`
+  );
 });

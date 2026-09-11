@@ -961,3 +961,30 @@ export function summarizeCheckins(rows, now = new Date()) {
     weekly_bonus: CHECKIN_CONFIG.WEEKLY_BONUS_USDT,
   };
 }
+
+/**
+ * Premio de un hold, sorteado en el servidor.
+ *
+ * Antes lo mandaba el cliente en el body del pedido. Estaba acotado a
+ * [HOLD_PRIZE_MIN, HOLD_PRIZE_MAX], así que nadie podía pasarse del techo, pero
+ * cualquiera con la consola abierta mandaba siempre el máximo: el diseño era un
+ * promedio de ~0.25 por hold y en la práctica todo el que inspeccionaba el
+ * tráfico cobraba 0.35. Un ~40% más de payout del previsto, gratis.
+ *
+ * crypto.getRandomValues en vez de Math.random porque esto es plata.
+ *
+ * Misma distribución que tenía el frontend: 21 valores equiespaciados de 0.01
+ * entre MIN y MAX. El sesgo de usar módulo sobre 2^32 es de ~1 en 200 millones,
+ * irrelevante para un premio de 0.20 USDT.
+ *
+ * @param {{getRandomValues: (b: Uint32Array) => void}} [random] inyectable para testear
+ * @returns {number}
+ */
+export function rollHoldPrize(random = crypto) {
+  const min = CONFIG.HOLD_PRIZE_MIN;
+  const max = CONFIG.HOLD_PRIZE_MAX;
+  const steps = Math.round((max - min) * 100) + 1;
+  const buf = new Uint32Array(1);
+  random.getRandomValues(buf);
+  return Math.round((min + (buf[0] % steps) / 100) * 100) / 100;
+}

@@ -34,6 +34,7 @@ import {
   resolvePendingClaim,
   summarizeCheckins,
   CHECKIN_CONFIG,
+  rollHoldPrize,
 } from './lib.js';
 
 // ============================================
@@ -247,22 +248,17 @@ async function handleAuth(request, env) {
 // HOLD - Register a hold (max 3 per cycle)
 // ============================================
 async function handleHold(request, env) {
-  const { initData, prize } = await request.json();
+  const { initData } = await request.json();
   const telegramUser = await validateInitDataAny(initData, env.BOT_TOKEN);
 
   if (!telegramUser) {
     return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
   }
 
-  if (
-    typeof prize !== 'number' || !Number.isFinite(prize) ||
-    prize < CONFIG.HOLD_PRIZE_MIN || prize > CONFIG.HOLD_PRIZE_MAX
-  ) {
-    return jsonResponse({
-      ok: false,
-      error: `Invalid prize: must be between ${CONFIG.HOLD_PRIZE_MIN} and ${CONFIG.HOLD_PRIZE_MAX}`,
-    }, 400);
-  }
+  // El premio se sortea acá, no lo manda el cliente. Antes venía en el body y,
+  // aunque estaba acotado al rango, cualquiera con la consola abierta mandaba
+  // siempre el máximo. Ver rollHoldPrize en lib.js.
+  const prize = rollHoldPrize();
 
   const db = supabase(env);
   const tgId = telegramUser.id.toString();
@@ -322,6 +318,9 @@ async function handleHold(request, env) {
   return jsonResponse({
     ok: true,
     hold_number: holdNumber,
+    // El cliente necesita el valor real para mostrarlo: ya no lo conoce de
+    // antemano porque no lo genera él.
+    prize_amount: prize,
     remaining_holds: CONFIG.MAX_HOLDS_PER_CYCLE - holdNumber,
     cycle_complete: holdNumber === CONFIG.MAX_HOLDS_PER_CYCLE,
     claim: claim ? {
@@ -950,7 +949,10 @@ export default {
     } catch (error) {
       console.error('Worker error:', error);
       return new Response(
-        JSON.stringify({ error: 'Internal server error', detail: error.message }),
+        // Sin error.message: puede contener nombres de tablas, columnas y
+        // fragmentos de query. El detalle queda en console.error (logs del
+        // Worker), que es donde lo necesita quien debuggea, no el cliente.
+        JSON.stringify({ error: 'Internal server error' }),
         {
           status: 500,
           headers: {

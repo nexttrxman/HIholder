@@ -180,11 +180,15 @@ export function WalletProvider({ children }) {
   /**
    * Register a hold
    */
-  const doHold = useCallback(async (prize) => {
+  const doHold = useCallback(async (estimatedPrize) => {
     try {
-      const result = await registerHold(prize);
-      
+      // El premio real lo sortea el Worker (rollHoldPrize en lib.js). Lo que
+      // llega acá es solo la estimación que el botón ya mostró en la animación;
+      // se pisa con el valor del servidor apenas responde.
+      const result = await registerHold(estimatedPrize);
+
       if (result.ok) {
+        const prize = Number(result.prize_amount) || estimatedPrize;
         setHoldsCompleted(result.hold_number);
         setRemainingHolds(result.remaining_holds);
         setLastPrize(prize);
@@ -195,7 +199,7 @@ export function WalletProvider({ children }) {
           setClaimExpiresAt(result.claim.expires_at);
         }
 
-        return { success: true, claim: result.claim };
+        return { success: true, claim: result.claim, prize };
       }
       
       return { success: false, error: result.error || 'Hold failed' };
