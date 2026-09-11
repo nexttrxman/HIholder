@@ -219,6 +219,43 @@ eq('referrals: fila pending con 2 TRX',
   (await one(`SELECT status, reward_amount, reward_asset FROM referrals WHERE referred_id='222'`))
     .status, 'pending');
 
+// ---- 7) Saldo inicial de 1 TRX (v2.9) --------------------------------------
+// Los usuarios 111 y 222 se crearon DESPUÉS de correr schema.sql, así que no
+// tienen wallet ni bonus. Correr el schema de nuevo debe abrírselas en 1 TRX.
+await q(sql);
+
+const bal = async (uid) =>
+  Number((await one(`SELECT trx_balance FROM internal_wallets WHERE user_id=$1`, [uid])).trx_balance);
+const bonusRows = async (uid) =>
+  (await one(`SELECT COUNT(*)::int n FROM wallet_ledger
+              WHERE user_id=$1 AND operation='signup_bonus'`, [uid])).n;
+
+eq('v2.9: usuario sin wallet recibe 1 TRX', await bal('111'), 1);
+eq('v2.9: y queda su fila de ledger signup_bonus', await bonusRows('111'), 1);
+eq('v2.9: el ledger cuadra (before 0 -> after 1)',
+  (await one(`SELECT balance_before, balance_after FROM wallet_ledger
+              WHERE user_id='111' AND operation='signup_bonus'`)).balance_after, '1.000000000');
+
+// Idempotencia: el criterio es la fila de ledger, no el saldo.
+await q(sql);
+eq('v2.9: correr el schema de nuevo NO duplica el TRX', await bal('111'), 1);
+eq('v2.9: ni duplica la fila de ledger', await bonusRows('111'), 1);
+
+// El caso que rompe si se mira el saldo en vez del ledger: alguien que ya se
+// gastó el TRX de bienvenida tiene 0, y 0 no puede volver a disparar el bonus.
+await q(`UPDATE internal_wallets SET trx_balance = 0 WHERE user_id='222'`);
+await q(sql);
+eq('v2.9: un saldo en 0 no recibe el bonus otra vez', await bal('222'), 0);
+
+// El CHECK tiene que seguir aceptando las operaciones del check-in: un ALTER a
+// mano con solo las operaciones nuevas se las lleva puestas y daily_checkin()
+// pasaría a violar el constraint en cada llamado.
+eq('v2.9: el CHECK sigue aceptando checkin_daily',
+  (await one(`SELECT conname FROM pg_constraint
+              WHERE conrelid='wallet_ledger'::regclass AND contype='c'
+                AND pg_get_constraintdef(oid) LIKE '%checkin_daily%'`)).conname,
+  'wallet_ledger_operation_check');
+
 await client.end();
 await db.stop();
 

@@ -7,7 +7,12 @@ export function BalanceCard({
   icon,
   onWithdraw,
   onDeposit,
-  showActions = true 
+  onSend,
+  // Envío interno entre usuarios. La opción se muestra desde ahora para que la
+  // UI no cambie cuando se habilite, pero todavía no hay endpoint en el Worker,
+  // así que arranca deshabilitada (INTERNAL_TRANSFER_ENABLED en services/api.js).
+  sendDisabled = false,
+  showActions = true
 }) {
   const isUSDT = asset === 'USDT';
   const color = isUSDT ? 'brand-green' : 'brand-red';
@@ -59,6 +64,17 @@ export function BalanceCard({
               className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm font-medium text-white/80 hover:bg-white/10 active:scale-95 transition-all"
             >
               Withdraw
+            </button>
+          )}
+          {onSend && (
+            <button
+              onClick={onSend}
+              disabled={sendDisabled}
+              aria-disabled={sendDisabled}
+              data-testid={`send-${asset.toLowerCase()}-btn`}
+              className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm font-medium text-white/80 hover:bg-white/10 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white/5 disabled:active:scale-100"
+            >
+              Send{sendDisabled && <span className="ml-1 text-white/40">· Soon</span>}
             </button>
           )}
         </div>

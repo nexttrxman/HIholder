@@ -92,6 +92,20 @@ const IS_DEV = typeof window !== 'undefined' && !window.Telegram?.WebApp?.initDa
 // simulated trade panel needs a spendable demo balance. It is persisted to
 // localStorage so reloads keep the trades consistent.
 const MOCK_START_BALANCE = 250;
+
+// Fee de retiro en TRX, igual para USDT y para TRX. Espejo de
+// CONFIG.WITHDRAWAL_FEE_TRX en cloudflare-worker/lib.js: el Worker es la fuente
+// de verdad y es el que lo cobra; esto existe para mostrarlo antes de confirmar.
+export const WITHDRAWAL_FEE_TRX = 5.5;
+
+// TRX con los que arranca todo usuario EN PRODUCCIÓN. Espejo de
+// CONFIG.SIGNUP_TRX_BONUS en cloudflare-worker/lib.js: el Worker crea la wallet
+// con ese valor. El mock de abajo usa otro número a propósito.
+export const SIGNUP_TRX_BONUS = 1;
+
+// Envío interno entre usuarios: la opción se muestra pero todavía no está
+// habilitada (no hay endpoint en el Worker).
+export const INTERNAL_TRANSFER_ENABLED = false;
 const MOCK_BALANCE_KEY = 'tk_mock_usdt_balance';
 
 function readMockBalance() {
@@ -115,7 +129,10 @@ function writeMockBalance(value) {
 /** Dev-only: restore the demo wallet + cycle (used by tests and to restart the demo). */
 export const resetMockWallet = () => {
   MOCK_USER.usdt_balance = MOCK_START_BALANCE;
-  MOCK_USER.trx_balance = 5.0;
+  // El mock NO usa SIGNUP_TRX_BONUS: es un sandbox para probar la UI y ya arranca
+    // con 250 USDT, que tampoco es un valor de producción. Con 1 TRX el flujo de
+    // venta no pasaría MIN_NOTIONAL (1 USDT) y no se podría ejercitar.
+    MOCK_USER.trx_balance = 5.0;
   MOCK_CYCLE.holds_completed = 0;
   MOCK_CYCLE.remaining_holds = MAX_HOLDS_PER_CYCLE_MOCK;
   MOCK_PENDING_CLAIM = null;

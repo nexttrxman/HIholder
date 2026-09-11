@@ -18,6 +18,7 @@ import {
   extractStartParam,
   jsonResponse,
   securityHeaders,
+  resolveHoldGate,
   generateClaimId,
   normalizeTonAddress,
   decodeTonComment,
@@ -124,8 +125,16 @@ async function handleAuth(request, env) {
     });
     user = users[0];
 
+    // Todo usuario arranca con CONFIG.SIGNUP_TRX_BONUS de TRX. Ojo con el
+    // orden de economía: el fee de retiro es WITHDRAWAL_FEE_TRX, o sea que
+    // nadie puede retirar hasta juntar la diferencia por su cuenta.
     await db.query('internal_wallets', 'insert', {
-      body: { user_id: tgId, usdt_balance: 0, trx_balance: 0, ton_balance: 0 }
+      body: {
+        user_id: tgId,
+        usdt_balance: 0,
+        trx_balance: CONFIG.SIGNUP_TRX_BONUS,
+        ton_balance: 0
+      }
     });
   }
 
@@ -265,22 +274,79 @@ async function handleHold(request, env) {
   const db = supabase(env);
   const tgId = telegramUser.id.toString();
 
+  // El último ciclo de CUALQUIER estado: uno 'completed' con ends_at en el
+  // futuro es el cooldown posterior al claim y hay que respetarlo. Antes esta
+  // consulta filtraba status='active' y, si no había ninguno, /hold devolvía
+  // 'No active cycle' sin crear nada: el botón quedaba muerto hasta que el
+  // usuario recargara la app y pasara por /auth.
   const cycles = await db.query('hold_cycles', 'select', {
-    filters: { user_id: tgId, status: 'active' },
+    filters: { user_id: tgId },
     order: 'created_at.desc',
     limit: 1
   });
-  const cycle = cycles[0];
+  const latestCycle = cycles[0] || null;
 
-  if (!cycle) {
-    return jsonResponse({ ok: false, error: 'No active cycle' }, 400);
+  const pendingClaims = latestCycle
+    ? await db.query('claims', 'select', {
+        filters: { cycle_id: latestCycle.id, status: 'pending' }
+      })
+    : [];
+
+  const gate = resolveHoldGate(latestCycle, pendingClaims[0] || null, new Date());
+
+  if (gate.action === 'reject') {
+    return jsonResponse({
+      ok: false,
+      // Dos rechazos legítimos y son distintos: 'cooldown' es la espera de 8 h
+      // tras haber cobrado; 'claim_pending' es un premio todavía vivo que hay
+      // que cobrar antes de seguir jugando.
+      error: gate.reason === 'cooldown'
+        ? 'Cooldown active after your last claim.'
+        : 'You have a pending claim. Claim it to keep playing!',
+      reason: gate.reason,
+      cooldown_ends_at: gate.cooldownEndsAt || null,
+    }, 400);
   }
 
-  if (cycle.holds_completed >= CONFIG.MAX_HOLDS_PER_CYCLE) {
-    return jsonResponse({ ok: false, error: 'Cycle complete. Claim your reward!' }, 400);
+  // Claim que expiró sin cobrarse: el premio se perdió y el ciclo vuelve a 0.
+  // Se resuelve acá, en el mismo pedido, en vez de depender del pg_cron (corre
+  // cada minuto y puede no estar activo) o de que el cliente pase por /auth.
+  if (gate.forfeitClaimId) {
+    await db.query('claims', 'patch', {
+      filters: { claim_id: gate.forfeitClaimId },
+      body: { status: 'expired_unclaimed' }
+    });
   }
 
-  const holdNumber = cycle.holds_completed + 1;
+  let cycle;
+  if (gate.action === 'create') {
+    const now = new Date();
+    const created = await db.query('hold_cycles', 'insert', {
+      body: {
+        user_id: tgId,
+        started_at: now.toISOString(),
+        ends_at: new Date(now.getTime() + CONFIG.CYCLE_DURATION_HOURS * 60 * 60 * 1000).toISOString(),
+        holds_completed: 0,
+        status: 'active'
+      }
+    });
+    cycle = created[0];
+  } else {
+    cycle = gate.cycle;
+    const patch = {};
+    if (gate.resetHolds) patch.holds_completed = 0;
+    if (gate.extendEndsAt) {
+      patch.ends_at = new Date(
+        Date.now() + CONFIG.CYCLE_DURATION_HOURS * 60 * 60 * 1000
+      ).toISOString();
+    }
+    if (Object.keys(patch).length > 0) {
+      await db.query('hold_cycles', 'patch', { filters: { id: cycle.id }, body: patch });
+      cycle = { ...cycle, ...patch };
+    }
+  }
+
+  const holdNumber = Number(cycle.holds_completed) + 1;
   await db.query('holds', 'insert', {
     body: {
       user_id: tgId,

@@ -25,6 +25,7 @@ import {
   CHECKIN_CONFIG,
   CONFIG,
   rollHoldPrize,
+  resolveHoldGate,
 } from '../lib.js';
 
 // ============================================
@@ -515,4 +516,93 @@ test('rollHoldPrize: el promedio queda a mitad de camino, no pegado al techo', (
     Math.abs(promedio - mitad) < 0.01,
     `promedio ${promedio.toFixed(4)}, se esperaba ~${mitad}`
   );
+});
+
+
+// ============================================
+// resolveHoldGate — la puerta de /hold
+// ============================================
+// La regla: el bloqueo de 8 h existe SOLO tras un claim cobrado. 3 holds sin
+// cobrar NO bloquean; el premio se perdió y se vuelve a jugar enseguida.
+
+const NOW = new Date('2026-09-11T12:00:00.000Z');
+const past = (min) => new Date(NOW.getTime() - min * 60000).toISOString();
+const future = (min) => new Date(NOW.getTime() + min * 60000).toISOString();
+
+const activeCycle = (over = {}) => ({
+  id: 'cyc-1', status: 'active', holds_completed: 0, ends_at: future(60), ...over,
+});
+const claim = (over = {}) => ({ claim_id: 'CLM_1', expires_at: future(10), ...over });
+
+test('sin ciclo: crea uno', () => {
+  const g = resolveHoldGate(null, null, NOW);
+  assert.equal(g.action, 'create');
+});
+
+test('ciclo activo con holds disponibles: reusa sin reiniciar', () => {
+  const c = activeCycle({ holds_completed: 1 });
+  const g = resolveHoldGate(c, null, NOW);
+  assert.equal(g.action, 'reuse');
+  assert.equal(g.resetHolds, false);
+  assert.equal(g.cycle, c);
+});
+
+test('3 holds con el claim VIVO: rechaza, hay que cobrarlo', () => {
+  const g = resolveHoldGate(activeCycle({ holds_completed: 3 }), claim(), NOW);
+  assert.equal(g.action, 'reject');
+  assert.equal(g.reason, 'claim_pending');
+});
+
+test('3 holds con el claim VENCIDO: se reinicia y se puede holdear (el bug)', () => {
+  // Antes /hold devolvía 400 'Cycle complete' acá y el botón quedaba muerto
+  // hasta el siguiente pg_cron o un recargo de la app.
+  const c = activeCycle({ holds_completed: 3 });
+  const g = resolveHoldGate(c, claim({ expires_at: past(5) }), NOW);
+
+  assert.equal(g.action, 'reuse');
+  assert.equal(g.resetHolds, true, 'debe volver a 0 holds');
+  assert.equal(g.forfeitClaimId, 'CLM_1', 'debe marcar el claim como perdido');
+});
+
+test('claim cobrado dentro de la ventana: UNICO standby legitimo', () => {
+  const c = { id: 'cyc-2', status: 'completed', holds_completed: 3, ends_at: future(300) };
+  const g = resolveHoldGate(c, null, NOW);
+
+  assert.equal(g.action, 'reject');
+  assert.equal(g.reason, 'cooldown');
+  assert.equal(g.cooldownEndsAt, c.ends_at);
+});
+
+test('claim cobrado con la ventana ya vencida: vuelve a jugar', () => {
+  const c = { id: 'cyc-2', status: 'completed', holds_completed: 3, ends_at: past(1) };
+  assert.equal(resolveHoldGate(c, null, NOW).action, 'create');
+});
+
+test('ciclo expired: crea uno nuevo en vez de revivirlo', () => {
+  const c = { id: 'cyc-3', status: 'expired', holds_completed: 2, ends_at: past(30) };
+  const g = resolveHoldGate(c, null, NOW);
+  assert.equal(g.action, 'create');
+  assert.equal(g.resetHolds, true);
+});
+
+test('ciclo activo con la ventana vencida: no se le niega el hold', () => {
+  // ends_at es NOT NULL y se fija al crear, así que puede vencerse con el ciclo
+  // todavía active. La espera de 8 h es solo post-claim, no por el mero tiempo.
+  const c = activeCycle({ holds_completed: 1, ends_at: past(10) });
+  const g = resolveHoldGate(c, null, NOW);
+
+  assert.equal(g.action, 'reuse');
+  assert.equal(g.extendEndsAt, true, 'debe renovar ends_at para que el cron no lo mate');
+  assert.equal(g.resetHolds, false, 'no pierde los holds que ya hizo');
+});
+
+test('ciclo activo con la ventana vigente no pide renovar ends_at', () => {
+  const g = resolveHoldGate(activeCycle({ holds_completed: 1 }), null, NOW);
+  assert.equal(g.extendEndsAt, false);
+});
+
+test('claim pendiente sin ciclo (defensivo): no explota', () => {
+  const g = resolveHoldGate(null, claim({ expires_at: past(5) }), NOW);
+  assert.equal(g.action, 'create');
+  assert.equal(g.forfeitClaimId, 'CLM_1');
 });

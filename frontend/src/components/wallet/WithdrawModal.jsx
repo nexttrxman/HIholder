@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, AlertTriangle, Check, Loader2 } from 'lucide-react';
 import { useWallet } from '@/contexts/WalletContext';
 import { useTelegram } from '@/hooks/useTelegram';
-import { requestWithdraw } from '@/services/api';
+import { requestWithdraw, WITHDRAWAL_FEE_TRX } from '@/services/api';
 import { UsdtIcon, TrxIcon } from '@/components/wallet/AssetIcons';
 
 
@@ -26,7 +26,8 @@ export function WithdrawModal({ isOpen, onClose, initialAsset = 'USDT' }) {
 
   const balance = asset === 'USDT' ? usdtBalance : trxBalance;
   const minWithdraw = asset === 'USDT' ? 5 : 10;
-  const networkFee = 1.5; // TRX
+  // Mismo fee para USDT y para TRX: son 5.5 TRX de costo de red + margen.
+  const networkFee = WITHDRAWAL_FEE_TRX;
 
   const resetForm = () => {
     setStep(1);

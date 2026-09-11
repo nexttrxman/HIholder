@@ -11,6 +11,12 @@ export const CONFIG = {
   CYCLE_DURATION_HOURS: 8,
   MAX_HOLDS_PER_CYCLE: 3,
   TON_FEE: 0.15, // TON per claim
+  // TRX de bienvenida: todo usuario arranca con esto. Sirve además para que
+  // un retiro no sea imposible el primer día (ver WITHDRAWAL_FEE_TRX).
+  SIGNUP_TRX_BONUS: 1,
+  // Fee de retiro, en TRX, para USDT y para TRX por igual. Es lo que cuesta
+  // la energía/ancho de banda en la red TRON más el margen.
+  WITHDRAWAL_FEE_TRX: 5.5,
   // Rango del premio por hold. El cliente propone el monto, así que el worker
   // lo acota: 3 holds de 0.35 = 1.05 USDT como máximo por ciclo.
   HOLD_PRIZE_MIN: 0.15,
@@ -882,6 +888,94 @@ export function resolveAuthCycle(latestCycle, now = new Date()) {
     mustCreate: true,
     mustExpire: latestCycle.status === 'active',
     expiredId: latestCycle.status === 'active' ? latestCycle.id : null,
+  };
+}
+
+// ============================================
+// HOLD GATE
+// ============================================
+
+/**
+ * Decide si /hold puede registrar un hold, y qué hay que sanear antes.
+ *
+ * Regla de negocio: el bloqueo de 8 horas existe SOLO tras un claim cobrado.
+ * Un ciclo con 3 holds y un claim que nadie cobró NO es un bloqueo: el premio
+ * se perdió y el usuario vuelve a empezar enseguida.
+ *
+ * El bug que esto reemplaza: /hold miraba únicamente `holds_completed >= 3` y
+ * devolvía 400. El forfeit del claim vencido vivía en /auth y en el pg_cron,
+ * así que entre que el claim expiraba y el siguiente minuto del cron —o para
+ * siempre, si el cron no corría— el botón quedaba muerto. Y como el ciclo se
+ * creaba con ends_at = created_at + 8 h, un ciclo 'expired' por el mero paso
+ * del tiempo también dejaba al usuario sin poder holdear: /hold solo buscaba
+ * status='active' y no creaba nada.
+ *
+ * @param {object|null} latestCycle último ciclo del usuario, de CUALQUIER estado
+ * @param {object|null} pendingClaim claim 'pending' de ese ciclo, si lo hay
+ * @param {Date} [now]
+ * @returns {{action: 'reject'|'create'|'reuse', reason?: string,
+ *            cooldownEndsAt?: string, forfeitClaimId?: string|null,
+ *            resetHolds: boolean, extendEndsAt?: boolean, cycle: object|null}}
+ */
+export function resolveHoldGate(latestCycle, pendingClaim, now = new Date()) {
+  const nowMs = now.getTime();
+
+  if (latestCycle) {
+    const endsAt = new Date(latestCycle.ends_at).getTime();
+    const inCooldown = Number.isFinite(endsAt) && endsAt > nowMs;
+
+    // Único standby legítimo: cobró, y la ventana de 8 h sigue corriendo.
+    if (latestCycle.status === 'completed' && inCooldown) {
+      return {
+        action: 'reject',
+        reason: 'cooldown',
+        cooldownEndsAt: latestCycle.ends_at,
+        resetHolds: false,
+        cycle: latestCycle,
+      };
+    }
+  }
+
+  // Claim pendiente: si sigue vivo hay que cobrarlo; si venció, se perdió y el
+  // ciclo se reinicia en el mismo pedido.
+  const claimLive =
+    !!pendingClaim && new Date(pendingClaim.expires_at).getTime() > nowMs;
+
+  if (claimLive) {
+    return {
+      action: 'reject',
+      reason: 'claim_pending',
+      resetHolds: false,
+      cycle: latestCycle,
+    };
+  }
+
+  const forfeitClaimId = pendingClaim ? pendingClaim.claim_id : null;
+
+  // Sin ciclo, o con un ciclo ya cerrado (expired / completed fuera de
+  // cooldown): arrancar uno nuevo en vez de revivir el viejo, que es lo que
+  // deja la contabilidad limpia.
+  if (!latestCycle || latestCycle.status !== 'active') {
+    return { action: 'create', resetHolds: true, forfeitClaimId, cycle: null };
+  }
+
+  // Ciclo activo y usable. Si traía 3 holds con el claim vencido, se reinicia.
+  const needsReset =
+    Number(latestCycle.holds_completed) >= CONFIG.MAX_HOLDS_PER_CYCLE;
+
+  // ends_at es NOT NULL y se fija al crear el ciclo, así que un ciclo activo
+  // puede tener la ventana vencida. No por eso se le niega el hold al usuario:
+  // la espera de 8 h es solo post-claim. Se pide renovar ends_at para que el
+  // pg_cron no lo marque 'expired' en medio de la jugada.
+  const endsAt = new Date(latestCycle.ends_at).getTime();
+  const extendEndsAt = !Number.isFinite(endsAt) || endsAt <= nowMs;
+
+  return {
+    action: 'reuse',
+    resetHolds: needsReset,
+    forfeitClaimId: needsReset ? forfeitClaimId : null,
+    extendEndsAt,
+    cycle: latestCycle,
   };
 }
 

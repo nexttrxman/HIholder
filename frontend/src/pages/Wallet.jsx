@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useWallet } from '@/contexts/WalletContext';
 import { useTrade } from '@/contexts/TradeContext';
 import { BalanceCard } from '@/components/wallet/BalanceCard';
@@ -7,6 +7,7 @@ import { TransactionList } from '@/components/transactions/TransactionList';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, ChevronUp, Wallet as WalletIcon, History as HistoryIcon } from 'lucide-react';
 import { formatUsd } from '@/lib/trade';
+import { INTERNAL_TRANSFER_ENABLED } from '@/services/api';
 import { UsdtIcon, TrxIcon } from '@/components/wallet/AssetIcons';
 
 const SECTIONS = [
@@ -23,14 +24,37 @@ export function WalletPage({ onOpenWithdraw, initialSection = 'balance' }) {
   const { portfolio, positions } = useTrade();
   const [section, setSection] = useState(initialSection);
   const [showDeposit, setShowDeposit] = useState(true);
+  const [sendNotice, setSendNotice] = useState(null);
 
   // Deep link: Home -> "View all" opens the activity feed.
   useEffect(() => {
     setSection(initialSection);
   }, [initialSection]);
 
+  // Envío interno a otro usuario. Todavía no hay endpoint en el Worker, así que
+  // el botón va deshabilitado y esto no llega a ejecutarse; queda el lugar
+  // marcado para cuando se habilite (INTERNAL_TRANSFER_ENABLED en api.js).
+  const handleSend = useCallback(() => {
+    setSendNotice('Internal transfers are coming soon.');
+    setTimeout(() => setSendNotice(null), 3000);
+  }, []);
+
   return (
     <div className="px-4 py-4 pb-8" data-testid="wallet-page">
+      <AnimatePresence>
+        {sendNotice && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            data-testid="send-notice"
+            className="mb-3 px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm text-white/70"
+          >
+            {sendNotice}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Page Header */}
       <div className="mb-4">
         <h1 className="font-display text-2xl font-bold text-white">Wallet</h1>
@@ -164,6 +188,8 @@ export function WalletPage({ onOpenWithdraw, initialSection = 'balance' }) {
                 label="Tether USD"
                 icon={<UsdtIcon className="w-6 h-6" />}
                 onWithdraw={() => onOpenWithdraw('USDT')}
+                onSend={handleSend}
+                sendDisabled={!INTERNAL_TRANSFER_ENABLED}
               />
               <BalanceCard
                 asset="TRX"
@@ -171,6 +197,8 @@ export function WalletPage({ onOpenWithdraw, initialSection = 'balance' }) {
                 label="TRON"
                 icon={<TrxIcon className="w-6 h-6" />}
                 onWithdraw={() => onOpenWithdraw('TRX')}
+                onSend={handleSend}
+                sendDisabled={!INTERNAL_TRANSFER_ENABLED}
               />
             </div>
           </motion.div>

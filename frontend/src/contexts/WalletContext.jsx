@@ -294,12 +294,18 @@ export function WalletProvider({ children }) {
    * Check if can hold
    */
   const canHold = useCallback(() => {
-    // Can't hold if there's a pending claim
-    if (pendingClaim) return false;
-    // Can't hold if all 3 completed
-    if (holdsCompleted >= MAX_HOLDS_PER_CYCLE) return false;
-    return true;
-  }, [pendingClaim, holdsCompleted]);
+    // Un claim pendiente SOLO bloquea mientras está vivo. Si expiró sin
+    // cobrarse, el premio se perdió y el ciclo se reinicia: seguir devolviendo
+    // false acá dejaba el botón muerto ("standby") hasta un recargo completo de
+    // la app, porque el useEffect de vencimiento solo corre mientras la app
+    // está abierta en primer plano.
+    if (pendingClaim) {
+      const expiry = claimExpiresAt || pendingClaim.expires_at;
+      const live = !!expiry && new Date(expiry).getTime() > Date.now();
+      return !live;
+    }
+    return holdsCompleted < MAX_HOLDS_PER_CYCLE;
+  }, [pendingClaim, claimExpiresAt, holdsCompleted]);
 
   /**
    * Get time until cycle ends

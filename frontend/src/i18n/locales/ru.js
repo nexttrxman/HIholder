@@ -196,4 +196,7 @@ export default {
   'This app runs inside Telegram. Open it from the bot to see your balance and start earning.': 'Это приложение работает внутри Telegram. Откройте его через бота, чтобы увидеть баланс и начать зарабатывать.',
   'Open in Telegram': 'Открыть в Telegram',
   'Nothing is displayed here on purpose: balances only exist inside your Telegram session.': 'Здесь намеренно ничего не отображается: балансы существуют только внутри вашей сессии Telegram.',
+
+  // Envío interno (opción visible, todavía deshabilitada)
+  'Internal transfers are coming soon.': 'Внутренние переводы скоро появятся.',
 };
