@@ -5,6 +5,11 @@
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="theme-color" content="#06131a" />
         <meta name="description" content="TronKeeper - Crypto Wallet & Telegram Mini App" />
+        <!-- La app solo tiene sentido dentro de Telegram: fuera de ella no hay
+             initData y se muestra una puerta (ver TelegramGate). Indexarla solo
+             llevaría gente a esa puerta. noindex funciona aunque el crawler
+             ignore robots.txt, por eso van los dos. -->
+        <meta name="robots" content="noindex, nofollow" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
