@@ -8,6 +8,10 @@
  * tres casos y el handler no distingue. /health reporta qué variables están
  * presentes para que eso se pueda diagnosticar desde afuera, así que este test
  * fija dos cosas: que reporte la presencia correcta y que NUNCA filtre valores.
+ *
+ * /health es público (no pide initData), así que además fija que NO enumere los
+ * nombres del entorno: eso era un mapa gratis del runtime para cualquier
+ * scanner. El caso del nombre mal escrito se diagnostica en el dashboard.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -32,7 +36,7 @@ test('GET /health reporta la versión y las variables presentes', async () => {
 
   assert.equal(body.ok, true);
   assert.equal(body.service, 'TronKeeper API');
-  assert.equal(body.version, '2.6.0');
+  assert.equal(body.version, '2.8.1');
   assert.deepEqual(body.env, {
     BOT_TOKEN: true,
     SUPA_URL: true,
@@ -78,7 +82,7 @@ test('GET /health no filtra el valor de ningún secreto', async () => {
 test('GET / es un alias de /health', async () => {
   const res = await worker.fetch(new Request('https://api.example/'), FULL_ENV);
   const body = await res.json();
-  assert.equal(body.version, '2.6.0');
+  assert.equal(body.version, '2.8.1');
   assert.equal(body.env.BOT_TOKEN, true);
 });
 
@@ -92,49 +96,94 @@ test('una ruta POST desconocida sigue dando 404 "Not found"', async () => {
 });
 
 // ============================================
-// envKeys: distinguir "no hay nada" de "el nombre está mal escrito"
+// /health es PUBLICO: no debe enumerar el entorno
 // ============================================
 
-test('GET /health lista los nombres presentes, ordenados y sin valores', async () => {
-  const res = await worker.fetch(new Request('https://api.example/health'), FULL_ENV);
+test('GET /health no lista los nombres de las variables del runtime', async () => {
+  const res = await worker.fetch(new Request('https://api.example/health'), {
+    ...FULL_ENV,
+    MI_KV: {},
+    OTRA_COSA: '1',
+  });
   // Leer el texto primero: una vez consumido el body no se puede clonar.
   const raw = await res.text();
-  const body = JSON.parse(raw);
 
-  assert.deepEqual(body.envKeys, [
-    'BOT_TOKEN',
-    'SUPA_SERVICE_KEY',
-    'SUPA_URL',
-    'TON_API_KEY',
-  ]);
+  // Acá iba `envKeys: Object.keys(env)`. Como /health no pide initData, listaba
+  // el entorno entero a cualquiera que lo pidiera, incluidos los bindings
+  // internos de Cloudflare que no son de la app.
+  assert.equal(raw.includes('envKeys'), false, 'sigue exponiendo envKeys');
+  assert.equal(raw.includes('MI_KV'), false, 'se filtró un binding ajeno');
+  assert.equal(raw.includes('OTRA_COSA'), false, 'se filtró un binding ajeno');
+
+  // Los booleanos sí quedan: alcanzan para saber si algo está configurado.
+  assert.deepEqual(JSON.parse(raw).env, {
+    BOT_TOKEN: true,
+    SUPA_URL: true,
+    SUPA_SERVICE_KEY: true,
+    TON_API_KEY: true,
+  });
 
   for (const secret of Object.values(FULL_ENV)) {
     assert.equal(raw.includes(secret), false, `se filtró ${secret}`);
   }
 });
 
-test('GET /health con env vacío da una lista vacía', async () => {
-  const body = await health({});
-  assert.deepEqual(body.envKeys, []);
-});
-
-test('GET /health delata un nombre mal escrito en vez de decir solo false', async () => {
+test('GET /health no delata un nombre mal escrito', async () => {
   // Un espacio de más o minúsculas dan BOT_TOKEN: false, idéntico a no haberlo
-  // cargado. envKeys es lo único que permite ver la diferencia desde afuera.
-  const body = await health({ 'BOT_TOKEN ': 'x', bot_token: 'y' });
+  // cargado. Antes envKeys mostraba la diferencia desde internet; ahora no.
+  const res = await worker.fetch(
+    new Request('https://api.example/health'),
+    { 'BOT_TOKEN ': 'x', bot_token: 'y' },
+  );
+  const raw = await res.text();
 
-  assert.equal(body.env.BOT_TOKEN, false);
-  assert.deepEqual(body.envKeys, ['BOT_TOKEN ', 'bot_token']);
+  assert.equal(JSON.parse(raw).env.BOT_TOKEN, false);
+  assert.equal(raw.includes('bot_token'), false, 'se filtró el nombre mal escrito');
+  assert.equal(raw.includes('BOT_TOKEN '), false, 'se filtró el nombre mal escrito');
 });
 
-test('GET /health muestra bindings extra que no son de la app', async () => {
-  const body = await health({ ...FULL_ENV, MI_KV: {}, OTRA_COSA: '1' });
-  assert.deepEqual(body.envKeys, [
-    'BOT_TOKEN',
-    'MI_KV',
-    'OTRA_COSA',
-    'SUPA_SERVICE_KEY',
-    'SUPA_URL',
-    'TON_API_KEY',
-  ]);
+// ============================================
+// Headers de seguridad
+// ============================================
+
+test('las respuestas JSON llevan los headers de seguridad', async () => {
+  const res = await worker.fetch(new Request('https://api.example/health'), FULL_ENV);
+
+  assert.equal(res.headers.get('X-Content-Type-Options'), 'nosniff');
+  assert.equal(res.headers.get('Referrer-Policy'), 'strict-origin-when-cross-origin');
+  // Saldos y posiciones: que no los guarde ninguna caché.
+  assert.equal(res.headers.get('Cache-Control'), 'no-store');
+});
+
+test('las respuestas de error también llevan los headers', async () => {
+  const res = await worker.fetch(new Request('https://api.example/no-existe'), FULL_ENV);
+  assert.equal(res.status, 404);
+  assert.equal(res.headers.get('X-Content-Type-Options'), 'nosniff');
+  assert.equal(res.headers.get('Cache-Control'), 'no-store');
+});
+
+test('NO se setea X-Frame-Options: la app corre en un iframe en Telegram Web', async () => {
+  // X-Frame-Options solo sabe DENY o SAMEORIGIN, no tiene allowlist: ponerlo
+  // bloquearía la app en web.telegram.org. El equivalente que sí permite
+  // listar orígenes es `frame-ancestors`, y se configura en
+  // frontend/public/_headers porque aplica al HTML, no a esta API.
+  for (const url of ['https://api.example/health', 'https://api.example/no-existe']) {
+    const res = await worker.fetch(new Request(url), FULL_ENV);
+    assert.equal(res.headers.get('X-Frame-Options'), null);
+  }
+});
+
+test('una ruta de scanner de configuración da 404 genérico, sin eco de la ruta', async () => {
+  // Lo que busca un bot que barre rutas: .env, .git/config, wp-login.php...
+  // La respuesta no debe revelar nada sobre el sistema de archivos ni sobre
+  // qué rutas sí existen, ni repetir la ruta pedida (eso permite inyectar).
+  for (const p of ['/.env', '/.git/config', '/wp-login.php', '/phpinfo.php', '/config.json']) {
+    const res = await worker.fetch(new Request(`https://api.example${p}`), FULL_ENV);
+    assert.equal(res.status, 404, `${p} no dio 404`);
+    assert.equal(res.headers.get('Content-Type'), 'application/json');
+
+    const raw = await res.text();
+    assert.equal(raw, JSON.stringify({ error: 'Not found' }), `${p} dio ${raw}`);
+    assert.equal(raw.includes(p), false, `${p}: la respuesta hace eco de la ruta`);
+  }
 });

@@ -30,10 +30,24 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
+// Headers de seguridad, compartidos con worker.js.
+// - nosniff: que el navegador no reinterprete una respuesta JSON como script.
+// - no-store: estas respuestas traen saldos y posiciones; que no las guarde
+//   ninguna caché intermedia ni el navegador (un proxy mal configurado o la
+//   pestaña de un usuario compartido no deberían poder releerlas).
+// NO va X-Frame-Options acá: la app corre en un iframe en Telegram Web y DENY
+// la rompería. El equivalente con allowlist es `frame-ancestors`, y vive en
+// frontend/public/_headers porque aplica al HTML, no a esta API JSON.
+export const securityHeaders = {
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Cache-Control': 'no-store',
+};
+
 export function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    headers: { 'Content-Type': 'application/json', ...corsHeaders, ...securityHeaders },
   });
 }
 

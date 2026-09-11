@@ -17,6 +17,7 @@ import {
   validateInitDataAny,
   extractStartParam,
   jsonResponse,
+  securityHeaders,
   generateClaimId,
   normalizeTonAddress,
   decodeTonComment,
@@ -90,6 +91,7 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
+  ...securityHeaders,
 };
 
 // ============================================
@@ -929,7 +931,7 @@ export default {
         return jsonResponse({
           ok: true,
           service: 'TronKeeper API',
-          version: '2.6.0',
+          version: '2.8.1',
           treasury: CONFIG.TREASURY_WALLET,
           env: {
             BOT_TOKEN: Boolean(env.BOT_TOKEN),
@@ -937,10 +939,13 @@ export default {
             SUPA_SERVICE_KEY: Boolean(env.SUPA_SERVICE_KEY),
             TON_API_KEY: Boolean(env.TON_API_KEY),
           },
-          // Los nombres realmente presentes, sin valores. Los booleanos de arriba
-          // no distinguen "no hay nada adjunto" de "el nombre está mal escrito"
-          // (un espacio de más, minúsculas), y las dos dan false.
-          envKeys: Object.keys(env).sort(),
+          // Acá iba `envKeys: Object.keys(env)`, que listaba los nombres de
+          // todas las variables del runtime — incluidas las internas de
+          // Cloudflare. /health es público y sin autenticar, o sea que era un
+          // mapa gratis del entorno para cualquier scanner. Los booleanos de
+          // arriba alcanzan para saber si algo está configurado; para el caso
+          // de un nombre mal escrito se mira en el dashboard
+          // (Settings → Variables and Secrets), no desde internet.
         });
       }
 

@@ -1,0 +1,39 @@
+# Headers de seguridad para Cloudflare Pages.
+# Se copia a dist/ tal cual en cada build, así que este archivo ES la config:
+# no hay nada que activar en el dashboard.
+# Sintaxis: la ruta, y debajo los headers indentados con 2 espacios.
+# https://developers.cloudflare.com/pages/configuration/headers/
+
+/*
+  # Impide que el navegador interprete una respuesta como un MIME distinto del
+  # declarado. Es el header que frena el XSS por "type sniffing" sobre archivos
+  # subidos o servidos con el tipo equivocado.
+  X-Content-Type-Options: nosniff
+
+  # frame-ancestors en vez de X-Frame-Options, y es deliberado: la app corre
+  # dentro de un IFRAME en Telegram Web (web.telegram.org), y X-Frame-Options
+  # solo sabe DENY o SAMEORIGIN — no tiene allowlist, así que bloquearía la app.
+  # frame-ancestors es el equivalente moderno que sí permite listar orígenes.
+  # Si algún día la CSP se rompe, revisar acá antes que en el código.
+  Content-Security-Policy: frame-ancestors 'self' https://telegram.org https://*.telegram.org
+
+  # Filtra qué se manda en el header Referer al navegar afuera (links de
+  # intercambio, por ejemplo). El origen sigue, la ruta y la query no.
+  Referrer-Policy: strict-origin-when-cross-origin
+
+  # La app es una wallet: que nada se guarde en caché compartida ni en disco.
+  Cache-Control: no-store
+
+  # Fuerza HTTPS durante un año, incluidos los subdominios.
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+
+  # Apaga APIs del navegador que la app no usa y que servirían de superficie si
+  # alguna vez entra un XSS. NO está clipboard-write: copiar la dirección de
+  # depósito la necesita, y Permissions-Policy solo restringe lo listado acá.
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), bluetooth=(), interest-cohort=()
+
+# El manifiesto de TonConnect lo lee un tercero (el servidor de TonConnect),
+# no el navegador: que no lleve Referer ni quede cacheado.
+/tonconnect-manifest.json
+  Cache-Control: public, max-age=300
+  Referrer-Policy: no-referrer
