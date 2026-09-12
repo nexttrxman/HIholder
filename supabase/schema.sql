@@ -1707,6 +1707,9 @@ DECLARE
   r TEXT;
 BEGIN
   FOREACH f IN ARRAY funcs LOOP
+    IF to_regprocedure(f) IS NULL THEN
+      CONTINUE;
+    END IF;
     FOREACH r IN ARRAY ARRAY['anon', 'authenticated'] LOOP
       IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
         EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM %I', f, r);
@@ -1726,4 +1729,8 @@ REVOKE EXECUTE ON FUNCTION resolve_withdrawal(UUID, TEXT, TEXT, TEXT) FROM PUBLI
 -- service_role, así que no hay motivo para dejarla abierta. Revocarla cuesta
 -- cero y mantiene la auditoría sin excepciones que después hay que justificar.
 REVOKE EXECUTE ON FUNCTION withdrawal_settings() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION wallet_ledger_apply_operation_check(TEXT[]) FROM PUBLIC;
+DO $$ BEGIN
+  IF to_regprocedure('wallet_ledger_apply_operation_check(TEXT[])') IS NOT NULL THEN
+    EXECUTE 'REVOKE EXECUTE ON FUNCTION wallet_ledger_apply_operation_check(TEXT[]) FROM PUBLIC';
+  END IF;
+END $$;
