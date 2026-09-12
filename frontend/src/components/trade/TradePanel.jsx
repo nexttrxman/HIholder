@@ -57,7 +57,7 @@ export function TradePanel({ variant = 'full', className = '' }) {
             }`}
             data-testid="trade-data-mode"
           >
-            {mode === 'live' ? 'Live' : 'Sim data'}
+            {mode === 'live' ? 'Live' : mode === 'managed' ? 'Managed' : 'Sim data'}
           </span>
         </div>
 

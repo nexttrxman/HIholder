@@ -2,6 +2,10 @@
 // está en el JSX: el traductor reemplaza nodos de texto por coincidencia exacta
 // (ver LanguageProvider), así que no hace falta tocar los 84 componentes.
 export default {
+  'KEEP is buy-only — selling is not available yet.':
+    'KEEP можно только покупать — продажа пока недоступна.',
+  '— added to your balance':
+    '— добавлено на ваш баланс',
   Activity: 'Активность',
   'Added to your internal balance': 'Зачислено на внутренний баланс',
   Amount: 'Сумма',
@@ -185,6 +189,7 @@ export default {
   'Check-in failed. Try again.': 'Не удалось отметиться. Попробуйте ещё раз.',
   'Could not load your check-in status': 'Не удалось загрузить статус отметки',
   'Daily check-in + weekly bonus': 'Ежедневная отметка + недельный бонус',
+  'Daily check-in KEEP reward': 'KEEP-награда за ежедневный чек-ин',
   'Daily check-in reward': 'Награда за ежедневную отметку',
   'In Progress': 'В процессе',
   'Complete 3 holds today': 'Сделайте 3 удержания сегодня',

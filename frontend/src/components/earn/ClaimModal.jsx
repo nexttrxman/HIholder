@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useTonConnectUI, useTonWallet } from '@tonconnect/ui-react';
 import { useWallet } from '@/contexts/WalletContext';
 import { useTelegram } from '@/hooks/useTelegram';
+import { KEEP_REWARDS } from '@/services/api';
 import {
   Clock,
   Wallet,
@@ -93,6 +94,8 @@ export function ClaimModal({ isOpen, onClose, claim }) {
   const [secondsRemaining, setSecondsRemaining] = useState(0);
   const [error, setError] = useState(null);
   const [verifyAttempts, setVerifyAttempts] = useState(0);
+  // Bonus $KEEP del claim (v3.2): el worker lo sortea (500-2500) al acreditar.
+  const [keepReward, setKeepReward] = useState(null);
 
   // Calculate seconds remaining
   useEffect(() => {
@@ -181,6 +184,7 @@ export function ClaimModal({ isOpen, onClose, claim }) {
         const v = await verifyClaim(claim.claim_id, senderAddress);
 
         if (v.success) {
+          setKeepReward(Number(v.keepCredited) || 0);
           setStep('success');
           vibrate('success');
           return true;
@@ -226,6 +230,7 @@ export function ClaimModal({ isOpen, onClose, claim }) {
       setStep('info');
       setError(null);
       setVerifyAttempts(0);
+      setKeepReward(null);
     }, 300);
   }, [step, refreshData, onClose]);
 
@@ -292,6 +297,9 @@ export function ClaimModal({ isOpen, onClose, claim }) {
                   </p>
                   <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-dim mt-1.5">
                     USDT · internal balance
+                  </p>
+                  <p className="text-xs text-brand-gold font-semibold mt-2" data-testid="claim-keep-hint">
+                    {`Includes a ${KEEP_REWARDS.claim.min}–${KEEP_REWARDS.claim.max} KEEP bonus`}
                   </p>
                 </div>
 
@@ -418,6 +426,17 @@ export function ClaimModal({ isOpen, onClose, claim }) {
                 <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-dim">
                   Added to your internal balance
                 </p>
+                {keepReward > 0 && (
+                  <p
+                    className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-brand-gold/10 border border-brand-gold/25 text-brand-gold font-semibold text-sm"
+                    data-testid="claim-keep-reward"
+                  >
+                    +{keepReward.toLocaleString('en-US')} KEEP
+                    <span className="text-[10px] font-mono uppercase tracking-[0.14em] opacity-70">
+                      bonus
+                    </span>
+                  </p>
+                )}
 
                 <button
                   onClick={handleClose}

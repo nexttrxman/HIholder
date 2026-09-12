@@ -51,6 +51,12 @@ describe('check-in api', () => {
     expect(first.credited).toBeCloseTo(0.05, 10);
     expect(first.days_this_week).toBe(1);
 
+    // v3.2: el check-in paga tambien 500-1200 KEEP.
+    expect(Number.isInteger(first.keep_reward)).toBe(true);
+    expect(first.keep_reward).toBeGreaterThanOrEqual(500);
+    expect(first.keep_reward).toBeLessThanOrEqual(1200);
+    expect(first.keep_balance).toBe(first.keep_reward);
+
     const second = await dailyCheckin();
     expect(second.ok).toBe(false);
     expect(second.error).toBe('already_checked_in');
@@ -68,6 +74,11 @@ describe('check-in api', () => {
     expect(res.weekly_complete).toBe(true);
     expect(res.weekly_bonus).toBeCloseTo(0.5, 10);
     expect(res.credited).toBeCloseTo(0.55, 10);
+
+    // El semanal paga su propio KEEP 500-1200, aparte del diario.
+    expect(res.keep_weekly).toBeGreaterThanOrEqual(500);
+    expect(res.keep_weekly).toBeLessThanOrEqual(1200);
+    expect(res.keep_balance).toBe(res.keep_reward + res.keep_weekly);
 
     vi.useRealTimers();
   });
@@ -122,6 +133,8 @@ describe('CheckInCard', () => {
 
     expect(await screen.findByTestId('checkin-reward')).toBeInTheDocument();
     expect(screen.getByTestId('checkin-reward').textContent).toContain('0.05');
+    // v3.2: el feedback muestra tambien el KEEP ganado.
+    expect(screen.getByTestId('checkin-reward').textContent).toContain('KEEP');
     expect(screen.getByTestId('checkin-button')).toBeDisabled();
     expect(screen.getByTestId('checkin-button').textContent).toContain('Checked in today');
     expect(screen.getByTestId('checkin-progress').textContent).toContain('1/7');

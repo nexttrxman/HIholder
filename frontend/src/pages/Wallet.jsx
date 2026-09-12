@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, ChevronUp, Wallet as WalletIcon, History as HistoryIcon } from 'lucide-react';
 import { formatUsd } from '@/lib/trade';
 import { INTERNAL_TRANSFER_ENABLED } from '@/services/api';
-import { UsdtIcon, TrxIcon } from '@/components/wallet/AssetIcons';
+import { UsdtIcon, TrxIcon, KeepIcon } from '@/components/wallet/AssetIcons';
 
 const SECTIONS = [
   { id: 'balance', label: 'Balance', icon: WalletIcon },
@@ -20,7 +20,7 @@ const SECTIONS = [
  * the "Activity" section here.
  */
 export function WalletPage({ onOpenWithdraw, initialSection = 'balance' }) {
-  const { usdtBalance, trxBalance } = useWallet();
+  const { usdtBalance, trxBalance, keepBalance } = useWallet();
   const { portfolio, positions } = useTrade();
   const [section, setSection] = useState(initialSection);
   const [showDeposit, setShowDeposit] = useState(true);
@@ -137,6 +137,16 @@ export function WalletPage({ onOpenWithdraw, initialSection = 'balance' }) {
                   </>
                 )}
 
+                {portfolio.keepAmount > 0 && (
+                  <>
+                    <span className="w-1 h-1 rounded-full bg-white/20" />
+                    <span className="text-white/40">
+                      {formatUsd(portfolio.keepUsd)}
+                      {portfolio.keepPrice ? '' : ' (KEEP sin precio)'}
+                    </span>
+                  </>
+                )}
+
                 {portfolio.trades > 0 && (
                   <>
                     <span className="w-1 h-1 rounded-full bg-white/20" />
@@ -199,6 +209,16 @@ export function WalletPage({ onOpenWithdraw, initialSection = 'balance' }) {
                 onWithdraw={() => onOpenWithdraw('TRX')}
                 onSend={handleSend}
                 sendDisabled={!INTERNAL_TRANSFER_ENABLED}
+              />
+              {/* $KEEP: token propio. Sin retiro (no es un activo de red) y sin
+                  envio por ahora; entra por misiones/check-in/claim o por compra. */}
+              <BalanceCard
+                asset="KEEP"
+                amount={keepBalance}
+                label="Keeper Token"
+                icon={<KeepIcon className="w-6 h-6" />}
+                onSend={handleSend}
+                sendDisabled
               />
             </div>
           </motion.div>

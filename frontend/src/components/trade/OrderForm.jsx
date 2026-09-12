@@ -18,6 +18,7 @@ import {
   priceFromPercent,
   previewLevelPnl,
   validateLevels,
+  validateManagedBuy,
   validateTradeRequest,
   walletAssetForPair,
 } from '@/lib/trade';
@@ -35,7 +36,7 @@ import {
  */
 export function OrderForm({ pair, price }) {
   const { usdtBalance, trxBalance, tonBalance } = useWallet();
-  const { openTrade, closeTrade, sellWalletAsset, positions, busy, error, clearError } = useTrade();
+  const { openTrade, buyKeep, closeTrade, sellWalletAsset, positions, busy, error, clearError } = useTrade();
   const { vibrate } = useTelegram();
 
   const [side, setSide] = useState('buy');
@@ -57,6 +58,12 @@ export function OrderForm({ pair, price }) {
   }, [pair.id]);
 
   const isSell = side === 'sell';
+
+  // $KEEP (v3.2): precio manejado por el proyecto y compra sin posicion.
+  // No hay TP/SL (no existe posicion que cerrar) y el SELL esta apagado:
+  // KEEP todavia no se vende.
+  const isManaged = !!pair.managed;
+  const isBuyOnly = !!pair.buyOnly;
 
   // The position this SELL would close (long-only: one open position per pair).
   const position = useMemo(
@@ -90,8 +97,13 @@ export function OrderForm({ pair, price }) {
   }, [numericAmount, price]);
 
   const sizeValidation = useMemo(
-    () => validateTradeRequest({ pair: pair.id, amount: numericAmount, balance: usdtBalance }),
-    [pair.id, numericAmount, usdtBalance]
+    () =>
+      isManaged
+        // KEEP no esta en ALLOWED_PAIRS (no abre posiciones): valida el espejo
+        // local de validateKeepBuy, con los mismos limites del Worker.
+        ? validateManagedBuy({ amount: numericAmount, balance: usdtBalance })
+        : validateTradeRequest({ pair: pair.id, amount: numericAmount, balance: usdtBalance }),
+    [pair.id, numericAmount, usdtBalance, isManaged]
   );
 
   const levels = useMemo(
@@ -219,6 +231,20 @@ export function OrderForm({ pair, price }) {
       return;
     }
 
+    if (isManaged) {
+      // KEEP: compra spot contra el saldo interno; no se abre posicion.
+      const res = await buyKeep({ amountUsdt: numericAmount, price });
+      if (res.ok) {
+        vibrate('success');
+        setResult({ sold: false, qty: res.qty, base: pair.base, keep: true });
+        setAmount('');
+        setTimeout(() => setResult(null), 2800);
+      } else {
+        vibrate('error');
+      }
+      return;
+    }
+
     const res = await openTrade({
       pair: pair.id,
       amountUsdt: numericAmount,
@@ -254,26 +280,44 @@ export function OrderForm({ pair, price }) {
         {[
           { id: 'buy', label: 'Buy', on: 'bg-brand-teal text-black shadow-glow-teal' },
           { id: 'sell', label: 'Sell', on: 'bg-brand-red text-black shadow-[0_0_18px_rgba(255,107,122,0.35)]' },
-        ].map(({ id, label, on }) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => {
-              setSide(id);
-              setAmount('');
-              setResult(null);
-              clearError();
-            }}
-            data-testid={`trade-side-${id}`}
-            aria-pressed={side === id}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold uppercase tracking-[0.08em] transition-all active:scale-[0.98] ${
-              side === id ? on : 'text-white/45 hover:text-white/70'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+        ].map(({ id, label, on }) => {
+          const blocked = isBuyOnly && id === 'sell';
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => {
+                if (blocked) {
+                  vibrate('error');
+                  return;
+                }
+                setSide(id);
+                setAmount('');
+                setResult(null);
+                clearError();
+              }}
+              data-testid={`trade-side-${id}`}
+              aria-pressed={side === id}
+              aria-disabled={blocked || undefined}
+              className={`flex-1 py-2 rounded-xl text-xs font-bold uppercase tracking-[0.08em] transition-all active:scale-[0.98] ${
+                blocked
+                  ? 'text-white/25 cursor-not-allowed'
+                  : side === id
+                    ? on
+                    : 'text-white/45 hover:text-white/70'
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
       </div>
+
+      {isBuyOnly && (
+        <p className="mb-3 text-[11px] text-white/45" data-testid="trade-buy-only-note">
+          KEEP is buy-only — selling is not available yet.
+        </p>
+      )}
 
       <div className="flex items-center justify-between mb-2">
         <span className={`sys-label ${isSell ? '!text-brand-red' : ''}`}>
@@ -446,7 +490,7 @@ export function OrderForm({ pair, price }) {
       {/* ============================================
           ORDER LIMITS - Take Profit / Stop Loss (buy only)
           ============================================ */}
-      {!isSell && (
+      {!isSell && !isManaged && (
       <>
       <button
         type="button"
@@ -641,7 +685,11 @@ export function OrderForm({ pair, price }) {
               ) : (
                 <>
                   Bought {formatQty(result.qty, pair.qtyDecimals)} {result.base}
-                  {result.bracketed ? ' — TP/SL armed' : ' — position opened'}
+                  {result.keep
+                    ? ' — added to your balance'
+                    : result.bracketed
+                      ? ' — TP/SL armed'
+                      : ' — position opened'}
                 </>
               )}
             </span>

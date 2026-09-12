@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Check, ExternalLink, Loader2, Megaphone } from 'lucide-react';
-import { getSocialMissions, verifySocialMission } from '@/services/api';
+import { getSocialMissions, verifySocialMission, KEEP_REWARDS } from '@/services/api';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useWallet } from '@/contexts/WalletContext';
 
@@ -64,7 +64,7 @@ function SocialMissionCard({ mission, done, onVerified, index }) {
               <p className="text-xs text-white/40 truncate">{mission.description}</p>
             )}
             <p className="text-xs text-brand-green font-semibold mt-0.5">
-              +${Number(mission.reward).toFixed(2)} USDT
+              {`+$${Number(mission.reward).toFixed(2)} USDT · ${KEEP_REWARDS.mission.min}–${KEEP_REWARDS.mission.max} KEEP`}
             </p>
           </div>
         </div>

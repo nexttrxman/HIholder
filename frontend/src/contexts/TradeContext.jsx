@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  buyKeep as apiBuyKeep,
   closeTradePosition,
   getPositions,
   placeTrade,
@@ -15,6 +16,7 @@ import {
   calcUnrealizedPnl,
   checkLevelTrigger,
   validateLevels,
+  validateManagedBuy,
   validateTradeRequest,
 } from '@/lib/trade';
 import { computePortfolio } from '@/lib/portfolio';
@@ -34,6 +36,9 @@ const IDLE_MARK_POLL_MS = 30000;
 // Se cotiza siempre, aunque no haya posiciones abiertas: el TRX de la wallet se
 // convierte a USD para el total del portafolio.
 const TRX_PAIR = 'TRXUSDT';
+// Se cotiza siempre: el saldo KEEP de la wallet se valora con el precio
+// manejado (Worker /price) para el Total Balance.
+const KEEP_PAIR = 'KEEPUSDT';
 const TRIGGER_BANNER_MS = 6000;
 
 function readJson(key, fallback) {
@@ -64,6 +69,7 @@ export function TradeProvider({ children, markPollMs = DEFAULT_MARK_POLL_MS }) {
   const {
     usdtBalance,
     trxBalance,
+    keepBalance,
     applyUsdtDelta,
     applyAssetDelta,
     pushLocalTransaction,
@@ -115,7 +121,7 @@ export function TradeProvider({ children, markPollMs = DEFAULT_MARK_POLL_MS }) {
   );
 
   useEffect(() => {
-    const pairs = [...new Set([...(openPairsKey ? openPairsKey.split('|') : []), TRX_PAIR])];
+    const pairs = [...new Set([...(openPairsKey ? openPairsKey.split('|') : []), TRX_PAIR, KEEP_PAIR])];
 
     let active = true;
 
@@ -242,6 +248,68 @@ export function TradeProvider({ children, markPollMs = DEFAULT_MARK_POLL_MS }) {
       }
     },
     [source, positions, realizedPnl, persistLocal, applyUsdtDelta, pushLocalTransaction, refreshData]
+  );
+
+  // ============================================
+  // BUY KEEP (v3.2) — spot, sin posicion, sin venta
+  // ============================================
+  const buyKeep = useCallback(
+    async ({ amountUsdt, price }) => {
+      const validation = validateManagedBuy({ amount: amountUsdt, balance: balanceRef.current });
+      if (!validation.ok) {
+        setError(validation.error);
+        return { ok: false, error: validation.error };
+      }
+      const notional = validation.amount;
+      const fill = calcOpenTrade({ amount: notional, price });
+      if (!fill.ok) {
+        setError(fill.error);
+        return { ok: false, error: fill.error };
+      }
+
+      setBusy(true);
+      setError(null);
+
+      try {
+        if (source === 'backend') {
+          const res = await apiBuyKeep({ amount: notional, price });
+          if (!res || !res.ok) {
+            const message = res?.error || 'Order rejected';
+            setError(message);
+            return { ok: false, error: message };
+          }
+          await refreshData();
+          return {
+            ok: true,
+            qty: Number(res.qty) || fill.qty,
+            fee: Number(res.fee) || fill.fee,
+            totalDebit: notional + (Number(res.fee) || fill.fee),
+            price: Number(res.price) || Number(price),
+          };
+        }
+
+        // Dev/offline: mismo calculo contra el saldo demo.
+        applyUsdtDelta(-fill.totalDebit);
+        applyAssetDelta('KEEP', fill.qty);
+        pushLocalTransaction({
+          id: `keepbuy_${Date.now()}`,
+          type: 'buy',
+          asset: 'KEEP',
+          amount: fill.qty,
+          status: 'confirmed',
+          timestamp: Date.now(),
+          description: `Buy ${getPair('KEEPUSDT').base} @ ${price}`,
+        });
+        return { ok: true, qty: fill.qty, fee: fill.fee, totalDebit: fill.totalDebit, price: Number(price) };
+      } catch (err) {
+        const message = err?.message || 'Order failed';
+        setError(message);
+        return { ok: false, error: message };
+      } finally {
+        setBusy(false);
+      }
+    },
+    [source, applyUsdtDelta, applyAssetDelta, pushLocalTransaction, refreshData]
   );
 
   // ============================================
@@ -527,10 +595,16 @@ export function TradeProvider({ children, markPollMs = DEFAULT_MARK_POLL_MS }) {
    * Home y Wallet para que los dos muestren el mismo número.
    */
   const trxPrice = marks[TRX_PAIR] ?? null;
+  const keepPrice = marks[KEEP_PAIR] ?? null;
 
   const portfolio = useMemo(
-    () => computePortfolio({ usdtBalance, trxBalance, trxPrice, positionsValue, unrealizedPnl }),
-    [usdtBalance, trxBalance, trxPrice, positionsValue, unrealizedPnl]
+    () =>
+      computePortfolio({
+        usdtBalance, trxBalance, trxPrice,
+        keepBalance, keepPrice,
+        positionsValue, unrealizedPnl,
+      }),
+    [usdtBalance, trxBalance, trxPrice, keepBalance, keepPrice, positionsValue, unrealizedPnl]
   );
 
   const clearError = useCallback(() => setError(null), []);
@@ -544,6 +618,7 @@ export function TradeProvider({ children, markPollMs = DEFAULT_MARK_POLL_MS }) {
     positionsValue,
     portfolio,
     trxPrice,
+    keepPrice,
     source,
     busy,
     error,
@@ -551,6 +626,7 @@ export function TradeProvider({ children, markPollMs = DEFAULT_MARK_POLL_MS }) {
     markFor,
     lastTrigger,
     openTrade,
+    buyKeep,
     closeTrade,
     sellWalletAsset,
     updateLevels,

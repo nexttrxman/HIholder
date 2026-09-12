@@ -19,7 +19,10 @@
 WITH esperado(tabla) AS (
   VALUES ('users'),('hold_cycles'),('holds'),('claims'),('claim_payments'),
          ('internal_wallets'),('wallet_ledger'),('transactions'),('checkins'),
-         ('referrals'),('referral_pool'),('trade_positions')
+         ('referrals'),('referral_pool'),('trade_positions'),
+         ('withdrawal_requests'),('withdrawal_config'),
+         ('social_missions'),('user_social_missions'),
+         ('managed_prices'),('managed_price_ticks')
 ),
 tablas AS (
   SELECT e.tabla,
@@ -39,7 +42,14 @@ esperado_fn(nombre, firma) AS (
     ('sell_wallet_asset',      'p_user_id text, p_asset text, p_amount numeric, p_price numeric'),
     ('open_trade',             'p_user_id text, p_pair text, p_amount numeric, p_price numeric, p_take_profit numeric, p_stop_loss numeric'),
     ('close_trade',            'p_user_id text, p_position_id uuid, p_price numeric'),
-    ('set_trade_levels',       'p_user_id text, p_position_id uuid, p_take_profit numeric, p_stop_loss numeric')
+    ('set_trade_levels',       'p_user_id text, p_position_id uuid, p_take_profit numeric, p_stop_loss numeric'),
+    ('withdrawal_settings',    ''),
+    ('request_withdrawal',     'p_user_id text, p_asset text, p_amount numeric, p_to_address text'),
+    ('resolve_withdrawal',     'p_request_id uuid, p_status text, p_tx_id text, p_note text'),
+    ('complete_social_mission','p_user_id text, p_mission_id text'),
+    ('buy_keep',               'p_user_id text, p_amount numeric, p_price numeric'),
+    ('managed_price_tick',     'p_pair text'),
+    ('managed_price_candles',  'p_pair text, p_bucket_seconds integer, p_limit integer')
 ),
 funciones AS (
   SELECT e.nombre,
@@ -61,7 +71,10 @@ permisos AS (
   WHERE n.nspname='public'
     AND p.proname IN ('credit_claim','register_referral','confirm_pending_referral',
                       'expire_claims_and_cycles','daily_checkin','sell_wallet_asset',
-                      'open_trade','close_trade','set_trade_levels')
+                      'open_trade','close_trade','set_trade_levels',
+                      'request_withdrawal','resolve_withdrawal','withdrawal_settings',
+                      'complete_social_mission','buy_keep','managed_price_tick',
+                      'managed_price_candles')
     AND (
       has_function_privilege('public'::name, p.oid, 'EXECUTE')
       OR EXISTS (

@@ -140,6 +140,7 @@ export const resetMockWallet = () => {
     // con 250 USDT, que tampoco es un valor de producción. Con 1 TRX el flujo de
     // venta no pasaría MIN_NOTIONAL (1 USDT) y no se podría ejercitar.
     MOCK_USER.trx_balance = 5.0;
+  MOCK_USER.keep_balance = 0;
   MOCK_CYCLE.holds_completed = 0;
   MOCK_CYCLE.remaining_holds = MAX_HOLDS_PER_CYCLE_MOCK;
   MOCK_PENDING_CLAIM = null;
@@ -159,6 +160,7 @@ const MOCK_USER = {
   usdt_balance: readMockBalance(),
   trx_balance: 5.00,
   ton_balance: 0,
+  keep_balance: 0,
   total_refs: 3,
   trx_refs: 6.00,
 };
@@ -428,6 +430,9 @@ export const verifyPayment = async (claimId, senderAddress) => {
 
     // Dev mode
     MOCK_USER.usdt_balance += 0.15;
+    // Bonus KEEP del claim (v3.2): mismo sorteo que el SQL, 500–2500.
+    const mockKeep = 500 + Math.floor(Math.random() * 2001);
+    MOCK_USER.keep_balance = (MOCK_USER.keep_balance || 0) + mockKeep;
     MOCK_PENDING_CLAIM = null;
     // Claim cobrado: el ciclo queda completo y bloqueado 8 h, igual que en el
     // worker (credit_claim mueve ends_at a NOW() + cooldown).
@@ -439,6 +444,8 @@ export const verifyPayment = async (claimId, senderAddress) => {
       ok: true,
       credited: 0.15,
       new_balance: MOCK_USER.usdt_balance,
+      keep_credited: mockKeep,
+      keep_balance: MOCK_USER.keep_balance,
     };
   } catch (error) {
     console.error('Verify payment error:', error);
@@ -503,6 +510,40 @@ export const closeTradePosition = async ({ positionId, price }) => {
 export const sellWalletAsset = async ({ asset, amount, price }) => {
   const result = await apiCall('/trade/sell-asset', { asset, amount, price });
   return result || null;
+};
+
+// ============================================
+// $KEEP (v3.2) — token propio
+// ============================================
+// Rangos de recompensa en KEEP. Los montos reales los sortea el SQL; esto es
+// solo para mostrarlos (debe coincidir con KEEP_CONFIG en worker/lib.js).
+export const KEEP_REWARDS = {
+  mission: { min: 500, max: 1200 },
+  checkin: { min: 500, max: 1200 },
+  claim: { min: 500, max: 2500 },
+};
+
+/**
+ * Compra KEEP con USDT interno al precio manejado por el proyecto.
+ * Devuelve `null` en modo dev para que el TradeContext lo ejecute localmente.
+ */
+export const buyKeep = async ({ amount, price }) => {
+  const result = await apiCall('/trade/buy-keep', { amount, price });
+  return result || null;
+};
+
+/**
+ * Precio y velas de un par manejado (KEEP). GET publico del Worker: el precio
+ * no vive en un exchange, vive en managed_prices. `null` si no hay Worker
+ * configurado, para que market.js caiga al generador sintético.
+ */
+export const getManagedMarket = async (pair, interval = '1h', limit = 60) => {
+  if (!WORKER_URL) return null;
+  const base = normalizeBaseUrl(WORKER_URL);
+  const qs = new URLSearchParams({ pair, interval, limit: String(limit) });
+  const res = await fetch(`${base}/price?${qs.toString()}`);
+  if (!res.ok) throw new Error(`Price request failed: ${res.status}`);
+  return res.json();
 };
 
 export const getPositions = async () => {
@@ -676,12 +717,22 @@ export const dailyCheckin = async () => {
     const credited = CHECKIN_CONFIG.DAILY_REWARD_USDT + weeklyPaid;
     const newBalance = applyLocalBalanceDelta(credited);
 
+    // v3.2: el check-in tambien paga KEEP (mismos rangos que el SQL:
+    // 500-1200 el diario y otros 500-1200 el bono semanal).
+    const keepRoll = () => 500 + Math.floor(Math.random() * 701);
+    const keepDaily = keepRoll();
+    const keepWeekly = weeklyPaid > 0 ? keepRoll() : 0;
+    MOCK_USER.keep_balance = (MOCK_USER.keep_balance || 0) + keepDaily + keepWeekly;
+
     return {
       ok: true,
       ...summary,
       weekly_bonus: weeklyPaid,
       credited,
       new_balance: newBalance,
+      keep_reward: keepDaily,
+      keep_weekly: keepWeekly,
+      keep_balance: MOCK_USER.keep_balance,
     };
   } catch (error) {
     console.error('Check-in error:', error);
@@ -707,6 +758,9 @@ export default {
   describeApiError,
   placeTrade,
   sellWalletAsset,
+  buyKeep,
+  getManagedMarket,
+  KEEP_REWARDS,
   closeTradePosition,
   setTradeLevels,
   getPositions,

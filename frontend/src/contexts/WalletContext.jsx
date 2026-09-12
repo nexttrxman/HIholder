@@ -53,6 +53,8 @@ export function WalletProvider({ children }) {
   const [usdtBalance, setUsdtBalance] = useState(0);
   const [trxBalance, setTrxBalance] = useState(0);
   const [tonBalance, setTonBalance] = useState(0);
+  // $KEEP (v3.2): token propio, entra por misiones/check-in/claim y por compra.
+  const [keepBalance, setKeepBalance] = useState(0);
 
   // Cycle state
   const [cycle, setCycle] = useState(null);
@@ -110,6 +112,7 @@ export function WalletProvider({ children }) {
         setUsdtBalance(userData.usdt_balance || 0);
         setTrxBalance(userData.trx_balance || 0);
         setTonBalance(userData.ton_balance || 0);
+        setKeepBalance(userData.keep_balance || 0);
         setTotalRefs(userData.total_refs || 0);
         setTrxFromRefs(userData.trx_refs || 0);
         
@@ -161,7 +164,8 @@ export function WalletProvider({ children }) {
         setUsdtBalance(userData.usdt_balance || 0);
         setTrxBalance(userData.trx_balance || 0);
         setTonBalance(userData.ton_balance || 0);
-        
+        setKeepBalance(userData.keep_balance || 0);
+
         if (cycleData) {
           setCycle(cycleData);
           setHoldsCompleted(cycleData.holds_completed || 0);
@@ -221,12 +225,15 @@ export function WalletProvider({ children }) {
 
       if (result.ok) {
         setUsdtBalance(result.new_balance ?? (usdtBalance + (result.credited || 0)));
+        if (result.keep_balance !== undefined && result.keep_balance !== null) {
+          setKeepBalance(Number(result.keep_balance) || 0);
+        }
         setPendingClaim(null);
         setClaimExpiresAt(null);
         setHoldsCompleted(0);
         setRemainingHolds(MAX_HOLDS_PER_CYCLE);
         await refreshData();
-        return { success: true, credited: result.credited };
+        return { success: true, credited: result.credited, keepCredited: result.keep_credited || 0 };
       }
 
       // Backend says payment not on chain yet — caller should retry.
@@ -259,6 +266,7 @@ export function WalletProvider({ children }) {
     const amount = Number(delta) || 0;
     if (asset === 'TRX') setTrxBalance((prev) => Math.max(0, prev + amount));
     else if (asset === 'TON') setTonBalance((prev) => Math.max(0, prev + amount));
+    else if (asset === 'KEEP') setKeepBalance((prev) => Math.max(0, prev + amount));
     else applyUsdtDelta(amount);
   }, [applyUsdtDelta]);
 
@@ -380,6 +388,7 @@ export function WalletProvider({ children }) {
     usdtBalance,
     trxBalance,
     tonBalance,
+    keepBalance,
 
     // Hold/Cycle
     holdsCompleted,

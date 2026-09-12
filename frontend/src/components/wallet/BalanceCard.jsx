@@ -20,6 +20,10 @@ export function BalanceCard({
 }) {
   const isUSDT = asset === 'USDT';
   const color = isUSDT ? 'brand-green' : 'brand-red';
+  // El halo del icono por activo, con clases LITERALES: Tailwind no genera las
+  // dinamicas (bg-${x}/10 no existe en el CSS si no aparece escrita en algun .jsx).
+  const haloClass =
+    asset === 'USDT' ? 'bg-brand-green/10' : asset === 'TRX' ? 'bg-brand-red/10' : 'bg-brand-gold/10';
   const low = asset.toLowerCase();
   const [hintOpen, setHintOpen] = useState(false);
 
@@ -42,7 +46,7 @@ export function BalanceCard({
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
           {icon && (
-            <div className={`w-10 h-10 rounded-full bg-${color}/10 flex items-center justify-center shrink-0`}>
+            <div className={`w-10 h-10 rounded-full ${haloClass} flex items-center justify-center shrink-0`}>
               {/* Acepta un componente SVG o, por compatibilidad, una URL. */}
               {typeof icon === 'string' ? (
                 <img src={icon} alt={asset} className="w-6 h-6" />
@@ -55,7 +59,7 @@ export function BalanceCard({
             <p className="sys-label">{label || asset}</p>
             <p className="text-2xl font-bold text-white mt-1">
               {isUSDT ? '$' : ''}{amount.toFixed(2)}
-              {!isUSDT && <span className="text-sm text-white/40 ml-1">TRX</span>}
+              {!isUSDT && <span className="text-sm text-white/40 ml-1">{asset}</span>}
             </p>
           </div>
         </div>

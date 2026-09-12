@@ -23,6 +23,8 @@ export function computePortfolio({
   usdtBalance = 0,
   trxBalance = 0,
   trxPrice = null,
+  keepBalance = 0,
+  keepPrice = null,
   positionsValue = 0,
   unrealizedPnl = 0,
 } = {}) {
@@ -35,14 +37,24 @@ export function computePortfolio({
   const trxAmount = Math.max(0, num(trxBalance));
   const trxUsd = hasTrxPrice ? trxAmount * price : 0;
 
+  // $KEEP (v3.2): mismo trato que el TRX — si no hay precio manejado, ese
+  // componente vale 0 y keepPrice sale null en vez de inventar un numero.
+  const kPrice = Number(keepPrice);
+  const hasKeepPrice = Number.isFinite(kPrice) && kPrice > 0;
+  const keepAmount = Math.max(0, num(keepBalance));
+  const keepUsd = hasKeepPrice ? keepAmount * kPrice : 0;
+
   return {
-    total: usdt + trades + trxUsd,
+    total: usdt + trades + trxUsd + keepUsd,
     usdt,
     trades,
     pnl,
     trxAmount,
     trxPrice: hasTrxPrice ? price : null,
     trxUsd,
+    keepAmount,
+    keepPrice: hasKeepPrice ? kPrice : null,
+    keepUsd,
   };
 }
 

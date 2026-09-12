@@ -443,3 +443,42 @@ test('fetchMarkPrice: si ningún venue responde, null (el precio del cliente no 
   const price = await fetchMarkPrice('HYPEUSDT', { fetchImpl: async () => ({ ok: false }) });
   assert.equal(price, null);
 });
+
+// ============================================
+// $KEEP (v3.2) — validateKeepBuy / KEEP_CONFIG
+// ============================================
+import { KEEP_CONFIG, validateKeepBuy, MANAGED_INTERVAL_SECONDS } from '../lib.js';
+
+test('validateKeepBuy: acepta una compra con saldo suficiente', () => {
+  const res = validateKeepBuy({ amount: 10, balance: 25 });
+  assert.equal(res.ok, true);
+  assert.equal(res.amount, 10);
+});
+
+test('validateKeepBuy: la fee (0.1%) entra en el chequeo de saldo', () => {
+  // 10 + 0.01 > 10.005
+  const res = validateKeepBuy({ amount: 10, balance: 10.005 });
+  assert.equal(res.ok, false);
+  assert.match(res.error, /Insufficient USDT balance/);
+});
+
+test('validateKeepBuy: respeta el notional minimo y maximo', () => {
+  assert.equal(validateKeepBuy({ amount: 0.5, balance: 100 }).ok, false);
+  assert.equal(validateKeepBuy({ amount: 1, balance: 100 }).ok, true);
+  assert.equal(validateKeepBuy({ amount: 100001, balance: 1e9 }).ok, false);
+  for (const amount of [0, -5, NaN, 'abc']) {
+    assert.equal(validateKeepBuy({ amount, balance: 100 }).ok, false);
+  }
+});
+
+test('KEEP_CONFIG: rangos de recompensa espejo del SQL', () => {
+  // Debe coincidir con schema.sql v3.2: 500+floor(random()*701) y 500+floor(random()*2001).
+  assert.equal(KEEP_CONFIG.PAIR, 'KEEPUSDT');
+  assert.deepEqual([KEEP_CONFIG.MISSION_MIN, KEEP_CONFIG.MISSION_MAX], [500, 1200]);
+  assert.deepEqual([KEEP_CONFIG.CHECKIN_MIN, KEEP_CONFIG.CHECKIN_MAX], [500, 1200]);
+  assert.deepEqual([KEEP_CONFIG.CLAIM_MIN, KEEP_CONFIG.CLAIM_MAX], [500, 2500]);
+});
+
+test('MANAGED_INTERVAL_SECONDS: los timeframes del panel tienen bucket', () => {
+  assert.deepEqual(MANAGED_INTERVAL_SECONDS, { '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400 });
+});

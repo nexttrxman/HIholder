@@ -7,6 +7,8 @@
  * third-party requests. The UI always shows which source is active.
  */
 
+import { getManagedMarket } from './api';
+
 const REQUEST_TIMEOUT_MS = 6000;
 
 /**
@@ -40,6 +42,14 @@ export const PAIRS = [
   { id: 'UNIUSDT', base: 'UNI', label: 'UNI/USDT', color: '#FF007A', priceDecimals: 3, qtyDecimals: 2, seedPrice: 6.9, vol: 0.0038 },
   { id: 'TRXUSDT', base: 'TRX', label: 'TRX/USDT', color: '#EF0027', priceDecimals: 5, qtyDecimals: 1, seedPrice: 0.312, vol: 0.0018 },
   { id: 'DOGEUSDT', base: 'DOGE', label: 'DOGE/USDT', color: '#C2A633', priceDecimals: 5, qtyDecimals: 1, seedPrice: 0.09, vol: 0.0052 },
+  /**
+   * $KEEP — token propio del proyecto (v3.2). No cotiza en ningún exchange:
+   * el precio vive en la base (managed_prices) y lo sirve el Worker en
+   * /price. `managed` cambia la fuente de datos; `buyOnly` apaga el SELL en
+   * el order form. seedPrice es el centro de la banda manejada y solo se usa
+   * para el generador sintético si el Worker no responde.
+   */
+  { id: 'KEEPUSDT', base: 'KEEP', label: 'KEEP/USDT', color: '#E8B33A', priceDecimals: 6, qtyDecimals: 2, seedPrice: 0.00036, vol: 0.006, managed: true, buyOnly: true },
 ];
 
 // seedPrice es el último precio real conocido de cada par (08/09/2026): solo se
@@ -234,6 +244,19 @@ export async function fetchKlines(pairId, timeframeId, limit = 60) {
   const pair = getPair(pairId);
   const tf = getTimeframe(timeframeId);
 
+  // KEEP: la fuente es el Worker (precio manejado), nunca Binance.
+  if (pair.managed) {
+    try {
+      const res = await getManagedMarket(pair.id, tf.id, limit);
+      if (res?.ok && Array.isArray(res.candles) && res.candles.length > 0) {
+        return { mode: 'managed', source: 'worker', candles: res.candles };
+      }
+    } catch (e) {
+      /* Worker caído: caer al generador sintético como último recurso */
+    }
+    return { mode: 'sim', source: 'synthetic', candles: syntheticCandles(pairId, timeframeId, limit) };
+  }
+
   for (const venue of VENUES) {
     for (const symbol of pairSymbols(pair)) {
       try {
@@ -270,6 +293,26 @@ export async function fetchKlines(pairId, timeframeId, limit = 60) {
  */
 export async function fetch24h(pairId) {
   const pair = getPair(pairId);
+
+  if (pair.managed) {
+    try {
+      const res = await getManagedMarket(pair.id, '1h', 25);
+      if (res?.ok && Number.isFinite(Number(res.price))) {
+        const candles = Array.isArray(res.candles) ? res.candles : [];
+        return {
+          mode: 'managed',
+          source: 'worker',
+          price: Number(res.price),
+          changePercent: Number(res.change_percent) || 0,
+          high: candles.length ? Math.max(...candles.map((c) => c.h)) : Number(res.price),
+          low: candles.length ? Math.min(...candles.map((c) => c.l)) : Number(res.price),
+          volume: 0,
+        };
+      }
+    } catch (e) {
+      /* Worker caído: sintético abajo */
+    }
+  }
 
   for (const venue of VENUES) {
     for (const symbol of pairSymbols(pair)) {
@@ -335,6 +378,16 @@ export async function fetch24h(pairId) {
 export async function fetch24hMany(pairIds) {
   const pairs = [...new Set(pairIds || [])].map(getPair);
   const out = new Map();
+
+  // Los pares manejados (KEEP) no existen en Binance: se resuelven por su
+  // propia vía (Worker) y el lote de exchange sigue sin ellos.
+  for (const pair of pairs.filter((p) => p.managed)) {
+    try {
+      out.set(pair.id, await fetch24h(pair.id));
+    } catch (e) {
+      /* sin precio: el llamador conserva el último conocido */
+    }
+  }
 
   for (const venue of VENUES) {
     const pending = pairs.filter((p) => !out.has(p.id));

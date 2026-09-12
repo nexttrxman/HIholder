@@ -2,6 +2,10 @@
 // está en el JSX: el traductor reemplaza nodos de texto por coincidencia exacta
 // (ver LanguageProvider), así que no hace falta tocar los 84 componentes.
 export default {
+  'KEEP is buy-only — selling is not available yet.':
+    'KEEP 暂时只能买入 — 尚不支持卖出。',
+  '— added to your balance':
+    '— 已添加到你的余额',
   Activity: '动态',
   'Added to your internal balance': '已存入你的内部余额',
   Amount: '金额',
@@ -185,6 +189,7 @@ export default {
   'Check-in failed. Try again.': '签到失败，请重试.',
   'Could not load your check-in status': '无法加载你的签到状态',
   'Daily check-in + weekly bonus': '每日签到 + 每周奖励',
+  'Daily check-in KEEP reward': '每日签到 KEEP 奖励',
   'Daily check-in reward': '每日签到奖励',
   'In Progress': '进行中',
   'Complete 3 holds today': '今天完成 3 次持仓',

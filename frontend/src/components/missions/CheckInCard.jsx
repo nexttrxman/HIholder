@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CalendarCheck, Flame, Gift, Loader2, Check } from 'lucide-react';
 
-import { checkinStatus, dailyCheckin } from '@/services/api';
+import { checkinStatus, dailyCheckin, KEEP_REWARDS } from '@/services/api';
 import { useWallet } from '@/contexts/WalletContext';
 import { CHECKIN_CONFIG } from '@/lib/checkin';
 
@@ -64,7 +64,10 @@ export function CheckInCard() {
       setStatus({ ...EMPTY, ...res });
       const weekly = Number(res.weekly_bonus) || 0;
       const total = Number(res.credited) || status.daily_reward + weekly;
-      setReward({ total, weekly });
+      // v3.2: el check-in tambien paga KEEP (500-1200 el diario, y otros
+      // 500-1200 el bono semanal cuando corresponde).
+      const keep = (Number(res.keep_reward) || 0) + (Number(res.keep_weekly) || 0);
+      setReward({ total, weekly, keep });
 
       pushLocalTransaction({
         id: `checkin_${Date.now()}`,
@@ -75,6 +78,17 @@ export function CheckInCard() {
         timestamp: Date.now(),
         description: weekly > 0 ? 'Daily check-in + weekly bonus' : 'Daily check-in reward',
       });
+      if (keep > 0) {
+        pushLocalTransaction({
+          id: `checkin_keep_${Date.now()}`,
+          type: 'reward',
+          asset: 'KEEP',
+          amount: keep,
+          status: 'confirmed',
+          timestamp: Date.now(),
+          description: 'Daily check-in KEEP reward',
+        });
+      }
       refreshData?.();
     } catch (err) {
       setError('Check-in failed. Try again.');
@@ -100,7 +114,7 @@ export function CheckInCard() {
               Daily Check-In
             </h3>
             <p className="text-xs text-ink-dim mt-0.5">
-              +{status.daily_reward.toFixed(2)} USDT a day
+              {`+${status.daily_reward.toFixed(2)} USDT · ${KEEP_REWARDS.checkin.min}–${KEEP_REWARDS.checkin.max} KEEP a day`}
             </p>
           </div>
         </div>
@@ -216,6 +230,7 @@ export function CheckInCard() {
           >
             +{reward.total.toFixed(2)} USDT
             {reward.weekly > 0 ? ` · weekly bonus +${reward.weekly.toFixed(2)}` : ''}
+            {reward.keep > 0 ? ` · +${reward.keep.toLocaleString('en-US')} KEEP` : ''}
           </motion.p>
         )}
       </AnimatePresence>

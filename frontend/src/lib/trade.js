@@ -22,6 +22,33 @@ export const TRADE_CONFIG = {
 export const AMOUNT_PRESETS = [0.25, 0.5, 0.75, 1];
 
 /**
+ * Compra de KEEP (v3.2): espejo de validateKeepBuy en cloudflare-worker/lib.js.
+ * KEEP no esta en ALLOWED_PAIRS porque no abre posiciones: la compra es spot
+ * contra keep_balance. Mismos limites de notional y misma fee de un lado.
+ */
+export function validateManagedBuy({ amount, balance }) {
+  const notional = Number(amount);
+
+  if (!Number.isFinite(notional) || notional <= 0) {
+    return { ok: false, error: 'Amount must be a positive number' };
+  }
+  if (notional < TRADE_CONFIG.MIN_NOTIONAL) {
+    return { ok: false, error: `Minimum order size is ${TRADE_CONFIG.MIN_NOTIONAL} USDT` };
+  }
+  if (notional > TRADE_CONFIG.MAX_NOTIONAL) {
+    return { ok: false, error: `Maximum order size is ${TRADE_CONFIG.MAX_NOTIONAL} USDT` };
+  }
+
+  const available = Number(balance) || 0;
+  const fee = notional * TRADE_CONFIG.FEE_RATE;
+  if (notional + fee > available + 1e-9) {
+    return { ok: false, error: 'Insufficient USDT balance' };
+  }
+
+  return { ok: true, amount: notional };
+}
+
+/**
  * @returns {{ok:true, amount:number}|{ok:false, error:string}}
  */
 export function validateTradeRequest({ pair, amount, balance }) {

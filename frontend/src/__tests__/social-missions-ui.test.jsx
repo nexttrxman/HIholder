@@ -9,6 +9,11 @@ import * as api from '@/services/api';
 vi.mock('@/services/api', () => ({
   getSocialMissions: vi.fn(),
   verifySocialMission: vi.fn(),
+  KEEP_REWARDS: {
+    mission: { min: 500, max: 1200 },
+    checkin: { min: 500, max: 1200 },
+    claim: { min: 500, max: 2500 },
+  },
 }));
 vi.mock('@/hooks/useTelegram', () => ({
   useTelegram: () => ({ vibrate: vi.fn(), share: vi.fn(), isTelegramWebApp: false }),
@@ -38,7 +43,7 @@ describe('Misiones sociales (UI)', () => {
     render(<SocialMissions />);
     await waitFor(() => expect(screen.getByTestId('social-mission-tg_channel')).toBeTruthy());
     expect(screen.getByText('Follow the channel')).toBeTruthy();
-    expect(screen.getByText('+$0.40 USDT')).toBeTruthy();
+    expect(screen.getByText('+$0.40 USDT · 500–1200 KEEP')).toBeTruthy();
     expect(screen.getByTestId('verify-tg_channel')).toBeTruthy();
     expect(screen.getByTestId('open-tg_channel').getAttribute('href'))
       .toBe('https://t.me/KeeperExchange');

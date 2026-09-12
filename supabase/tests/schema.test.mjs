@@ -250,12 +250,15 @@ async function seedUser(balance = 0) {
   eq('checkin: lib.js cuenta 7 días esta semana', sum.days_this_week, 7);
   eq('checkin: lib.js dice weekly_complete', sum.weekly_complete, true);
   eq('checkin: lib.js dice ya hecho hoy', sum.checked_in_today, true);
+  // v3.2: cada check-in escribe dos renglones, USDT + KEEP.
   const cl = {};
-  for (const r of (await q(`SELECT operation, count(*)::int n FROM wallet_ledger WHERE user_id=$1 GROUP BY operation`, [u3])).rows) {
-    cl[r.operation] = r.n;
+  for (const r of (await q(`SELECT operation, asset, count(*)::int n FROM wallet_ledger WHERE user_id=$1 GROUP BY operation, asset`, [u3])).rows) {
+    cl[`${r.operation}:${r.asset}`] = r.n;
   }
-  eq('ledger: checkin_daily registrado', cl.checkin_daily, 1);
-  eq('ledger: checkin_weekly registrado una sola vez', cl.checkin_weekly, 1);
+  eq('ledger: checkin_daily registrado', cl['checkin_daily:USDT'], 1);
+  eq('ledger: checkin_daily KEEP registrado', cl['checkin_daily:KEEP'], 1);
+  eq('ledger: checkin_weekly registrado una sola vez', cl['checkin_weekly:USDT'], 1);
+  eq('ledger: checkin_weekly KEEP registrado una sola vez', cl['checkin_weekly:KEEP'], 1);
 }
 
 // ---- 5) constraints de integridad ---------------------------------------

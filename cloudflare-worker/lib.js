@@ -1049,6 +1049,55 @@ export const CHECKIN_CONFIG = {
   DAYS_FOR_WEEKLY: 7,
 };
 
+// ============================================
+// $KEEP (v3.2) — token propio
+// ============================================
+// Recompensas y compra de KEEP. Los montos REALES los sortea el SQL
+// (daily_checkin, complete_social_mission, credit_claim); esto es el espejo
+// para mostrar rangos en la UI y para los tests (mirrors.test.mjs).
+export const KEEP_CONFIG = {
+  PAIR: 'KEEPUSDT',
+  MISSION_MIN: 500,
+  MISSION_MAX: 1200,
+  CHECKIN_MIN: 500,
+  CHECKIN_MAX: 1200,
+  CLAIM_MIN: 500,
+  CLAIM_MAX: 2500,
+  // La compra usa los mismos limites de notional que el book simulado.
+  BUY_MIN_NOTIONAL: 1, // USDT
+  BUY_MAX_NOTIONAL: 100000, // USDT
+};
+
+/** timeframe -> segundos de bucket para las velas del precio manejado. */
+export const MANAGED_INTERVAL_SECONDS = { '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400 };
+
+/**
+ * Valida una compra de KEEP contra el saldo USDT interno. Misma fee de un
+ * lado (0.1%) que el resto del book.
+ * @returns {{ok:true, amount:number}|{ok:false, error:string}}
+ */
+export function validateKeepBuy({ amount, balance }) {
+  const notional = Number(amount);
+
+  if (!Number.isFinite(notional) || notional <= 0) {
+    return { ok: false, error: 'Amount must be a positive number' };
+  }
+  if (notional < KEEP_CONFIG.BUY_MIN_NOTIONAL) {
+    return { ok: false, error: `Minimum order size is ${KEEP_CONFIG.BUY_MIN_NOTIONAL} USDT` };
+  }
+  if (notional > KEEP_CONFIG.BUY_MAX_NOTIONAL) {
+    return { ok: false, error: `Maximum order size is ${KEEP_CONFIG.BUY_MAX_NOTIONAL} USDT` };
+  }
+
+  const available = Number(balance) || 0;
+  const fee = notional * TRADE_CONFIG.FEE_RATE;
+  if (notional + fee > available + 1e-9) {
+    return { ok: false, error: 'Insufficient USDT balance' };
+  }
+
+  return { ok: true, amount: notional };
+}
+
 const MS_PER_DAY = 86400000;
 
 /** 'YYYY-MM-DD' in UTC — the same granularity the checkins table stores. */

@@ -3,9 +3,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  * El feed está vivo si lo está el gráfico O el ticker. Binance spot no lista
  * todos los pares (HYPE solo cotiza en Futures), así que puede darse un ticker
  * real con velas sintéticas: el precio que se muestra es el real.
+ * 'managed' (KEEP) viene del Worker, no de un exchange: es autoritativo como
+ * el live pero se etiqueta distinto en la UI.
  */
-const combinedMode = (klines, tick) =>
-  klines?.mode === 'live' || tick?.mode === 'live' ? 'live' : 'sim';
+const combinedMode = (klines, tick) => {
+  if (klines?.mode === 'live' || tick?.mode === 'live') return 'live';
+  if (klines?.mode === 'managed' || tick?.mode === 'managed') return 'managed';
+  return 'sim';
+};
 
 import {
   advanceSynthetic,
@@ -84,7 +89,8 @@ export function useMarketData(pairId, timeframeId, { candleCount = 60, pollMs = 
       if (!active) return;
       pollCountRef.current += 1;
 
-      const retryExchange = modeRef.current === 'live' || pollCountRef.current % 5 === 0;
+      const retryExchange =
+        modeRef.current === 'live' || modeRef.current === 'managed' || pollCountRef.current % 5 === 0;
 
       if (retryExchange) {
         (async () => {
@@ -116,7 +122,7 @@ export function useMarketData(pairId, timeframeId, { candleCount = 60, pollMs = 
   const lastCandle = candles.length > 0 ? candles[candles.length - 1] : null;
   // Un ticker vivo manda sobre el cierre de la última vela, aunque las velas
   // vengan del generador sintético.
-  const priceIsLive = ticker?.mode === 'live';
+  const priceIsLive = ticker?.mode === 'live' || ticker?.mode === 'managed';
   const lastPrice = priceIsLive
     ? (ticker.price ?? lastCandle?.c ?? 0)
     : (lastCandle?.c ?? ticker?.price ?? 0);

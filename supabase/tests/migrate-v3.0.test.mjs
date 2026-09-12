@@ -56,7 +56,9 @@ await c.connect();
 
   const m31 = fs.readFileSync(path.resolve(HERE,'..','migrate-v3.1.sql'),'utf8').split('\n');
   const m31i = m31.findIndex((l) => l.startsWith('-- v3.1 — MISIONES'));
-  const cuerpo31 = schemaLines.slice(s31 + 1);
+  // v3.1 llega hasta la separadora del bloque v3.2 (misma regla que arriba).
+  const s32 = schemaLines.findIndex((l) => l.startsWith('-- v3.2 — $KEEP')) - 1;
+  const cuerpo31 = schemaLines.slice(s31 + 1, s32);
   check('migrate-v3.1.sql no se desincronizo de schema.sql',
     s31 >= 0 && m31i >= 0 && JSON.stringify(m31.slice(m31i, m31i + cuerpo31.length)) === JSON.stringify(cuerpo31),
     `schema.sql:${s31 + 1} vs migrate-v3.1.sql:${m31i + 1}`);

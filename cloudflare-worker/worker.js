@@ -35,6 +35,9 @@ import {
   resolveAuthCycle,
   CONFIG,
   TRADE_CONFIG,
+  KEEP_CONFIG,
+  MANAGED_INTERVAL_SECONDS,
+  validateKeepBuy,
   resolvePendingClaim,
   summarizeCheckins,
   CHECKIN_CONFIG,
@@ -201,7 +204,7 @@ async function handleAuth(request, env) {
   }
 
   const wallets = await db.query('internal_wallets', 'select', { filters: { user_id: tgId } });
-  const wallet = wallets[0] || { usdt_balance: 0, trx_balance: 0, ton_balance: 0 };
+  const wallet = wallets[0] || { usdt_balance: 0, trx_balance: 0, ton_balance: 0, keep_balance: 0 };
 
   const claims = await db.query('claims', 'select', {
     filters: { cycle_id: cycle.id, status: 'pending' }
@@ -238,6 +241,7 @@ async function handleAuth(request, env) {
       usdt_balance: parseFloat(wallet.usdt_balance) || 0,
       trx_balance: parseFloat(wallet.trx_balance) || 0,
       ton_balance: parseFloat(wallet.ton_balance) || 0,
+      keep_balance: parseFloat(wallet.keep_balance) || 0,
       total_refs: totalRefs,
       trx_refs: trxFromRefs,
     },
@@ -542,6 +546,9 @@ async function handleVerifyPayment(request, env) {
       ok: true,
       credited: parseFloat(result.credited),
       new_balance: parseFloat(result.new_balance),
+      // Bonus $KEEP del claim (v3.2): el SQL sortea 500-2500 y lo devuelve.
+      keep_credited: Number(result.keep_credited) || 0,
+      keep_balance: parseFloat(result.keep_balance) || 0,
       tx_hash: payment.tx_hash,
     });
   }
@@ -794,6 +801,109 @@ async function handleSellAsset(request, env) {
 }
 
 // ============================================
+// KEEP PRICE - precio manejado (GET, publico)
+// ============================================
+// KEEP no cotiza en ningun exchange: el precio vive en managed_prices y lo
+// mueve un walk dentro de la banda que define el proyecto. Este endpoint es
+// la unica fuente de verdad para el grafico y la compra. Solo lectura, sin
+// initData: no expone nada del usuario.
+async function handlePrice(request, env, url) {
+  const pair = String(url.searchParams.get('pair') || '').toUpperCase();
+  if (pair !== KEEP_CONFIG.PAIR) {
+    return jsonResponse({ ok: false, error: 'Unsupported pair' }, 400);
+  }
+  const interval = url.searchParams.get('interval') || '1h';
+  const bucketSeconds = MANAGED_INTERVAL_SECONDS[interval];
+  if (!bucketSeconds) {
+    return jsonResponse({ ok: false, error: 'Unsupported interval' }, 400);
+  }
+  const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 60, 1), 300);
+
+  const db = supabase(env);
+  const result = await db.rpc('managed_price_candles', {
+    p_pair: pair,
+    p_bucket_seconds: bucketSeconds,
+    p_limit: limit,
+  });
+  if (!result || result.ok !== true) {
+    return jsonResponse({ ok: false, error: 'Price unavailable. Try again in a moment.' }, 502);
+  }
+
+  return jsonResponse({
+    ok: true,
+    mode: 'managed',
+    pair,
+    price: Number(result.price),
+    change_percent: Number(result.change_percent) || 0,
+    floor: Number(result.floor),
+    cap: Number(result.cap),
+    candles: (Array.isArray(result.candles) ? result.candles : []).map((c) => ({
+      t: Number(c.t), o: Number(c.o), h: Number(c.h), l: Number(c.l),
+      c: Number(c.c), v: Number(c.v),
+    })),
+  });
+}
+
+// ============================================
+// KEEP BUY - spot con USDT interno (no abre posicion)
+// ============================================
+// El mark price es SIEMPRE el manejado (managed_price_tick): el precio del
+// cliente solo se acepta dentro de la tolerancia y nunca decide el fill.
+// No hay operacion inversa: KEEP no se vende.
+async function handleBuyKeep(request, env) {
+  const { initData, amount, price } = await request.json();
+  const telegramUser = await validateInitDataAny(initData, env.BOT_TOKEN);
+  if (!telegramUser) {
+    return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
+  }
+
+  const db = supabase(env);
+  const tgId = telegramUser.id.toString();
+
+  const wallets = await db.query('internal_wallets', 'select', { filters: { user_id: tgId } });
+  const wallet = (Array.isArray(wallets) ? wallets : [])[0];
+  if (!wallet) return jsonResponse({ ok: false, error: 'Wallet not found' }, 404);
+
+  const validation = validateKeepBuy({ amount, balance: parseFloat(wallet.usdt_balance) || 0 });
+  if (!validation.ok) {
+    return jsonResponse({ ok: false, error: validation.error }, 400);
+  }
+
+  const tick = await db.rpc('managed_price_tick', { p_pair: KEEP_CONFIG.PAIR });
+  if (!tick || tick.ok !== true) {
+    return jsonResponse({ ok: false, error: 'Price unavailable. Try again in a moment.' }, 502);
+  }
+  const markPrice = Number(tick.price);
+  if (!Number.isFinite(markPrice) || markPrice <= 0) {
+    return jsonResponse({ ok: false, error: 'Price unavailable. Try again in a moment.' }, 502);
+  }
+  if (price && !isPriceWithinTolerance(Number(price), markPrice)) {
+    return jsonResponse(
+      { ok: false, error: 'Price moved. Refresh and try again.', fill_price: markPrice },
+      409
+    );
+  }
+
+  const result = await db.rpc('buy_keep', {
+    p_user_id: tgId,
+    p_amount: validation.amount,
+    p_price: markPrice,
+  });
+  if (!result || result.ok !== true) {
+    return jsonResponse({ ok: false, error: result?.error || 'Purchase failed' }, 400);
+  }
+
+  return jsonResponse({
+    ok: true,
+    qty: Number(result.qty),
+    fee: Number(result.fee),
+    price: Number(result.price),
+    usdt_balance: Number(result.usdt_balance),
+    keep_balance: Number(result.keep_balance),
+  });
+}
+
+// ============================================
 // TRADE LEVELS - set / edit Take Profit and Stop Loss
 // ============================================
 async function handleTradeLevels(request, env) {
@@ -936,7 +1046,13 @@ async function handleCheckinStatus(request, env) {
     limit: 60
   });
 
-  return jsonResponse({ ok: true, ...summarizeCheckins(rows) });
+  return jsonResponse({
+    ok: true,
+    ...summarizeCheckins(rows),
+    // Rango de KEEP por check-in (v3.2): diario y semanal pagan 500-1200.
+    keep_min: KEEP_CONFIG.CHECKIN_MIN,
+    keep_max: KEEP_CONFIG.CHECKIN_MAX,
+  });
 }
 
 /**
@@ -1040,6 +1156,9 @@ async function handleMissions(request, env) {
       url: m.url, reward: Number(m.reward_usdt), verify: m.verify,
     })),
     completed,
+    // Rango de KEEP que paga cada mision (v3.2), para mostrarlo en la card.
+    keep_min: KEEP_CONFIG.MISSION_MIN,
+    keep_max: KEEP_CONFIG.MISSION_MAX,
   });
 }
 
@@ -1083,7 +1202,12 @@ async function handleVerifyMission(request, env) {
   });
   const body = result?.ok ? result : (result || {});
   if (body.ok) {
-    return jsonResponse({ ok: true, reward: body.reward });
+    return jsonResponse({
+      ok: true,
+      reward: body.reward,
+      // v3.2: la mision tambien paga KEEP (500-1200, sorteados en el SQL).
+      keep_reward: Number(body.keep_reward) || 0,
+    });
   }
   return jsonResponse({ ok: false, error: body.error || 'failed' }, 400);
 }
@@ -1110,6 +1234,7 @@ export default {
           case '/trade':          return await handleTrade(request, env);
           case '/trade/close':    return await handleTradeClose(request, env);
           case '/trade/sell-asset': return await handleSellAsset(request, env);
+          case '/trade/buy-keep':  return await handleBuyKeep(request, env);
           case '/trade/levels':   return await handleTradeLevels(request, env);
           case '/positions':      return await handlePositions(request, env);
           case '/withdraw':         return await handleWithdraw(request, env);
@@ -1121,6 +1246,10 @@ export default {
         }
       }
 
+      if (path === '/price') {
+        return await handlePrice(request, env, url);
+      }
+
       if (path === '/' || path === '/health') {
         // Solo presencia (booleanos), nunca valores: 'Invalid initData' sale igual
         // si BOT_TOKEN falta, si está mal escrito o si es de otro bot, y desde
@@ -1128,10 +1257,10 @@ export default {
         return jsonResponse({
           ok: true,
           service: 'TronKeeper API',
-          // 3.2: misiones sociales con verificacion de Telegram. Sirve para
-          // verificar EN VIVO que el Worker corre el codigo nuevo: si /health
-          // devuelve una version menor, el deploy no se hizo.
-          version: '3.2',
+          // 3.3: $KEEP (recompensas en KEEP, precio manejado, compra sin
+          // venta). Sirve para verificar EN VIVO que el Worker corre el codigo
+          // nuevo: si /health devuelve una version menor, el deploy no se hizo.
+          version: '3.3',
           treasury: CONFIG.TREASURY_WALLET,
           env: {
             BOT_TOKEN: Boolean(env.BOT_TOKEN),

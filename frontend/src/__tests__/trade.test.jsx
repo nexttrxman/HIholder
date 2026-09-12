@@ -629,6 +629,8 @@ describe('markets', () => {
     const expected = {
       TONUSDT: 1.39, BTCUSDT: 79000, ETHUSDT: 2490, SOLUSDT: 103,
       HYPEUSDT: 83, UNIUSDT: 6.9, TRXUSDT: 0.312, DOGEUSDT: 0.09,
+      // KEEP: centro de la banda manejada (managed_prices), no un exchange.
+      KEEPUSDT: 0.00036,
     };
     for (const pair of PAIRS) {
       expect(pair.seedPrice, pair.id).toBe(expected[pair.id]);

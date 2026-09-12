@@ -6,6 +6,10 @@
 // en inglés. `npm run test` lo detecta: i18n.test.js verifica que toda clave
 // exista en todos los idiomas.
 export default {
+  'KEEP is buy-only — selling is not available yet.':
+    'KEEP solo se puede comprar — la venta todavía no está disponible.',
+  '— added to your balance':
+    '— agregado a tu saldo',
   Activity: 'Actividad',
   'Added to your internal balance': 'Agregado a tu saldo interno',
   Amount: 'Monto',
@@ -191,6 +195,7 @@ export default {
   'Check-in failed. Try again.': 'Falló el registro. Probá de nuevo.',
   'Could not load your check-in status': 'No se pudo cargar tu estado de registro',
   'Daily check-in + weekly bonus': 'Check-in diario + bono semanal',
+  'Daily check-in KEEP reward': 'Premio KEEP por check-in diario',
   'Daily check-in reward': 'Premio por check-in diario',
   'In Progress': 'En curso',
   'Complete 3 holds today': 'Completá 3 holds hoy',
