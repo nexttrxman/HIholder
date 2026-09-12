@@ -1,12 +1,10 @@
 import { useState } from 'react';
-import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
 import { Info } from 'lucide-react';
-import soonLogo from '@/assets/soon-logo.png';
 
 export function BalanceCard({ 
   asset, 
-  amount, 
+  amount,
   label,
   icon,
   onWithdraw,
@@ -14,24 +12,24 @@ export function BalanceCard({
   onSend,
   // Envío interno entre usuarios. La opción se muestra desde ahora para que la
   // UI no cambie cuando se habilite, pero todavía no hay endpoint en el Worker,
-  // así que arranca deshabilitada (INTERNAL_TRANSFER_ENABLED en services/api.js).
-  // "Deshabilitada" no es un botón muerto: al apretarlo sale el cartel del logo
-  // explicando que viene pronto. Cuando se habilite, este prop pasa a false y
-  // el botón llama a onSend como cualquier otro.
+  // así que arranca apagada (INTERNAL_TRANSFER_ENABLED en services/api.js).
+  // Apagada de verdad: el botón no hace nada y queda atenuado; la única
+  // explicación es el circulito de información al lado de la palabra Send.
   sendDisabled = false,
   showActions = true
 }) {
   const isUSDT = asset === 'USDT';
   const color = isUSDT ? 'brand-green' : 'brand-red';
   const low = asset.toLowerCase();
-  const [soonOpen, setSoonOpen] = useState(false);
+  const [hintOpen, setHintOpen] = useState(false);
 
-  const handleSend = () => {
-    if (sendDisabled) {
-      setSoonOpen(true);
-    } else {
-      onSend?.();
-    }
+  // El circulito no puede ser un <button> adentro del Send: un botón anidado es
+  // HTML inválido. Es un span con role="button" que frena el clic antes de que
+  // llegue al Send (stopPropagation), así abrir la explicación nunca cuenta
+  // como apretar el botón.
+  const toggleHint = (e) => {
+    e.stopPropagation();
+    setHintOpen((v) => !v);
   };
 
   return (
@@ -84,69 +82,55 @@ export function BalanceCard({
             </button>
           )}
           {onSend && (
-            <button
-              type="button"
-              onClick={handleSend}
-              data-testid={`send-${low}-btn`}
-              className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm font-medium text-white/80 hover:bg-white/10 active:scale-95 transition-all"
-            >
-              {/* El circulito va al lado de la palabra Send, adentro del botón:
-                  el cartel que abre el clic ya es la explicación, así que no
-                  hace falta un tooltip aparte (ni hover, que en el teléfono
-                  no existe). */}
-              <span className="inline-flex items-center justify-center gap-1.5">
-                Send
-                {sendDisabled && (
-                  <Info
-                    data-testid={`send-${low}-info`}
-                    className="w-3.5 h-3.5 text-white/40"
-                  />
-                )}
-              </span>
-            </button>
+            <div className="relative flex-1">
+              <button
+                type="button"
+                // Apagado no es disabled: un botón disabled vuelve agujero negro
+                // los clics de sus hijos y el circulito no podría abrir su aviso.
+                // El Send apagado simplemente no tiene onClick y queda atenuado.
+                onClick={sendDisabled ? undefined : onSend}
+                aria-disabled={sendDisabled || undefined}
+                data-testid={`send-${low}-btn`}
+                className={`w-full py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm font-medium text-white/80 transition-all ${
+                  sendDisabled
+                    ? 'opacity-40 cursor-not-allowed'
+                    : 'hover:bg-white/10 active:scale-95'
+                }`}
+              >
+                <span className="inline-flex items-center justify-center gap-1.5">
+                  Send
+                  {sendDisabled && (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={toggleHint}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') toggleHint(e);
+                      }}
+                      aria-label="Send to other users — coming soon."
+                      aria-expanded={hintOpen}
+                      data-testid={`send-${low}-info`}
+                      className="w-4 h-4 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-white/60 active:scale-90"
+                    >
+                      <Info className="w-2.5 h-2.5" />
+                    </span>
+                  )}
+                </span>
+              </button>
+
+              {sendDisabled && hintOpen && (
+                <p
+                  role="tooltip"
+                  data-testid={`send-${low}-hint`}
+                  className="absolute bottom-full right-0 mb-2 w-44 p-2.5 rounded-xl bg-ink-deep border border-white/10 text-[11px] leading-snug text-white/70 shadow-xl z-20"
+                >
+                  Send to other users — coming soon.
+                </p>
+              )}
+            </div>
           )}
         </div>
       )}
-
-      {/* Cartel de "coming soon". Va por portal: el padre es un motion.div con
-          transform, y un fixed adentro quedaría anclado al padre en vez de a la
-          pantalla. */}
-      {soonOpen &&
-        createPortal(
-          <div
-            role="dialog"
-            aria-modal="true"
-            data-testid={`send-${low}-soon-overlay`}
-            className="fixed inset-0 z-50 flex items-center justify-center p-6"
-            onClick={() => setSoonOpen(false)}
-          >
-            <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
-            <div
-              data-testid={`send-${low}-soon-card`}
-              className="relative w-full max-w-[260px] rounded-3xl bg-[#F5F7FA] p-4 text-center shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <img
-                src={soonLogo}
-                alt="Coming soon"
-                data-testid={`send-${low}-soon-logo`}
-                className="w-full rounded-2xl"
-              />
-              <p className="mt-3 text-[13px] leading-snug text-black/70">
-                Send to other users — coming soon.
-              </p>
-              <button
-                type="button"
-                onClick={() => setSoonOpen(false)}
-                data-testid={`send-${low}-soon-close`}
-                className="mt-3 w-full py-2.5 rounded-xl bg-[#12161f] text-white text-sm font-medium active:scale-95 transition-all"
-              >
-                OK
-              </button>
-            </div>
-          </div>,
-          document.body
-        )}
     </motion.div>
   );
 }
