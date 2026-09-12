@@ -36,7 +36,7 @@ test('GET /health reporta la versión y las variables presentes', async () => {
 
   assert.equal(body.ok, true);
   assert.equal(body.service, 'TronKeeper API');
-  assert.equal(body.version, '2.8.1');
+  assert.equal(body.version, '3.1');
   assert.deepEqual(body.env, {
     BOT_TOKEN: true,
     SUPA_URL: true,
@@ -82,7 +82,7 @@ test('GET /health no filtra el valor de ningún secreto', async () => {
 test('GET / es un alias de /health', async () => {
   const res = await worker.fetch(new Request('https://api.example/'), FULL_ENV);
   const body = await res.json();
-  assert.equal(body.version, '2.8.1');
+  assert.equal(body.version, '3.1');
   assert.equal(body.env.BOT_TOKEN, true);
 });
 

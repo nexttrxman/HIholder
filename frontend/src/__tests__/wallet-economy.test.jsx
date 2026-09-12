@@ -59,55 +59,45 @@ describe('BalanceCard: botón de envío interno', () => {
     expect(screen.queryByTestId('send-trx-btn')).toBeNull();
   });
 
-  it('aparece deshabilitado y marcado como "Soon"', () => {
+  it('ya no muestra el texto "Soon" ni queda disabled: ahora abre el cartel', () => {
     render(
       <BalanceCard asset="TRX" amount={1} onSend={() => {}} sendDisabled />,
     );
     const btn = screen.getByTestId('send-trx-btn');
-    expect(btn.disabled).toBe(true);
-    expect(btn).toHaveTextContent('Soon');
-  });
-
-  it('queda habilitado cuando se activa la flag', () => {
-    render(
-      <BalanceCard asset="USDT" amount={10} onSend={() => {}} sendDisabled={false} />,
-    );
-    const btn = screen.getByTestId('send-usdt-btn');
     expect(btn.disabled).toBe(false);
     expect(btn).not.toHaveTextContent('Soon');
   });
 
-  it('muestra el circulito de información cuando está deshabilitado', () => {
+  it('el circulito de información queda al lado de la palabra Send, adentro del botón', () => {
     render(<BalanceCard asset="USDT" amount={10} onSend={() => {}} sendDisabled />);
-    expect(screen.getByTestId('send-usdt-info')).toBeTruthy();
+    const btn = screen.getByTestId('send-usdt-btn');
+    const info = screen.getByTestId('send-usdt-info');
+    expect(btn.contains(info)).toBe(true);
   });
 
-  it('el circulito explica que es para enviar a otros usuarios y que viene pronto', () => {
-    render(<BalanceCard asset="USDT" amount={10} onSend={() => {}} sendDisabled />);
-    // El texto tiene que estar accesible aunque el tooltip esté cerrado: es un
-    // aria-label, y en el teléfono no hay hover para descubrirlo de otra forma.
-    expect(screen.getByTestId('send-usdt-info').getAttribute('aria-label'))
-      .toMatch(/other users/i);
-    expect(screen.getByTestId('send-usdt-info').getAttribute('aria-label'))
-      .toMatch(/soon/i);
-  });
-
-  it('al tocar el circulito se abre el aviso y se vuelve a cerrar', () => {
-    render(<BalanceCard asset="USDT" amount={10} onSend={() => {}} sendDisabled />);
-    expect(screen.queryByTestId('send-usdt-hint')).toBeNull();
-
-    fireEvent.click(screen.getByTestId('send-usdt-info'));
-    expect(screen.getByTestId('send-usdt-hint')).toHaveTextContent(/other users/i);
-
-    fireEvent.click(screen.getByTestId('send-usdt-info'));
-    expect(screen.queryByTestId('send-usdt-hint')).toBeNull();
-  });
-
-  it('tocar el circulito NO dispara el envío', () => {
+  it('apretar Send abre el cartel con el logo y no dispara el envío', () => {
     const onSend = vi.fn();
     render(<BalanceCard asset="USDT" amount={10} onSend={onSend} sendDisabled />);
-    fireEvent.click(screen.getByTestId('send-usdt-info'));
+    expect(screen.queryByTestId('send-usdt-soon-card')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('send-usdt-btn'));
     expect(onSend).not.toHaveBeenCalled();
+    expect(screen.getByTestId('send-usdt-soon-card')).toBeTruthy();
+    expect(screen.getByTestId('send-usdt-soon-logo')).toBeTruthy();
+    expect(screen.getByTestId('send-usdt-soon-card')).toHaveTextContent(/other users/i);
+  });
+
+  it('el cartel se cierra con su botón y tocando afuera', () => {
+    render(<BalanceCard asset="USDT" amount={10} onSend={() => {}} sendDisabled />);
+    fireEvent.click(screen.getByTestId('send-usdt-btn'));
+    expect(screen.getByTestId('send-usdt-soon-card')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('send-usdt-soon-close'));
+    expect(screen.queryByTestId('send-usdt-soon-card')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('send-usdt-btn'));
+    fireEvent.click(screen.getByTestId('send-usdt-soon-overlay'));
+    expect(screen.queryByTestId('send-usdt-soon-card')).toBeNull();
   });
 
   it('sin sendDisabled no hay circulito (el envío ya funciona)', () => {

@@ -65,6 +65,7 @@ export default {
   'Network Fee': 'رسوم الشبكة',
   'Welcome Bonus': 'مكافأة الترحيب',
   'Send to other users — coming soon.': 'إرسال إلى مستخدمين آخرين — قريباً.',
+  'Coming soon': 'قريباً',
   Next: 'التالي',
   'Next slide': 'التالي',
   'No limits set': 'لا توجد حدود محددة',

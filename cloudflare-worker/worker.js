@@ -1050,7 +1050,10 @@ export default {
         return jsonResponse({
           ok: true,
           service: 'TronKeeper API',
-          version: '2.8.1',
+          // 3.1: retiradas (cola manual) + /withdraw/settings + el ciclo hold ya
+          // arreglado. Sirve para verificar EN VIVO que el Worker corre el codigo
+          // nuevo: si /health devuelve una version menor, el deploy no se hizo.
+          version: '3.1',
           treasury: CONFIG.TREASURY_WALLET,
           env: {
             BOT_TOKEN: Boolean(env.BOT_TOKEN),

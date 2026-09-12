@@ -65,6 +65,7 @@ export default {
   'Network Fee': 'کارمزد شبکه',
   'Welcome Bonus': 'پاداش خوش‌آمدگویی',
   'Send to other users — coming soon.': 'ارسال به کاربران دیگر — به‌زودی.',
+  'Coming soon': 'به‌زودی',
   Next: 'بعدی',
   'Next slide': 'بعدی',
   'No limits set': 'حدی تعیین نشده',

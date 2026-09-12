@@ -65,6 +65,7 @@ export default {
   'Network Fee': 'Taxa de rede',
   'Welcome Bonus': 'Bônus de boas-vindas',
   'Send to other users — coming soon.': 'Envie para outros usuários — em breve.',
+  'Coming soon': 'Em breve',
   Next: 'Próximo',
   'Next slide': 'Próximo',
   'No limits set': 'Sem limites definidos',

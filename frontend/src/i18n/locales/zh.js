@@ -65,6 +65,7 @@ export default {
   'Network Fee': '网络手续费',
   'Welcome Bonus': '欢迎奖励',
   'Send to other users — coming soon.': '发送给其他用户 — 即将推出。',
+  'Coming soon': '即将推出',
   Next: '下一步',
   'Next slide': '下一张',
   'No limits set': '未设置止盈止损',

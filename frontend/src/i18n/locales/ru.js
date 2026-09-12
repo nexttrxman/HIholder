@@ -65,6 +65,7 @@ export default {
   'Network Fee': 'Комиссия сети',
   'Welcome Bonus': 'Приветственный бонус',
   'Send to other users — coming soon.': 'Отправка другим пользователям — скоро.',
+  'Coming soon': 'Скоро',
   Next: 'Далее',
   'Next slide': 'Далее',
   'No limits set': 'Лимиты не заданы',
