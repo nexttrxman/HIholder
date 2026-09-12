@@ -61,6 +61,17 @@ describe('Standby tras el claim: countdown visible', () => {
     expect(after).not.toBe(before);
   });
 
+  it('tras un claim NO cobrado: sin countdown y con el boton habilitado (el bug del usuario)', () => {
+    // Estado real despues de que el claim vencio sin pagarse: el ciclo sigue
+    // activo con la ventana corriendo, los holds volvieron a 0 y no hay claim
+    // pendiente. Ahi NO hay standby: hay que holdear de nuevo. El countdown
+    // aca era lo que hacia parecer bloqueado al boton.
+    setState({ canHold: () => true, holdsCompleted: 0, remainingHolds: 3 });
+    render(<HoldButton />);
+    expect(screen.queryByTestId('hold-cooldown')).toBeNull();
+    expect(screen.getByTestId('hold-button')).not.toBeDisabled();
+  });
+
   it('sin cooldown no hay countdown', () => {
     setState({ canHold: () => true, holdsCompleted: 1, remainingHolds: 2, cycleEndsAt: null });
     render(<HoldButton />);

@@ -169,8 +169,13 @@ export function HoldButton({ onClaimReady }) {
   // componente de a un segundo cuando no hace falta.
   const [nowTs, setNowTs] = useState(() => Date.now());
   const cooldownMs = cycleEndsAt ? new Date(cycleEndsAt).getTime() - nowTs : 0;
+  // SOLO cuando el boton esta realmente bloqueado (claim cobrado, ventana de
+  // 8 h corriendo). La version anterior tambien lo mostraba con
+  // holdsCompleted===0 y ciclo activo — que es EXACTAMENTE el estado que queda
+  // tras un claim que vencio sin cobrarse — y el usuario veia "New cycle in
+  // 7h..." con el boton habilitado: parecia standby donde habia que jugar.
   const showCooldown = !hasPendingClaim && !!cycleEndsAt && cooldownMs > 0
-    && (isDisabled || holdsCompleted === 0);
+    && isDisabled;
 
   useEffect(() => {
     if (!showCooldown) return undefined;
