@@ -228,45 +228,85 @@ WHERE j.jobname = 'tronkeeper-expire-claims';
 -- =============================================================================
 -- TERCERA SENTENCIA: estado de v3.0 (retiros), v3.1 (misiones) y v3.2 ($KEEP).
 -- =============================================================================
--- Corre después de aplicar migrate-v3.0.sql, migrate-v3.1.sql y
--- migrate-v3.2.sql. De lectura: no modifica nada.
-SELECT "#" , chequeo, estado FROM (
-  SELECT 1 AS "#", 'v3.0: withdrawal_requests existe' AS chequeo,
-         CASE WHEN to_regclass('public.withdrawal_requests') IS NOT NULL THEN 'OK' ELSE 'FALTA' END AS estado
-  UNION ALL
-  SELECT 2, 'v3.0: fee de retiro 5.5 TRX',
-         CASE WHEN (SELECT fee_trx FROM withdrawal_config WHERE id = 1) = 5.5 THEN 'OK' ELSE 'FALTA' END
-  UNION ALL
-  SELECT 3, 'v3.1: social_missions existe',
-         CASE WHEN to_regclass('public.social_missions') IS NOT NULL THEN 'OK' ELSE 'FALTA' END
-  UNION ALL
-  SELECT 4, 'v3.1: misiones de Telegram habilitadas (esperado 2)',
-         CASE WHEN (SELECT count(*) FROM social_missions WHERE enabled AND verify = 'telegram_member') = 2
-              THEN 'OK' ELSE 'REVISAR' END
-  UNION ALL
-  SELECT 5, 'v3.2: internal_wallets.keep_balance existe',
-         CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns
-                            WHERE table_name = 'internal_wallets' AND column_name = 'keep_balance')
-              THEN 'OK' ELSE 'FALTA' END
-  UNION ALL
-  SELECT 6, 'v3.2: el ledger acepta KEEP',
-         CASE WHEN (SELECT pg_get_constraintdef(oid) FROM pg_constraint
-                     WHERE conname = 'wallet_ledger_asset_check') LIKE '%KEEP%'
-              THEN 'OK' ELSE 'FALTA' END
-  UNION ALL
-  SELECT 7, 'v3.2: managed_prices con KEEPUSDT',
-         CASE WHEN (SELECT count(*) FROM managed_prices WHERE pair = 'KEEPUSDT') = 1
-              THEN 'OK' ELSE 'FALTA' END
-  UNION ALL
-  SELECT 8, 'v3.2: funciones buy_keep/managed_price_* presentes (esperado 3)',
-         CASE WHEN (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-                     WHERE n.nspname = 'public'
-                       AND p.proname IN ('buy_keep','managed_price_tick','managed_price_candles')) = 3
-              THEN 'OK' ELSE 'FALTA' END
-  UNION ALL
-  SELECT 9, 'v3.2: user_social_missions.reward_keep existe',
-         CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns
-                            WHERE table_name = 'user_social_missions' AND column_name = 'reward_keep')
-              THEN 'OK' ELSE 'FALTA' END
-) AS v3x
-ORDER BY "#";
+-- Responde "corri las migraciones nuevas?". De lectura: no modifica nada y la
+-- funcion auxiliar vive en pg_temp (muere al cerrar la sesion).
+--
+-- OJO con el truco: los chequeos que leen tablas que PODRIAN no existir van
+-- por EXECUTE (SQL dinamico). Si estuvieran escritos como SELECT normales,
+-- Postgres resolveria las tablas al PARSEAR y toda la sentencia reventaria
+-- con "relation does not exist" justo cuando la migracion falta —que es
+-- exactamente lo que se quiere averiguar—.
+CREATE OR REPLACE FUNCTION pg_temp.diagnostico_v3x()
+RETURNS TABLE(n int, chequeo text, estado text) AS $BODY$
+DECLARE
+  v_num NUMERIC;
+BEGIN
+  n := 1; chequeo := 'v3.0: withdrawal_requests existe';
+  estado := CASE WHEN to_regclass('public.withdrawal_requests') IS NOT NULL
+                 THEN 'OK' ELSE 'FALTA' END;
+  RETURN NEXT;
+
+  n := 2; chequeo := 'v3.0: fee de retiro 5.5 TRX';
+  IF to_regclass('public.withdrawal_config') IS NULL THEN
+    estado := 'FALTA (sin tabla withdrawal_config)';
+  ELSE
+    EXECUTE 'SELECT fee_trx FROM withdrawal_config WHERE id = 1' INTO v_num;
+    estado := CASE WHEN v_num = 5.5 THEN 'OK' ELSE 'REVISAR (fee=' || v_num || ')' END;
+  END IF;
+  RETURN NEXT;
+
+  n := 3; chequeo := 'v3.1: social_missions existe';
+  estado := CASE WHEN to_regclass('public.social_missions') IS NOT NULL
+                 THEN 'OK' ELSE 'FALTA' END;
+  RETURN NEXT;
+
+  n := 4; chequeo := 'v3.1: misiones de Telegram habilitadas (esperado 2)';
+  IF to_regclass('public.social_missions') IS NULL THEN
+    estado := 'FALTA (sin tabla social_missions)';
+  ELSE
+    EXECUTE 'SELECT count(*) FROM social_missions WHERE enabled AND verify = ''telegram_member'''
+      INTO v_num;
+    estado := CASE WHEN v_num = 2 THEN 'OK' ELSE 'REVISAR (' || v_num || ')' END;
+  END IF;
+  RETURN NEXT;
+
+  n := 5; chequeo := 'v3.2: internal_wallets.keep_balance existe';
+  estado := CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns
+                               WHERE table_name = 'internal_wallets'
+                                 AND column_name = 'keep_balance')
+                 THEN 'OK' ELSE 'FALTA' END;
+  RETURN NEXT;
+
+  n := 6; chequeo := 'v3.2: el ledger acepta KEEP';
+  estado := CASE WHEN COALESCE((SELECT pg_get_constraintdef(oid) FROM pg_constraint
+                                 WHERE conname = 'wallet_ledger_asset_check'), '') LIKE '%KEEP%'
+                 THEN 'OK' ELSE 'FALTA' END;
+  RETURN NEXT;
+
+  n := 7; chequeo := 'v3.2: managed_prices con KEEPUSDT';
+  IF to_regclass('public.managed_prices') IS NULL THEN
+    estado := 'FALTA (sin tabla managed_prices)';
+  ELSE
+    EXECUTE 'SELECT count(*) FROM managed_prices WHERE pair = ''KEEPUSDT''' INTO v_num;
+    estado := CASE WHEN v_num = 1 THEN 'OK' ELSE 'FALTA' END;
+  END IF;
+  RETURN NEXT;
+
+  n := 8; chequeo := 'v3.2: funciones buy_keep/managed_price_* presentes (esperado 3)';
+  SELECT count(*) INTO v_num
+  FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
+  WHERE ns.nspname = 'public'
+    AND p.proname IN ('buy_keep', 'managed_price_tick', 'managed_price_candles');
+  estado := CASE WHEN v_num = 3 THEN 'OK' ELSE 'FALTA' END;
+  RETURN NEXT;
+
+  n := 9; chequeo := 'v3.2: user_social_missions.reward_keep existe';
+  estado := CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns
+                               WHERE table_name = 'user_social_missions'
+                                 AND column_name = 'reward_keep')
+                 THEN 'OK' ELSE 'FALTA' END;
+  RETURN NEXT;
+END;
+$BODY$ LANGUAGE plpgsql;
+
+SELECT * FROM pg_temp.diagnostico_v3x() ORDER BY n;
