@@ -26,6 +26,7 @@ import {
   CONFIG,
   rollHoldPrize,
   resolveHoldGate,
+  isValidTronAddress,
 } from '../lib.js';
 
 // ============================================
@@ -606,3 +607,43 @@ test('claim pendiente sin ciclo (defensivo): no explota', () => {
   assert.equal(g.action, 'create');
   assert.equal(g.forfeitClaimId, 'CLM_1');
 });
+
+
+// ============================================
+// isValidTronAddress — la única barrera entre el usuario y la cola de pagos
+// ============================================
+// Un humano paga estos pedidos a mano. Si entra una dirección basura, se pierde
+// tiempo o, peor, se transfiere a donde no era.
+
+const VALID = 'TQrZ8wBsFZ3Q1dK9Yz1xYz1xYz1xYz1xYz';
+
+test('acepta una dirección TRON válida', () => {
+  assert.equal(isValidTronAddress(VALID), true);
+});
+
+test('acepta con espacios alrededor (la gente copia y pega)', () => {
+  assert.equal(isValidTronAddress(`  ${VALID}  `), true);
+});
+
+// node:test no tiene test.each (eso es Vitest/Jest): un for de toda la vida.
+const INVALIDAS = [
+  ['vacía', ''],
+  ['corta', 'TQrZ8wBsFZ'],
+  ['larga', VALID + 'AAAA'],
+  ['no empieza con T', 'AQrZ8wBsFZ3Q1dK9Yz1xYz1xYz1xYz1xYz'],
+  ['con 0 (no es base58)', 'TQrZ8wBsFZ3Q1dK9Yz1xYz1xYz1xYz1xY0'],
+  ['con O', 'TQrZ8wBsFZ3Q1dK9Yz1xYz1xYz1xYz1xYO'],
+  ['con I', 'TQrZ8wBsFZ3Q1dK9Yz1xYz1xYz1xYz1xYI'],
+  ['con l', 'TQrZ8wBsFZ3Q1dK9Yz1xYz1xYz1xYz1xYl'],
+  ['con espacios internos', 'TQrZ 8wBsFZ3Q1dK9Yz1xYz1xYz1xYz1xYz'],
+  ['una dirección Ethereum', '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1'],
+  ['null', null],
+  ['undefined', undefined],
+  ['un número', 12345],
+  ['un objeto', { address: VALID }],
+];
+for (const [nombre, valor] of INVALIDAS) {
+  test(`rechaza: ${nombre}`, () => {
+    assert.equal(isValidTronAddress(valor), false);
+  });
+}

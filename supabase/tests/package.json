@@ -4,10 +4,11 @@
   "type": "module",
   "description": "Prueba supabase/schema.sql contra un PostgreSQL real (embebido).",
   "scripts": {
-    "test": "node schema.test.mjs && node migration.test.mjs && node verify-sql.mjs",
+    "test": "node schema.test.mjs && node migration.test.mjs && node withdrawal.test.mjs && node verify-sql.mjs",
     "test:schema": "node schema.test.mjs",
     "test:migration": "node migration.test.mjs",
-    "verify:sql": "node verify-sql.mjs"
+    "verify:sql": "node verify-sql.mjs",
+    "test:withdrawal": "node withdrawal.test.mjs"
   },
   "devDependencies": {
     "embedded-postgres": "^18.4.0-beta.17",

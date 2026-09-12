@@ -19,6 +19,7 @@ import {
   jsonResponse,
   securityHeaders,
   resolveHoldGate,
+  isValidTronAddress,
   generateClaimId,
   normalizeTonAddress,
   decodeTonComment,
@@ -961,6 +962,56 @@ async function handleCheckin(request, env) {
   return jsonResponse(result);
 }
 
+// ============================================
+// WITHDRAW — cola manual
+// ============================================
+// No hay clave privada acá: descuenta saldo + fee y deja el pedido en
+// withdrawal_requests. La transferencia on-chain la hace un humano desde la
+// tesorería y después marca la fila con resolve_withdrawal('paid', tx_id).
+async function handleWithdraw(request, env) {
+  const { initData, asset, amount, toAddress } = await request.json();
+  const telegramUser = await validateInitDataAny(initData, env.BOT_TOKEN);
+  if (!telegramUser) {
+    return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
+  }
+
+  if (!isValidTronAddress(toAddress)) {
+    return jsonResponse({ ok: false, error: 'Invalid TRON address' }, 400);
+  }
+
+  const value = Number(amount);
+  if (!Number.isFinite(value) || value <= 0) {
+    return jsonResponse({ ok: false, error: 'Invalid amount' }, 400);
+  }
+
+  const db = supabase(env);
+  const result = await db.rpc('request_withdrawal', {
+    p_user_id: telegramUser.id.toString(),
+    p_asset: String(asset || '').toUpperCase(),
+    p_amount: value,
+    p_to_address: String(toAddress).trim(),
+  });
+
+  if (!result || result.ok !== true) {
+    return jsonResponse(result || { ok: false, error: 'Withdrawal failed' }, 400);
+  }
+  return jsonResponse(result);
+}
+
+// Fee y mínimos desde la base, no hardcodeados: withdrawal_config es la fuente
+// de verdad y el modal los pide acá para no desincronizarse.
+async function handleWithdrawSettings(request, env) {
+  const { initData } = await request.json();
+  const telegramUser = await validateInitDataAny(initData, env.BOT_TOKEN);
+  if (!telegramUser) {
+    return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
+  }
+
+  const db = supabase(env);
+  const result = await db.rpc('withdrawal_settings', {});
+  return jsonResponse({ ok: true, ...(result || {}) });
+}
+
 export default {
   async fetch(request, env, ctx) {
     if (request.method === 'OPTIONS') {
@@ -985,6 +1036,8 @@ export default {
           case '/trade/sell-asset': return await handleSellAsset(request, env);
           case '/trade/levels':   return await handleTradeLevels(request, env);
           case '/positions':      return await handlePositions(request, env);
+          case '/withdraw':         return await handleWithdraw(request, env);
+          case '/withdraw/settings': return await handleWithdrawSettings(request, env);
           case '/checkin':        return await handleCheckin(request, env);
           case '/checkin/status': return await handleCheckinStatus(request, env);
         }

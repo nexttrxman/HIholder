@@ -980,6 +980,26 @@ export function resolveHoldGate(latestCycle, pendingClaim, now = new Date()) {
 }
 
 // ============================================
+// TRON ADDRESS
+// ============================================
+
+// Base58: el alfabeto de TRON excluye 0, O, I y l para que no se confundan al
+// leerlo. Una dirección de la red TRON (TRC20 incluido) empieza con 'T' y tiene
+// 34 caracteres.
+const TRON_BASE58 = /^[1-9A-HJ-NP-Za-km-z]+$/;
+
+/**
+ * Validación de servidor. La del modal es solo UX: sin esto, cualquiera con la
+ * consola abierta manda una dirección cualquiera y el pedido entra a la cola
+ * para que un humano la transfiera.
+ */
+export function isValidTronAddress(address) {
+  if (typeof address !== 'string') return false;
+  const a = address.trim();
+  return a.length === 34 && a.startsWith('T') && TRON_BASE58.test(a);
+}
+
+// ============================================
 // DAILY CHECK-IN
 // ============================================
 
