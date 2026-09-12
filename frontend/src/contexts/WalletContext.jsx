@@ -387,6 +387,9 @@ export function WalletProvider({ children }) {
     canHold,
     doHold,
     getCycleResetTime,
+    // Crudo para el countdown del standby: getCycleResetTime solo da minutos y
+    // el usuario pidió ver segundo a segundo cuánto falta tras el claim.
+    cycleEndsAt,
     lastPrize,
     HOLD_DURATION,
     MAX_HOLDS_PER_CYCLE,

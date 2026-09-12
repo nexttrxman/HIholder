@@ -13,7 +13,19 @@ const FILTERS = [
   { id: 'reward', label: 'Rewards' },
 ];
 
-const TRADE_TYPES = ['buy', 'sell'];
+// Cada subpestaña tiene su lista de tipos. El servidor manda las operaciones
+// del ledger ('withdrawal', 'trade_buy', 'checkin_daily'...) y las entradas
+// optimistas locales mandan los nombres de la UI ('buy', 'sell', 'reward'),
+// así que las dos vocabularios entran en la misma pestaña. Antes el filtro
+// comparaba contra 'withdraw' y 'buy'/'sell' solamente, y casi todo quedaba
+// escondido en All.
+const FILTER_TYPES = {
+  trades: ['buy', 'sell', 'trade_buy', 'trade_sell'],
+  deposit: ['deposit'],
+  withdraw: ['withdraw', 'withdrawal', 'fee_deduction'],
+  reward: ['reward', 'claim_credit', 'referral_bonus', 'signup_bonus',
+           'checkin_daily', 'checkin_weekly', 'referral'],
+};
 
 export function TransactionList() {
   const { transactions, loadingTransactions, loadTransactions } = useWallet();
@@ -25,8 +37,7 @@ export function TransactionList() {
 
   const filteredTransactions = transactions.filter((tx) => {
     if (filter === 'all') return true;
-    if (filter === 'trades') return TRADE_TYPES.includes(tx.type);
-    return tx.type === filter;
+    return (FILTER_TYPES[filter] || []).includes(tx.type);
   });
 
   if (loadingTransactions && transactions.length === 0) {

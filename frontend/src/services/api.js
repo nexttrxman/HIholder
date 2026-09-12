@@ -261,6 +261,12 @@ export const hapticFeedback = (type = 'impact') => {
       case 'warning': tg.HapticFeedback.notificationOccurred('warning'); break;
       default: tg.HapticFeedback.impactOccurred('light');
     }
+  } else if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+    // Fuera de Telegram (pruebas en el navegador del celular) no hay
+    // HapticFeedback: navigator.vibrate es el equivalente de la web.
+    if (type === 'success') navigator.vibrate([30, 40, 30]);
+    else if (type === 'error') navigator.vibrate(120);
+    else navigator.vibrate(35);
   }
 };
 

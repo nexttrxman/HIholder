@@ -14,7 +14,8 @@ export function HoldButton({ onClaimReady }) {
     remainingHolds,
     holdsCompleted,
     pendingClaim,
-    getCycleResetTime,
+    cycleEndsAt,
+    refreshData,
   } = useWallet();
   const { vibrate } = useTelegram();
 
@@ -159,9 +160,41 @@ export function HoldButton({ onClaimReady }) {
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference * (1 - progress);
 
-  const resetTime = getCycleResetTime();
   const isDisabled = !canHold() || (remainingHolds <= 0 && !pendingClaim);
   const hasPendingClaim = !!pendingClaim;
+
+  // Countdown del standby: tras un claim cobrado el botón queda apagado 8 h y
+  // el usuario pidió ver cuánto falta, segundo a segundo — es parte de la
+  // rutina. Tickea solo mientras hay algo que contar, para no despertar al
+  // componente de a un segundo cuando no hace falta.
+  const [nowTs, setNowTs] = useState(() => Date.now());
+  const cooldownMs = cycleEndsAt ? new Date(cycleEndsAt).getTime() - nowTs : 0;
+  const showCooldown = !hasPendingClaim && !!cycleEndsAt && cooldownMs > 0
+    && (isDisabled || holdsCompleted === 0);
+
+  useEffect(() => {
+    if (!showCooldown) return undefined;
+    const id = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [showCooldown]);
+
+  // Si la cuenta llega a cero con la app abierta, recarga el estado: el ciclo
+  // se habilita solo sin necesitar un recargo manual.
+  useEffect(() => {
+    if (!hasPendingClaim && cycleEndsAt && cooldownMs <= 0 && isDisabled) {
+      refreshData();
+    }
+  }, [cooldownMs, hasPendingClaim, cycleEndsAt, isDisabled, refreshData]);
+
+  const formatRemaining = (ms) => {
+    const total = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const sec = total % 60;
+    if (h > 0) return `${h}h ${m}m ${sec}s`;
+    if (m > 0) return `${m}m ${sec}s`;
+    return `${sec}s`;
+  };
 
   return (
     <div className="relative flex flex-col items-center" data-testid="hold-section">
@@ -312,6 +345,10 @@ export function HoldButton({ onClaimReady }) {
           )}
         </AnimatePresence>
 
+          {/* Sin atributo disabled: un botón disabled no dispara ni el haptic
+              ni el "Wait..." cuando lo apretan en standby. El guard está en
+              startHold. whileTap 1.06: se agranda al apretar y se achica al
+              soltar, sutil, como se pidió. */}
         <motion.button
           ref={buttonRef}
           data-testid="hold-button"
@@ -322,13 +359,13 @@ export function HoldButton({ onClaimReady }) {
             ${isDisabled && !hasPendingClaim ? 'opacity-50 cursor-not-allowed' : ''}
             ${hasPendingClaim ? 'ring-4 ring-brand-gold/40 animate-pulse shadow-glow-gold' : 'shadow-glow-teal'}
           `}
-          onMouseDown={!isDisabled ? startHold : undefined}
+          onMouseDown={startHold}
           onMouseUp={stopHold}
           onMouseLeave={stopHold}
-          onTouchStart={!isDisabled ? startHold : undefined}
+          onTouchStart={startHold}
           onTouchEnd={stopHold}
-          whileTap={!isDisabled ? { scale: 0.95 } : {}}
-          disabled={isDisabled && !hasPendingClaim}
+          whileTap={{ scale: 1.06 }}
+          aria-disabled={isDisabled && !hasPendingClaim ? 'true' : undefined}
         >
           <img 
             src={TETHER_ICON} 
@@ -374,11 +411,13 @@ export function HoldButton({ onClaimReady }) {
         </span>
       </div>
 
-      {/* Cycle reset timer */}
-      {resetTime && !hasPendingClaim && holdsCompleted === 0 && (
+      {/* Countdown del standby: cuánto falta para volver a holdear y claimear.
+          "New cycle in" ya está en los 6 diccionarios; los números no se
+          traducen. */}
+      {showCooldown && (
         <div className="flex items-center justify-center gap-1.5 mt-3 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-dim">
           <Clock className="w-3 h-3" />
-          <span>New cycle in {resetTime}</span>
+          <span data-testid="hold-cooldown">New cycle in {formatRemaining(cooldownMs)}</span>
         </div>
       )}
     </div>
