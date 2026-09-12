@@ -63,6 +63,8 @@ export default {
   Missions: 'مأموریت‌ها',
   'More pages': 'صفحات بیشتر',
   'Network Fee': 'کارمزد شبکه',
+  'Welcome Bonus': 'پاداش خوش‌آمدگویی',
+  'Send to other users — coming soon.': 'ارسال به کاربران دیگر — به‌زودی.',
   Next: 'بعدی',
   'Next slide': 'بعدی',
   'No limits set': 'حدی تعیین نشده',

@@ -37,6 +37,20 @@ await c.connect();
 // funcion wallet_ledger_apply_operation_check(), pero nada de v3.0.
 // (El schema de 90003c1 NO sirve de base: no trae esa funcion y migrate-v2.9
 // la necesita. La base real esta mas adelante que ese commit.)
+// El cuerpo de migrate-v3.0.sql DEBE ser el bloque v3.0 de schema.sql sin cambios.
+// Si alguien toca uno y no el otro, el SQL Editor recibe algo que los tests no
+// probaron. Esta verificacion hace que la desincronizacion falle la suite.
+{
+  const schemaLines = fs.readFileSync(path.resolve(HERE,'..','schema.sql'),'utf8').split('\n');
+  const migLines = fs.readFileSync(path.resolve(HERE,'..','migrate-v3.0.sql'),'utf8').split('\n');
+  const si = schemaLines.findIndex((l) => l.startsWith('-- v3.0 — RETIROS'));
+  const mi = migLines.findIndex((l) => l.startsWith('-- v3.0 — RETIROS'));
+  const cuerpo = schemaLines.slice(si);
+  check('migrate-v3.0.sql no se desincronizo de schema.sql',
+    si >= 0 && mi >= 0 && JSON.stringify(migLines.slice(mi, mi + cuerpo.length)) === JSON.stringify(cuerpo),
+    `schema.sql:${si + 1} vs migrate-v3.0.sql:${mi + 1}`);
+}
+
 const full = fs.readFileSync(path.resolve(HERE,'..','schema.sql'),'utf8');
 const cut = full.slice(0, full.indexOf('-- v3.0 — RETIROS'));
 await c.query(strip(cut));

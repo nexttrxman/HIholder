@@ -99,7 +99,16 @@ close('saldo USDT sin tocar', (await wallet()).u, 80);
 r = await call('7001', 'USDT', 1000, ADDR);
 eq('USDT: rechaza saldo insuficiente', r.r.ok, false);
 r = await call('7001', 'USDT', 2, ADDR);
-eq('USDT: rechaza por debajo del mínimo (5)', r.r.ok, false);
+eq('USDT: rechaza por debajo del mínimo (10)', r.r.ok, false);
+r = await call('7001', 'USDT', 9.99, ADDR);
+eq('USDT: 9.99 sigue por debajo del mínimo', r.r.ok, false);
+{
+  // Borde exacto: 10 justos tienen que pasar. Usuario fresco para que el saldo no
+  // dependa de lo que consumieron los casos anteriores.
+  const uid = await freshUser(50, 20);
+  const rb = await call(uid, 'USDT', 10, ADDR);
+  eq('USDT: 10 exactos se aceptan', rb.r.ok, true, JSON.stringify(rb.r));
+}
 r = await call('7001', 'BTC', 1, ADDR);
 eq('rechaza un asset que no existe', r.r.ok, false);
 r = await call('7001', 'USDT', 10, 'Tcorto');
@@ -127,11 +136,11 @@ eq('TRX: rechaza si no alcanza para monto + fee', r.r.ok, false);
 
 // ---- 5) Tope de solicitudes pendientes --------------------------------------
 // Ya hay 2 pending. max_pending_per_user = 3.
-await call('7001', 'USDT', 5, ADDR);
+await call('7001', 'USDT', 10, ADDR);
 eq('llega al tope (3 pending)',
   (await one(`SELECT count(*)::int n FROM withdrawal_requests
               WHERE user_id='7001' AND status='pending'`)).n, 3);
-r = await call('7001', 'USDT', 5, ADDR);
+r = await call('7001', 'USDT', 10, ADDR);
 eq('la 4ta solicitud se rechaza', r.r.ok, false);
 
 // ---- 6) resolve_withdrawal: paid NO reintegra ------------------------------
@@ -216,7 +225,7 @@ eq('resolve_withdrawal NO ejecutable por PUBLIC',
 // ---- 11) withdrawal_settings() expone la config para que la UI no hardcodee -
 const cfg = await one(`SELECT withdrawal_settings() AS s`);
 eq('settings: fee 5.5', cfg.s.fee_trx, '5.5');
-eq('settings: min USDT 5', cfg.s.min_usdt, '5');
+eq('settings: min USDT 10', cfg.s.min_usdt, '10');
 eq('settings: min TRX 10', cfg.s.min_trx, '10');
 
 // ---- 12) RLS activo en las tablas nuevas ------------------------------------

@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { motion } from 'framer-motion';
+import { Info } from 'lucide-react';
 
 export function BalanceCard({ 
   asset, 
@@ -16,6 +18,9 @@ export function BalanceCard({
 }) {
   const isUSDT = asset === 'USDT';
   const color = isUSDT ? 'brand-green' : 'brand-red';
+  // El tooltip no puede ser por hover: esto corre dentro de Telegram en el
+  // teléfono, donde no hay cursor. Se abre al tocar el circulito.
+  const [sendHintOpen, setSendHintOpen] = useState(false);
   
   return (
     <motion.div
@@ -67,15 +72,44 @@ export function BalanceCard({
             </button>
           )}
           {onSend && (
-            <button
-              onClick={onSend}
-              disabled={sendDisabled}
-              aria-disabled={sendDisabled}
-              data-testid={`send-${asset.toLowerCase()}-btn`}
-              className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm font-medium text-white/80 hover:bg-white/10 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white/5 disabled:active:scale-100"
-            >
-              Send{sendDisabled && <span className="ml-1 text-white/40">· Soon</span>}
-            </button>
+            <div className="relative flex-1">
+              <button
+                onClick={onSend}
+                disabled={sendDisabled}
+                aria-disabled={sendDisabled}
+                data-testid={`send-${asset.toLowerCase()}-btn`}
+                className="w-full py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm font-medium text-white/80 hover:bg-white/10 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white/5 disabled:active:scale-100"
+              >
+                Send{sendDisabled && <span className="ml-1 text-white/40">· Soon</span>}
+              </button>
+
+              {/* Circulito de información. Es un botón aparte, no va dentro del
+                  Send: un <button> anidado es HTML inválido y el Send está
+                  disabled, así que un hijo suyo no recibiría el clic. */}
+              {sendDisabled && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setSendHintOpen((v) => !v)}
+                    aria-label="Send to other users — coming soon."
+                    aria-expanded={sendHintOpen}
+                    data-testid={`send-${asset.toLowerCase()}-info`}
+                    className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-white/50 hover:text-white/90 hover:bg-white/20 active:scale-90 transition-all"
+                  >
+                    <Info className="w-3 h-3" />
+                  </button>
+                  {sendHintOpen && (
+                    <p
+                      role="tooltip"
+                      data-testid={`send-${asset.toLowerCase()}-hint`}
+                      className="absolute bottom-full right-0 mb-2 w-44 p-2.5 rounded-xl bg-ink-deep border border-white/10 text-[11px] leading-snug text-white/70 shadow-xl z-20"
+                    >
+                      Send to other users — coming soon.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
           )}
         </div>
       )}

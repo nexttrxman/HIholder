@@ -1471,7 +1471,7 @@ CREATE INDEX IF NOT EXISTS idx_withdrawal_requests_pending
 CREATE TABLE IF NOT EXISTS withdrawal_config (
   id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
   fee_trx DECIMAL(18, 8) NOT NULL DEFAULT 5.5,
-  min_usdt DECIMAL(18, 8) NOT NULL DEFAULT 5,
+  min_usdt DECIMAL(18, 8) NOT NULL DEFAULT 10,
   min_trx DECIMAL(18, 8) NOT NULL DEFAULT 10,
   max_pending_per_user INT NOT NULL DEFAULT 3
 );

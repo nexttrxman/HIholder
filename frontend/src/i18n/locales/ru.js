@@ -63,6 +63,8 @@ export default {
   Missions: 'Задания',
   'More pages': 'Ещё страницы',
   'Network Fee': 'Комиссия сети',
+  'Welcome Bonus': 'Приветственный бонус',
+  'Send to other users — coming soon.': 'Отправка другим пользователям — скоро.',
   Next: 'Далее',
   'Next slide': 'Далее',
   'No limits set': 'Лимиты не заданы',

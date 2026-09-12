@@ -98,6 +98,13 @@ const MOCK_START_BALANCE = 250;
 // de verdad y es el que lo cobra; esto existe para mostrarlo antes de confirmar.
 export const WITHDRAWAL_FEE_TRX = 5.5;
 
+// Montos mínimos de retiro. Espejo de withdrawal_config en supabase/schema.sql,
+// que es la fuente de verdad: request_withdrawal() los hace cumplir del lado del
+// servidor y esto solo existe para avisar antes de que el usuario confirme.
+// Si se cambian allá, se cambian acá.
+export const MIN_WITHDRAW_USDT = 10;
+export const MIN_WITHDRAW_TRX = 10;
+
 // TRX con los que arranca todo usuario EN PRODUCCIÓN. Espejo de
 // CONFIG.SIGNUP_TRX_BONUS en cloudflare-worker/lib.js: el Worker crea la wallet
 // con ese valor. El mock de abajo usa otro número a propósito.
