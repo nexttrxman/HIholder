@@ -66,6 +66,8 @@ export default {
   'Welcome Bonus': 'Приветственный бонус',
   'Send to other users — coming soon.': 'Отправка другим пользователям — скоро.',
   'Coming soon': 'Скоро',
+  'Not joined yet': 'Вы ещё не вступили',
+  'Check failed. Try again.': 'Проверка не удалась. Попробуйте ещё раз.',
   Next: 'Далее',
   'Next slide': 'Далее',
   'No limits set': 'Лимиты не заданы',

@@ -513,6 +513,35 @@ export const getPositions = async () => {
 // ============================================
 // TRANSACTIONS
 // ============================================
+// ============================================
+// SOCIAL MISSIONS (v3.1)
+// ============================================
+// La lista y el verify viven en el Worker: el es quien pregunta a Telegram si
+// el usuario esta en el canal/grupo (getChatMember), nunca el cliente.
+export const getSocialMissions = async () => {
+  try {
+    const result = await apiCall('/missions', {});
+    if (result) return result;
+    // Dev mode: sin Worker no hay misiones que mostrar.
+    return { ok: true, missions: [], completed: [] };
+  } catch (error) {
+    console.error('Social missions error:', error);
+    return { ok: true, missions: [], completed: [] };
+  }
+};
+
+export const verifySocialMission = async (missionId) => {
+  try {
+    const result = await apiCall('/verify-mission', { missionId });
+    if (result) return result;
+    // Dev mode: simula el cobro para poder probar la UI.
+    return { ok: true, reward: 0.4, dev: true };
+  } catch (error) {
+    console.error('Verify mission error:', error);
+    throw error;
+  }
+};
+
 export const getTransactions = async () => {
   try {
     const result = await apiCall('/transactions');

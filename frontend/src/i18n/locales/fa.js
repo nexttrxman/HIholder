@@ -66,6 +66,8 @@ export default {
   'Welcome Bonus': 'پاداش خوش‌آمدگویی',
   'Send to other users — coming soon.': 'ارسال به کاربران دیگر — به‌زودی.',
   'Coming soon': 'به‌زودی',
+  'Not joined yet': 'هنوز عضو نشدی',
+  'Check failed. Try again.': 'تأیید ناموفق بود. دوباره تلاش کن.',
   Next: 'بعدی',
   'Next slide': 'بعدی',
   'No limits set': 'حدی تعیین نشده',

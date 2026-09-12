@@ -66,6 +66,8 @@ export default {
   'Welcome Bonus': 'مكافأة الترحيب',
   'Send to other users — coming soon.': 'إرسال إلى مستخدمين آخرين — قريباً.',
   'Coming soon': 'قريباً',
+  'Not joined yet': 'لم تنضم بعد',
+  'Check failed. Try again.': 'فشل التحقق. حاول مجدداً.',
   Next: 'التالي',
   'Next slide': 'التالي',
   'No limits set': 'لا توجد حدود محددة',

@@ -66,6 +66,8 @@ export default {
   'Welcome Bonus': '欢迎奖励',
   'Send to other users — coming soon.': '发送给其他用户 — 即将推出。',
   'Coming soon': '即将推出',
+  'Not joined yet': '你还未加入',
+  'Check failed. Try again.': '验证失败，请重试。',
   Next: '下一步',
   'Next slide': '下一张',
   'No limits set': '未设置止盈止损',

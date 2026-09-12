@@ -27,6 +27,7 @@ import {
   rollHoldPrize,
   resolveHoldGate,
   isValidTronAddress,
+  evaluateTelegramMembership,
 } from '../lib.js';
 
 // ============================================
@@ -647,3 +648,31 @@ for (const [nombre, valor] of INVALIDAS) {
     assert.equal(isValidTronAddress(valor), false);
   });
 }
+
+
+// ============================================
+// evaluateTelegramMembership — la verificacion de las misiones sociales
+// ============================================
+test('miembro comun cuenta', () => {
+  assert.equal(evaluateTelegramMembership({ ok: true, result: { status: 'member' } }).ok, true);
+});
+test('admin y creador cuentan', () => {
+  assert.equal(evaluateTelegramMembership({ ok: true, result: { status: 'administrator' } }).ok, true);
+  assert.equal(evaluateTelegramMembership({ ok: true, result: { status: 'creator' } }).ok, true);
+});
+test('restricted sigue siendo miembro', () => {
+  assert.equal(evaluateTelegramMembership({ ok: true, result: { status: 'restricted' } }).ok, true);
+});
+test('left y kicked no cuentan', () => {
+  assert.equal(evaluateTelegramMembership({ ok: true, result: { status: 'left' } }).ok, false);
+  assert.equal(evaluateTelegramMembership({ ok: true, result: { status: 'kicked' } }).ok, false);
+});
+test('sin membresia el motivo es not_joined', () => {
+  assert.equal(evaluateTelegramMembership({ ok: true, result: { status: 'left' } }).reason, 'not_joined');
+});
+test('si Telegram no responde o el bot no es admin: telegram_error, no not_joined', () => {
+  // Confundirlos haria que un bot sin admin le diga "no estas" a todo el mundo.
+  assert.equal(evaluateTelegramMembership({ ok: false, error_code: 400, description: 'chat not found' }).reason, 'telegram_error');
+  assert.equal(evaluateTelegramMembership(null).reason, 'telegram_error');
+  assert.equal(evaluateTelegramMembership({ ok: true }).reason, 'telegram_error');
+});

@@ -43,12 +43,23 @@ await c.connect();
 {
   const schemaLines = fs.readFileSync(path.resolve(HERE,'..','schema.sql'),'utf8').split('\n');
   const migLines = fs.readFileSync(path.resolve(HERE,'..','migrate-v3.0.sql'),'utf8').split('\n');
+  // v3.0 llega hasta el marcador de v3.1; v3.1 es el resto del archivo.
   const si = schemaLines.findIndex((l) => l.startsWith('-- v3.0 — RETIROS'));
+  // El bloque v3.1 empieza con su linea separadora, UNA antes del marcador:
+  // cortar en el marcador dejaria esa separadora colgada en el cuerpo de v3.0.
+  const s31 = schemaLines.findIndex((l) => l.startsWith('-- v3.1 — MISIONES')) - 1;
   const mi = migLines.findIndex((l) => l.startsWith('-- v3.0 — RETIROS'));
-  const cuerpo = schemaLines.slice(si);
+  const cuerpo = schemaLines.slice(si, s31);
   check('migrate-v3.0.sql no se desincronizo de schema.sql',
-    si >= 0 && mi >= 0 && JSON.stringify(migLines.slice(mi, mi + cuerpo.length)) === JSON.stringify(cuerpo),
-    `schema.sql:${si + 1} vs migrate-v3.0.sql:${mi + 1}`);
+    si >= 0 && s31 > si && mi >= 0 && JSON.stringify(migLines.slice(mi, mi + cuerpo.length)) === JSON.stringify(cuerpo),
+    `schema.sql:${si + 1}..${s31} vs migrate-v3.0.sql:${mi + 1}`);
+
+  const m31 = fs.readFileSync(path.resolve(HERE,'..','migrate-v3.1.sql'),'utf8').split('\n');
+  const m31i = m31.findIndex((l) => l.startsWith('-- v3.1 — MISIONES'));
+  const cuerpo31 = schemaLines.slice(s31 + 1);
+  check('migrate-v3.1.sql no se desincronizo de schema.sql',
+    s31 >= 0 && m31i >= 0 && JSON.stringify(m31.slice(m31i, m31i + cuerpo31.length)) === JSON.stringify(cuerpo31),
+    `schema.sql:${s31 + 1} vs migrate-v3.1.sql:${m31i + 1}`);
 }
 
 const full = fs.readFileSync(path.resolve(HERE,'..','schema.sql'),'utf8');

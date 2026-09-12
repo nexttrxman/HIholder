@@ -1,5 +1,6 @@
 import { MissionsList } from '@/components/missions/MissionsList';
 import { CheckInCard } from '@/components/missions/CheckInCard';
+import { SocialMissions } from '@/components/missions/SocialMissions';
 
 export function MissionsPage() {
   return (
@@ -13,6 +14,13 @@ export function MissionsPage() {
       {/* Daily check-in first: it is the one action the user can always take. */}
       <div className="mb-4">
         <CheckInCard />
+      </div>
+
+      {/* Misiones sociales one-time (canal/comunidad). La verificacion la hace
+          el Worker contra Telegram; van antes que las clasicas porque son las
+          unicas que pagan de verdad hoy. */}
+      <div className="mb-4">
+        <SocialMissions />
       </div>
 
       <MissionsList />

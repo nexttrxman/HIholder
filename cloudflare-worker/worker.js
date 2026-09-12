@@ -20,6 +20,7 @@ import {
   securityHeaders,
   resolveHoldGate,
   isValidTronAddress,
+  checkTelegramMembership,
   generateClaimId,
   normalizeTonAddress,
   decodeTonComment,
@@ -1012,6 +1013,81 @@ async function handleWithdrawSettings(request, env) {
   return jsonResponse({ ok: true, ...(result || {}) });
 }
 
+// ============================================
+// SOCIAL MISSIONS
+// ============================================
+async function handleMissions(request, env) {
+  const { initData } = await request.json();
+  const telegramUser = await validateInitDataAny(initData, env.BOT_TOKEN);
+  if (!telegramUser) return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
+
+  const db = supabase(env);
+  const tgId = telegramUser.id.toString();
+
+  const missions = await db.query('social_missions', 'select', {
+    filters: { enabled: true },
+    order: 'sort.asc',
+  });
+  const done = await db.query('user_social_missions', 'select', {
+    filters: { user_id: tgId },
+  });
+  const completed = (Array.isArray(done) ? done : []).map((d) => d.mission_id);
+
+  return jsonResponse({
+    ok: true,
+    missions: (Array.isArray(missions) ? missions : []).map((m) => ({
+      id: m.id, platform: m.platform, title: m.title, description: m.description,
+      url: m.url, reward: Number(m.reward_usdt), verify: m.verify,
+    })),
+    completed,
+  });
+}
+
+async function handleVerifyMission(request, env) {
+  const { initData, missionId } = await request.json();
+  const telegramUser = await validateInitDataAny(initData, env.BOT_TOKEN);
+  if (!telegramUser) return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
+
+  const db = supabase(env);
+  const tgId = telegramUser.id.toString();
+
+  const rows = await db.query('social_missions', 'select', {
+    filters: { id: missionId, enabled: true },
+    limit: 1,
+  });
+  const mission = (rows || [])[0];
+  if (!mission) return jsonResponse({ ok: false, error: 'Unknown or disabled mission' }, 400);
+
+  if (mission.verify === 'telegram_member') {
+    if (!env.BOT_TOKEN) return jsonResponse({ ok: false, error: 'check_failed' }, 500);
+    const check = await checkTelegramMembership(env.BOT_TOKEN, mission.chat_id, telegramUser.id);
+    if (!check.ok) {
+      // 'not_joined': el usuario todavia no entro. 'telegram_error': el bot no
+      // puede ver el chat (falta admin) o la API no respondio. Distintos, y el
+      // cliente los muestra distintos (apiCall levanta `error` tal cual).
+      return jsonResponse(check.reason === 'not_joined'
+        ? { ok: false, reason: check.reason, error: 'Not joined yet' }
+        : { ok: false, reason: check.reason, error: 'Check failed. Try again.' }, 400);
+    }
+  } else if (mission.verify === 'manual') {
+    // Placeholder: hasta que exista la UI de revision humana, no se paga.
+    return jsonResponse({ ok: false, error: 'Manual review not available yet' }, 400);
+  }
+  // 'honor' pasa directo: la unicidad la garantiza la PK en la base.
+
+  // db.rpc manda un objeto con los nombres de los parametros de la funcion,
+  // igual que el resto de los rpc de este archivo.
+  const result = await db.rpc('complete_social_mission', {
+    p_user_id: tgId,
+    p_mission_id: missionId,
+  });
+  const body = result?.ok ? result : (result || {});
+  if (body.ok) {
+    return jsonResponse({ ok: true, reward: body.reward });
+  }
+  return jsonResponse({ ok: false, error: body.error || 'failed' }, 400);
+}
+
 export default {
   async fetch(request, env, ctx) {
     if (request.method === 'OPTIONS') {
@@ -1037,6 +1113,8 @@ export default {
           case '/trade/levels':   return await handleTradeLevels(request, env);
           case '/positions':      return await handlePositions(request, env);
           case '/withdraw':         return await handleWithdraw(request, env);
+          case '/missions':        return await handleMissions(request, env);
+          case '/verify-mission':  return await handleVerifyMission(request, env);
           case '/withdraw/settings': return await handleWithdrawSettings(request, env);
           case '/checkin':        return await handleCheckin(request, env);
           case '/checkin/status': return await handleCheckinStatus(request, env);

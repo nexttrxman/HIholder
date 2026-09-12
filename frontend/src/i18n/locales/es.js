@@ -70,6 +70,8 @@ export default {
   'Welcome Bonus': 'Bono de bienvenida',
   'Send to other users — coming soon.': 'Envía a otros usuarios — disponible pronto.',
   'Coming soon': 'Próximamente',
+  'Not joined yet': 'Aún no te uniste',
+  'Check failed. Try again.': 'Falló la verificación. Probá de nuevo.',
   Next: 'Siguiente',
   'Next slide': 'Siguiente',
   'No limits set': 'Sin límites configurados',

@@ -980,6 +980,46 @@ export function resolveHoldGate(latestCycle, pendingClaim, now = new Date()) {
 }
 
 // ============================================
+// SOCIAL MISSIONS — membresía de Telegram
+// ============================================
+// Estados que cuentan como "está en el canal/grupo". 'restricted' incluye a
+// quien está limitado pero sigue siendo miembro; 'left' y 'kicked' no.
+const TELEGRAM_MEMBER_STATUSES = ['member', 'administrator', 'creator', 'restricted'];
+
+/**
+ * Puro y testeable: decide con la respuesta cruda de getChatMember.
+ * Separa "el usuario no está" de "Telegram no respondió" (bot sin admin,
+ * chat_id mal escrito, API caída) para no cobrar ni mentir en ninguno.
+ */
+export function evaluateTelegramMembership(apiResult) {
+  if (!apiResult || apiResult.ok !== true || !apiResult.result) {
+    return { ok: false, reason: 'telegram_error' };
+  }
+  const status = apiResult.result.status;
+  if (TELEGRAM_MEMBER_STATUSES.includes(status)) {
+    return { ok: true, status };
+  }
+  return { ok: false, reason: 'not_joined', status };
+}
+
+/**
+ * Pregunta a la Bot API si el usuario está en el chat. La hace el Worker con
+ * el telegram_id que sale del initData validado: desde la consola no se puede
+ * mentir. El bot debe ser admin del canal/grupo para ver miembros.
+ */
+export async function checkTelegramMembership(botToken, chatId, userId) {
+  const url = `https://api.telegram.org/bot${botToken}/getChatMember`
+    + `?chat_id=${encodeURIComponent(chatId)}&user_id=${encodeURIComponent(userId)}`;
+  try {
+    const res = await fetch(url, { method: 'GET' });
+    const json = await res.json();
+    return evaluateTelegramMembership(json);
+  } catch {
+    return { ok: false, reason: 'telegram_error' };
+  }
+}
+
+// ============================================
 // TRON ADDRESS
 // ============================================
 
