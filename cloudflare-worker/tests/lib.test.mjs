@@ -274,32 +274,30 @@ test('generateClaimId: uniqueness across rapid calls', () => {
 });
 
 // ============================================
-// resolvePendingClaim — forfeit an unpaid claim, restart the cycle
+// resolvePendingClaim — forfeit an unpaid claim, start the 8h cooldown
 // ============================================
 test('resolvePendingClaim: no claim is a no-op', () => {
-  const r = resolvePendingClaim(null, new Date('2026-09-08T12:00:00Z'), 2);
+  const r = resolvePendingClaim(null, new Date('2026-09-08T12:00:00Z'));
   assert.equal(r.pendingClaim, null);
   assert.equal(r.forfeited, false);
-  assert.equal(r.holdsCompleted, 2, 'holds must not move when there is no claim');
+  assert.equal(r.cooldownEndsAt, null);
 });
 
 test('resolvePendingClaim: a live claim is returned untouched', () => {
   const claim = { claim_id: 'C1', expires_at: '2026-09-08T12:15:00Z' };
-  const r = resolvePendingClaim(claim, new Date('2026-09-08T12:00:00Z'), 3);
+  const r = resolvePendingClaim(claim, new Date('2026-09-08T12:00:00Z'));
   assert.equal(r.pendingClaim, claim);
   assert.equal(r.forfeited, false);
-  assert.equal(r.holdsCompleted, 3, 'still locked at 3/3 while the claim is payable');
+  assert.equal(r.cooldownEndsAt, null);
 });
 
-test('resolvePendingClaim: el claim expira y los 3 holds se pierden con él', () => {
+test('resolvePendingClaim: el claim expira y dispara el cooldown de 8 h', () => {
   const claim = { claim_id: 'C1', expires_at: '2026-09-08T12:15:00Z' };
-  const r = resolvePendingClaim(claim, new Date('2026-09-08T12:15:01Z'), 3);
+  const r = resolvePendingClaim(claim, new Date('2026-09-08T12:15:01Z'));
   assert.equal(r.pendingClaim, null);
   assert.equal(r.forfeited, true);
-  // v2.8.1: el ciclo vuelve a 0 y el usuario puede holdear de nuevo enseguida.
-  // El bloqueo de 8 h rige solo tras un claim exitoso (el ciclo queda en 3/3).
-  assert.equal(r.holdsCompleted, 0);
-  assert.notEqual(r.holdsCompleted, CONFIG.MAX_HOLDS_PER_CYCLE);
+  // v3.5: dejar vencer el premio cuesta lo mismo que cobrarlo: 8 h de espera.
+  assert.equal(r.cooldownEndsAt, '2026-09-08T20:15:01.000Z');
 });
 
 test('CONFIG: fee y rango de premio por hold', () => {
@@ -524,8 +522,9 @@ test('rollHoldPrize: el promedio queda a mitad de camino, no pegado al techo', (
 // ============================================
 // resolveHoldGate — la puerta de /hold
 // ============================================
-// La regla: el bloqueo de 8 h existe SOLO tras un claim cobrado. 3 holds sin
-// cobrar NO bloquean; el premio se perdió y se vuelve a jugar enseguida.
+// Regla v3.5: el bloqueo de 8 h rige tras un claim COBRADO y también tras un
+// claim que VENCIÓ sin cobrarse. Perder el premio cuesta la misma espera;
+// nadie vuelve a holdear enseguida.
 
 const NOW = new Date('2026-09-11T12:00:00.000Z');
 const past = (min) => new Date(NOW.getTime() - min * 60000).toISOString();
@@ -545,7 +544,6 @@ test('ciclo activo con holds disponibles: reusa sin reiniciar', () => {
   const c = activeCycle({ holds_completed: 1 });
   const g = resolveHoldGate(c, null, NOW);
   assert.equal(g.action, 'reuse');
-  assert.equal(g.resetHolds, false);
   assert.equal(g.cycle, c);
 });
 
@@ -555,19 +553,48 @@ test('3 holds con el claim VIVO: rechaza, hay que cobrarlo', () => {
   assert.equal(g.reason, 'claim_pending');
 });
 
-test('3 holds con el claim VENCIDO: se reinicia y se puede holdear (el bug)', () => {
-  // Antes /hold devolvía 400 'Cycle complete' acá y el botón quedaba muerto
-  // hasta el siguiente pg_cron o un recargo de la app.
+test('3 holds con el claim VENCIDO: cooldown de 8 h, no se vuelve a holdear', () => {
+  // v3.5: acá estaba el bug del usuario — dejaba vencer 3 claims y holdeaba
+  // de nuevo al instante. Ahora cae en la misma espera que tras cobrar.
   const c = activeCycle({ holds_completed: 3 });
   const g = resolveHoldGate(c, claim({ expires_at: past(5) }), NOW);
 
-  assert.equal(g.action, 'reuse');
-  assert.equal(g.resetHolds, true, 'debe volver a 0 holds');
+  assert.equal(g.action, 'reject');
+  assert.equal(g.reason, 'cooldown');
   assert.equal(g.forfeitClaimId, 'CLM_1', 'debe marcar el claim como perdido');
+  assert.equal(g.applyCooldown, true, '/hold debe cerrar el ciclo con cooldown');
+  assert.equal(
+    g.cooldownEndsAt,
+    new Date(NOW.getTime() + 8 * 3600000).toISOString(),
+    'cooldown de 8 h desde ahora'
+  );
 });
 
-test('claim cobrado dentro de la ventana: UNICO standby legitimo', () => {
+test('ciclo activo 3/3 legacy (claim ya forfeited): también cooldown', () => {
+  // Residuo de deploys anteriores: el cron ya marcó el claim expired_unclaimed
+  // pero el ciclo quedó active 3/3. Se cierra con cooldown, no se revive a 0.
+  const c = activeCycle({ holds_completed: 3, ends_at: past(1) });
+  const g = resolveHoldGate(c, null, NOW);
+
+  assert.equal(g.action, 'reject');
+  assert.equal(g.reason, 'cooldown');
+  assert.equal(g.applyCooldown, true);
+  assert.equal(g.forfeitClaimId, undefined, 'el claim ya lo trató el cron');
+});
+
+test('claim cobrado dentro de la ventana: standby', () => {
   const c = { id: 'cyc-2', status: 'completed', holds_completed: 3, ends_at: future(300) };
+  const g = resolveHoldGate(c, null, NOW);
+
+  assert.equal(g.action, 'reject');
+  assert.equal(g.reason, 'cooldown');
+  assert.equal(g.cooldownEndsAt, c.ends_at);
+  assert.notEqual(g.applyCooldown, true, 'un ciclo ya cerrado no se vuelve a cerrar');
+});
+
+test('ciclo expired con ends_at futuro (cooldown post-vencimiento): standby', () => {
+  // Estado que deja /auth o /hold cuando el claim venció sin cobrarse.
+  const c = { id: 'cyc-4', status: 'expired', holds_completed: 3, ends_at: future(240) };
   const g = resolveHoldGate(c, null, NOW);
 
   assert.equal(g.action, 'reject');
@@ -580,22 +607,20 @@ test('claim cobrado con la ventana ya vencida: vuelve a jugar', () => {
   assert.equal(resolveHoldGate(c, null, NOW).action, 'create');
 });
 
-test('ciclo expired: crea uno nuevo en vez de revivirlo', () => {
+test('ciclo expired con el cooldown pasado: crea uno nuevo', () => {
   const c = { id: 'cyc-3', status: 'expired', holds_completed: 2, ends_at: past(30) };
-  const g = resolveHoldGate(c, null, NOW);
-  assert.equal(g.action, 'create');
-  assert.equal(g.resetHolds, true);
+  assert.equal(resolveHoldGate(c, null, NOW).action, 'create');
 });
 
 test('ciclo activo con la ventana vencida: no se le niega el hold', () => {
   // ends_at es NOT NULL y se fija al crear, así que puede vencerse con el ciclo
-  // todavía active. La espera de 8 h es solo post-claim, no por el mero tiempo.
+  // todavía active y holds por hacer. Eso no dispara cooldown: la espera llega
+  // solo tras un claim cobrado o vencido.
   const c = activeCycle({ holds_completed: 1, ends_at: past(10) });
   const g = resolveHoldGate(c, null, NOW);
 
   assert.equal(g.action, 'reuse');
   assert.equal(g.extendEndsAt, true, 'debe renovar ends_at para que el cron no lo mate');
-  assert.equal(g.resetHolds, false, 'no pierde los holds que ya hizo');
 });
 
 test('ciclo activo con la ventana vigente no pide renovar ends_at', () => {
@@ -603,9 +628,10 @@ test('ciclo activo con la ventana vigente no pide renovar ends_at', () => {
   assert.equal(g.extendEndsAt, false);
 });
 
-test('claim pendiente sin ciclo (defensivo): no explota', () => {
+test('claim vencido sin ciclo (defensivo): reject con forfeit', () => {
   const g = resolveHoldGate(null, claim({ expires_at: past(5) }), NOW);
-  assert.equal(g.action, 'create');
+  assert.equal(g.action, 'reject');
+  assert.equal(g.reason, 'cooldown');
   assert.equal(g.forfeitClaimId, 'CLM_1');
 });
 

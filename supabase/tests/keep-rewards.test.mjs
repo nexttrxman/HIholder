@@ -172,8 +172,13 @@ const wallet = async (u) => one(`SELECT usdt_balance, keep_balance FROM internal
   const ledger = (await q(`SELECT asset, amount FROM wallet_ledger
                             WHERE user_id=$1 AND operation='trade_buy' ORDER BY created_at, id`, [u])).rows;
   eq('buy_keep: dos renglones (USDT sale, KEEP entra)', ledger.length, 2);
-  near('buy_keep: renglon USDT = 10.01', ledger[0].amount, 10.01, 1e-9);
-  near('buy_keep: renglon KEEP = 25000', ledger[1].amount, 25000, 0.001);
+  // Los dos renglones entran en la misma transaccion: created_at empata e id
+  // es un uuid aleatorio, asi que el orden no es determinista. Buscar por
+  // asset en vez de por posicion (flake conocido de esta suite).
+  const usdtRow = ledger.find((r) => r.asset === 'USDT');
+  const keepRow = ledger.find((r) => r.asset === 'KEEP');
+  near('buy_keep: renglon USDT = 10.01', usdtRow?.amount, 10.01, 1e-9);
+  near('buy_keep: renglon KEEP = 25000', keepRow?.amount, 25000, 0.001);
 
   const poor = (await one(`SELECT buy_keep($1, 1000, 0.0004) AS r`, [u])).r;
   eq('buy_keep: sin saldo = error', poor.ok, false);

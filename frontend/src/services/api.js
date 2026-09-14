@@ -204,10 +204,11 @@ const resolveMockPendingClaim = () => {
   if (new Date(MOCK_PENDING_CLAIM.expires_at) >= new Date()) return MOCK_PENDING_CLAIM;
 
   MOCK_PENDING_CLAIM = null;
-  // v2.8.1: el claim vencido se pierde y los 3 holds con él, igual que en el
-  // worker. El ciclo vuelve a 0 y se puede holdear de nuevo sin esperar 8 h.
-  MOCK_CYCLE.holds_completed = 0;
-  MOCK_CYCLE.remaining_holds = MAX_HOLDS_PER_CYCLE_MOCK;
+  // v3.5: igual que el worker, el claim vencido sin cobro cierra el ciclo con
+  // el cooldown de 8 h; los holds quedan en 3/3 hasta que pase la ventana.
+  MOCK_CYCLE.holds_completed = MAX_HOLDS_PER_CYCLE_MOCK;
+  MOCK_CYCLE.remaining_holds = 0;
+  MOCK_CYCLE.ends_at = new Date(Date.now() + CYCLE_HOURS_MOCK * 60 * 60 * 1000).toISOString();
   return null;
 };
 
@@ -411,8 +412,15 @@ export const registerHold = async (prize) => {
   try {
     const result = await apiCall('/hold', { prize });
     if (result) return result;
-    
-    // Dev mode
+
+    // Dev mode: mismo gate que el worker (v3.5).
+    rollMockCycle();
+    if (resolveMockPendingClaim()) {
+      throw new Error('You have a pending claim. Claim it to keep playing!');
+    }
+    if (MOCK_CYCLE.remaining_holds <= 0 && new Date(MOCK_CYCLE.ends_at) > new Date()) {
+      throw new Error('Cooldown active after your last claim.');
+    }
     MOCK_CYCLE.holds_completed++;
     MOCK_CYCLE.remaining_holds--;
     

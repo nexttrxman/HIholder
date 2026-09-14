@@ -163,10 +163,10 @@ export function HoldButton({ onClaimReady }) {
   const isDisabled = !canHold() || (remainingHolds <= 0 && !pendingClaim);
   const hasPendingClaim = !!pendingClaim;
 
-  // Countdown del standby: tras un claim cobrado el botón queda apagado 8 h y
-  // el usuario pidió ver cuánto falta, segundo a segundo — es parte de la
-  // rutina. Tickea solo mientras hay algo que contar, para no despertar al
-  // componente de a un segundo cuando no hace falta.
+  // Countdown del standby: tras cobrar un claim — o dejarlo vencer, v3.5 — el
+  // botón queda apagado 8 h y el usuario pidió ver cuánto falta, segundo a
+  // segundo — es parte de la rutina. Tickea solo mientras hay algo que contar,
+  // para no despertar al componente de a un segundo cuando no hace falta.
   const [nowTs, setNowTs] = useState(() => Date.now());
   const cooldownMs = cycleEndsAt ? new Date(cycleEndsAt).getTime() - nowTs : 0;
   // SOLO cuando el boton esta realmente bloqueado (claim cobrado, ventana de

@@ -179,7 +179,30 @@ async function handleAuth(request, env) {
     order: 'created_at.desc',
     limit: 1
   });
-  const decision = resolveAuthCycle(cycles[0], new Date());
+  let latestCycle = cycles[0] || null;
+
+  // v3.5: el forfeit va ANTES de decidir el ciclo. Un claim que vencio sin
+  // cobrarse cierra el ciclo con cooldown de 8 h; si decidieramos el ciclo
+  // primero, resolveAuthCycle abriria uno nuevo y el standby se saltaria.
+  if (latestCycle) {
+    const pendRows = await db.query('claims', 'select', {
+      filters: { cycle_id: latestCycle.id, status: 'pending' }
+    });
+    const claimState = resolvePendingClaim(pendRows[0] || null, new Date());
+    if (claimState.forfeited) {
+      await db.query('claims', 'patch', {
+        filters: { claim_id: pendRows[0].claim_id },
+        body: { status: 'expired_unclaimed' }
+      });
+      await db.query('hold_cycles', 'patch', {
+        filters: { id: latestCycle.id },
+        body: { status: 'expired', ends_at: claimState.cooldownEndsAt }
+      });
+      latestCycle = { ...latestCycle, status: 'expired', ends_at: claimState.cooldownEndsAt };
+    }
+  }
+
+  const decision = resolveAuthCycle(latestCycle, new Date());
 
   if (decision.mustExpire) {
     await db.query('hold_cycles', 'patch', {
@@ -211,23 +234,7 @@ async function handleAuth(request, env) {
   const claims = await db.query('claims', 'select', {
     filters: { cycle_id: cycle.id, status: 'pending' }
   });
-  let pendingClaim = claims[0];
-
-  // A claim that ran out of time unpaid is forfeited. Restart the cycle at zero
-  // holds so the user can play again; otherwise /hold keeps refusing (3/3) and
-  // the button is dead until the 8h window ends.
-  const claimState = resolvePendingClaim(pendingClaim, new Date(), cycle.holds_completed);
-  if (claimState.forfeited) {
-    await db.query('claims', 'patch', {
-      filters: { claim_id: pendingClaim.claim_id },
-      body: { status: 'expired_unclaimed' }
-    });
-    await db.query('hold_cycles', 'patch', {
-      filters: { id: cycle.id },
-      body: { holds_completed: 0 }
-    });
-    cycle = { ...cycle, holds_completed: claimState.holdsCompleted };
-  }
+  let pendingClaim = claims[0] || null;
   pendingClaim = claimState.pendingClaim;
 
   const referrals = await db.query('referrals', 'select', { filters: { referrer_id: tgId } });
@@ -302,28 +309,35 @@ async function handleHold(request, env) {
 
   const gate = resolveHoldGate(latestCycle, pendingClaims[0] || null, new Date());
 
+  // v3.5: el saneamiento va ANTES del rechazo. Un claim que expiró sin
+  // cobrarse se marca perdido y el ciclo se cierra con el mismo cooldown de
+  // 8 h que un claim cobrado, en este mismo pedido (sin depender del pg_cron
+  // ni de que el cliente recargue).
+  if (gate.forfeitClaimId) {
+    await db.query('claims', 'patch', {
+      filters: { claim_id: gate.forfeitClaimId },
+      body: { status: 'expired_unclaimed' }
+    });
+  }
+  if (gate.applyCooldown && gate.cycle) {
+    await db.query('hold_cycles', 'patch', {
+      filters: { id: gate.cycle.id },
+      body: { status: 'expired', ends_at: gate.cooldownEndsAt }
+    });
+  }
+
   if (gate.action === 'reject') {
     return jsonResponse({
       ok: false,
       // Dos rechazos legítimos y son distintos: 'cooldown' es la espera de 8 h
-      // tras haber cobrado; 'claim_pending' es un premio todavía vivo que hay
-      // que cobrar antes de seguir jugando.
+      // tras cobrar O tras dejar vencer un claim; 'claim_pending' es un premio
+      // todavía vivo que hay que cobrar antes de seguir jugando.
       error: gate.reason === 'cooldown'
         ? 'Cooldown active after your last claim.'
         : 'You have a pending claim. Claim it to keep playing!',
       reason: gate.reason,
       cooldown_ends_at: gate.cooldownEndsAt || null,
     }, 400);
-  }
-
-  // Claim que expiró sin cobrarse: el premio se perdió y el ciclo vuelve a 0.
-  // Se resuelve acá, en el mismo pedido, en vez de depender del pg_cron (corre
-  // cada minuto y puede no estar activo) o de que el cliente pase por /auth.
-  if (gate.forfeitClaimId) {
-    await db.query('claims', 'patch', {
-      filters: { claim_id: gate.forfeitClaimId },
-      body: { status: 'expired_unclaimed' }
-    });
   }
 
   let cycle;
@@ -342,7 +356,6 @@ async function handleHold(request, env) {
   } else {
     cycle = gate.cycle;
     const patch = {};
-    if (gate.resetHolds) patch.holds_completed = 0;
     if (gate.extendEndsAt) {
       patch.ends_at = new Date(
         Date.now() + CONFIG.CYCLE_DURATION_HOURS * 60 * 60 * 1000
@@ -1402,7 +1415,7 @@ export default {
           // misiones reales (progress/manual) y cola admin. Sirve para
           // verificar EN VIVO que el Worker corre el codigo nuevo: si /health
           // devuelve una version menor, el deploy no se hizo.
-          version: '3.5',
+          version: '3.6',
           treasury: CONFIG.TREASURY_WALLET,
           env: {
             BOT_TOKEN: Boolean(env.BOT_TOKEN),

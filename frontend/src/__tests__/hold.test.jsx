@@ -159,7 +159,7 @@ describe('unclaimed claim', () => {
     expect(auth.cycle.remaining_holds).toBe(0);
   });
 
-  it('forfeits an expired claim and the 3 holds go with it', async () => {
+  it('forfeits an expired claim and starts the 8 h cooldown', async () => {
     for (let i = 0; i < 3; i++) await registerHold(0.25);
 
     const auth = await authUser();
@@ -168,22 +168,29 @@ describe('unclaimed claim', () => {
 
     const after = await authUser();
     expect(after.pending_claim).toBeNull();
-    // v2.8.1: el claim vencido se pierde y los holds también, pero el ciclo
-    // vuelve a 0 en vez de esperar a que termine la ventana de 8 h.
-    expect(after.cycle.holds_completed).toBe(0);
-    expect(after.cycle.remaining_holds).toBe(3);
+    // v3.5: el claim vencido se pierde y el ciclo se cierra con el mismo
+    // cooldown de 8 h que un claim cobrado; los holds se quedan en 3/3.
+    expect(after.cycle.holds_completed).toBe(3);
+    expect(after.cycle.remaining_holds).toBe(0);
+
+    const hoursLeft = (new Date(after.cycle.ends_at).getTime() - Date.now()) / 3600000;
+    expect(hoursLeft).toBeGreaterThan(7.9);
+    expect(hoursLeft).toBeLessThanOrEqual(8.01);
   });
 
-  it('lets the user hold again straight away after a forfeit', async () => {
+  it('bloquea el hold durante el cooldown tras el forfeit', async () => {
     for (let i = 0; i < 3; i++) await registerHold(0.25);
     expirePendingClaim(await authUser());
     await authUser();
 
-    // Sin esperar nada: los 3 holds nuevos generan un claim nuevo.
-    for (let i = 0; i < 3; i++) await registerHold(0.25);
+    // v3.5: acá estaba el bug reportado — volver a holdear al instante tras
+    // dejar vencer el premio. Ahora el hold queda rechazado hasta el cooldown.
+    await expect(registerHold(0.25)).rejects.toThrow(/cooldown/i);
+
     const after = await authUser();
-    expect(after.pending_claim).toBeTruthy();
     expect(after.cycle.holds_completed).toBe(3);
+    expect(after.cycle.remaining_holds).toBe(0);
+    expect(after.pending_claim).toBeNull();
   });
 
   it('keeps the claim payable while it has not expired', async () => {
