@@ -234,8 +234,9 @@ async function handleAuth(request, env) {
   const claims = await db.query('claims', 'select', {
     filters: { cycle_id: cycle.id, status: 'pending' }
   });
-  let pendingClaim = claims[0] || null;
-  pendingClaim = claimState.pendingClaim;
+  // Si el forfeit de arriba marcó el claim como expired_unclaimed, esta query
+  // ya no lo ve: pending_claim sale null sin necesidad de tocar nada más.
+  const pendingClaim = claims[0] || null;
 
   const referrals = await db.query('referrals', 'select', { filters: { referrer_id: tgId } });
   const totalRefs = Array.isArray(referrals) ? referrals.length : 0;
@@ -1415,7 +1416,7 @@ export default {
           // misiones reales (progress/manual) y cola admin. Sirve para
           // verificar EN VIVO que el Worker corre el codigo nuevo: si /health
           // devuelve una version menor, el deploy no se hizo.
-          version: '3.6',
+          version: '3.7',
           treasury: CONFIG.TREASURY_WALLET,
           env: {
             BOT_TOKEN: Boolean(env.BOT_TOKEN),
