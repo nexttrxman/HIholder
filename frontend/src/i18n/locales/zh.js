@@ -212,6 +212,7 @@ export default {
   'Under review': '审核中',
   'Earn USDT + KEEP': '赚取 USDT + KEEP',
   'Request review': '申请审核',
+  'Share on Telegram': '在 Telegram 上分享',
   'Minimum deposit': '最低充值',
   'Weekly bonus': '每周奖金',
 };

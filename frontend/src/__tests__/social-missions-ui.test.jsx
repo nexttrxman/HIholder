@@ -11,6 +11,7 @@ import * as api from '@/services/api';
 vi.mock('@/services/api', () => ({
   getSocialMissions: vi.fn(),
   verifySocialMission: vi.fn(),
+  shareMissionText: vi.fn(),
   KEEP_REWARDS: {
     mission: { min: 500, max: 1200 },
     checkin: { min: 500, max: 500 },
@@ -23,7 +24,7 @@ vi.mock('@/hooks/useTelegram', () => ({
 }));
 const refreshData = vi.fn();
 vi.mock('@/contexts/WalletContext', () => ({
-  useWallet: () => ({ refreshData }),
+  useWallet: () => ({ refreshData, uid: 'U123' }),
 }));
 
 const TG_MISSION = {
@@ -171,5 +172,41 @@ describe('Misiones v3.3 (UI)', () => {
 
     fireEvent.click(screen.getByTestId('verify-daily_hold'));
     await waitFor(() => expect(screen.getByTestId('error-daily_hold')).toHaveTextContent('Progress not complete'));
+  });
+});
+
+describe('Mision de compartir v3.4 (UI)', () => {
+  const TG_SHARE = {
+    id: 'tg_share', platform: 'telegram', title: 'Share on Telegram',
+    description: 'Share TronKeeper on your story, then request review.', url: '',
+    reward: 0.2, verify: 'manual',
+    reward_keep: 500, repeat: 'weekly', goal: null, progress_type: null, current: null,
+    share_text: '🎁 Join me on TronKeeper!',
+  };
+
+  it('muestra el boton "Share on Telegram" y el premio fijo', async () => {
+    api.getSocialMissions.mockResolvedValue({ ...MISSIONS, missions: [TG_SHARE] });
+    render(<SocialMissions />);
+    await waitFor(() => expect(screen.getByTestId('social-mission-tg_share')).toBeTruthy());
+    expect(screen.getByTestId('reward-tg_share').textContent)
+      .toBe('+$0.20 USDT · +500 KEEP');
+    expect(screen.getByTestId('verify-tg_share').textContent).toContain('Share on Telegram');
+    // Sin url propia: no hay boton de abrir link.
+    expect(screen.queryByTestId('open-tg_share')).toBeNull();
+  });
+
+  it('al compartir crea la solicitud manual y abre el selector de Telegram', async () => {
+    api.getSocialMissions.mockResolvedValue({ ...MISSIONS, missions: [TG_SHARE] });
+    api.verifySocialMission.mockResolvedValue({ ok: true, pending: true });
+    render(<SocialMissions />);
+    await waitFor(() => expect(screen.getByTestId('verify-tg_share')).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId('verify-tg_share'));
+    await waitFor(() => expect(screen.getByTestId('verify-tg_share')).toHaveTextContent('Under review'));
+    // Abre el selector con el uid del usuario y el texto de la mision.
+    expect(api.shareMissionText).toHaveBeenCalledWith('U123', '🎁 Join me on TronKeeper!');
+    // Y deja la solicitud en revision manual.
+    expect(api.verifySocialMission).toHaveBeenCalledWith('tg_share');
+    expect(screen.getByTestId('verify-tg_share')).toBeDisabled();
   });
 });

@@ -284,6 +284,24 @@ export const shareReferralLink = (uid) => {
   }
 };
 
+/**
+ * v3.4: comparte el link de referido con un texto propio (misiones de
+ * "compartir"). Abre el selector de Telegram; dentro de la Mini App usa
+ * openTelegramLink y fuera cae a window.open. No hay forma de verificar que
+ * el usuario realmente publico, por eso estas misiones son de aprobacion
+ * manual en el servidor.
+ */
+export const shareMissionText = (uid, text) => {
+  const tg = getTelegram();
+  const link = buildReferralLink(uid);
+  const url = `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text || '')}`;
+  if (tg?.openTelegramLink) {
+    tg.openTelegramLink(url);
+  } else {
+    window.open(url, '_blank');
+  }
+};
+
 // ============================================
 // API HELPERS
 // ============================================
@@ -865,6 +883,7 @@ export default {
   initTelegram,
   hapticFeedback,
   shareReferralLink,
+  shareMissionText,
   DEPOSIT_INFO,
   TON_CONFIG,
 };

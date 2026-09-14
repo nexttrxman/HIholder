@@ -1267,6 +1267,8 @@ async function handleMissions(request, env) {
       goal: m.goal == null ? null : Number(m.goal),
       progress_type: m.progress_type || null,
       current: m.progress_type ? Number(progress?.[m.progress_type] || 0) : null,
+      // v3.4: texto para el boton "Share on Telegram" (misiones de compartir).
+      share_text: m.share_text || null,
     })),
     completed,
     pending,
@@ -1400,7 +1402,7 @@ export default {
           // misiones reales (progress/manual) y cola admin. Sirve para
           // verificar EN VIVO que el Worker corre el codigo nuevo: si /health
           // devuelve una version menor, el deploy no se hizo.
-          version: '3.4.2',
+          version: '3.5',
           treasury: CONFIG.TREASURY_WALLET,
           env: {
             BOT_TOKEN: Boolean(env.BOT_TOKEN),

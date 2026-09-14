@@ -212,6 +212,7 @@ export default {
   'Under review': 'Em análise',
   'Earn USDT + KEEP': 'Ganhe USDT + KEEP',
   'Request review': 'Solicitar análise',
+  'Share on Telegram': 'Compartilhar no Telegram',
   'Minimum deposit': 'Depósito mínimo',
   'Weekly bonus': 'Bônus semanal',
 };

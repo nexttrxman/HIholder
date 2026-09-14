@@ -212,6 +212,7 @@ export default {
   'Under review': 'На проверке',
   'Earn USDT + KEEP': 'Зарабатывайте USDT + KEEP',
   'Request review': 'Запросить проверку',
+  'Share on Telegram': 'Поделиться в Telegram',
   'Minimum deposit': 'Минимальный депозит',
   'Weekly bonus': 'Недельный бонус',
 };

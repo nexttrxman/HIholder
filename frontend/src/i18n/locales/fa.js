@@ -212,6 +212,7 @@ export default {
   'Under review': 'در حال بررسی',
   'Earn USDT + KEEP': 'USDT + KEEP کسب کنید',
   'Request review': 'درخواست بررسی',
+  'Share on Telegram': 'اشتراک‌گذاری در تلگرام',
   'Minimum deposit': 'حداقل واریز',
   'Weekly bonus': 'پاداش هفتگی',
 };

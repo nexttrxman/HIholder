@@ -212,6 +212,7 @@ export default {
   'Under review': 'قيد المراجعة',
   'Earn USDT + KEEP': 'اكسب USDT + KEEP',
   'Request review': 'طلب مراجعة',
+  'Share on Telegram': 'شارك على تيليجرام',
   'Minimum deposit': 'الحد الأدنى للإيداع',
   'Weekly bonus': 'مكافأة الأسبوع',
 };

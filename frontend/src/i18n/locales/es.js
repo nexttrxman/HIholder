@@ -218,6 +218,7 @@ export default {
   'Under review': 'En revisión',
   'Earn USDT + KEEP': 'Ganá USDT + KEEP',
   'Request review': 'Solicitar revisión',
+  'Share on Telegram': 'Compartir en Telegram',
   'Minimum deposit': 'Depósito mínimo',
   'Weekly bonus': 'Bono semanal',
 };

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Check, ExternalLink, Loader2, Megaphone, Clock } from 'lucide-react';
-import { getSocialMissions, verifySocialMission, KEEP_REWARDS } from '@/services/api';
+import { getSocialMissions, verifySocialMission, shareMissionText, KEEP_REWARDS } from '@/services/api';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useWallet } from '@/contexts/WalletContext';
 
@@ -23,6 +23,7 @@ function rewardLabel(mission, keepMin, keepMax) {
 
 function SocialMissionCard({ mission, done, pending, keepMin, keepMax, onVerified, index }) {
   const { vibrate } = useTelegram();
+  const { uid } = useWallet();
   const [state, setState] = useState(done ? 'done' : pending ? 'pending' : 'idle');
   const [error, setError] = useState(null);
 
@@ -40,7 +41,10 @@ function SocialMissionCard({ mission, done, pending, keepMin, keepMax, onVerifie
       const res = await verifySocialMission(mission.id);
       if (res?.ok && res?.pending) {
         // Mision manual: queda en revision hasta que el admin la apruebe.
+        // v3.4: si es de "compartir", abrimos ademas el selector de Telegram.
+        // Como no se puede verificar una historia/post, el admin aprueba a mano.
         vibrate('success');
+        if (mission.share_text) shareMissionText(uid, mission.share_text);
         setState('pending');
         return;
       }
@@ -62,7 +66,11 @@ function SocialMissionCard({ mission, done, pending, keepMin, keepMax, onVerifie
     }
   };
 
-  const buttonLabel = mission.verify === 'manual' ? 'Request review' : 'Verify';
+  const buttonLabel = mission.share_text
+    ? 'Share on Telegram'
+    : mission.verify === 'manual'
+      ? 'Request review'
+      : 'Verify';
 
   return (
     <motion.div
