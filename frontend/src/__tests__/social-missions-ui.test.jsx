@@ -11,7 +11,7 @@ import * as api from '@/services/api';
 vi.mock('@/services/api', () => ({
   getSocialMissions: vi.fn(),
   verifySocialMission: vi.fn(),
-  shareMissionText: vi.fn(),
+  shareToStory: vi.fn(),
   KEEP_REWARDS: {
     mission: { min: 500, max: 1200 },
     checkin: { min: 500, max: 500 },
@@ -179,8 +179,8 @@ describe('Mision de compartir v3.4 (UI)', () => {
   const TG_SHARE = {
     id: 'tg_share', platform: 'telegram', title: 'Share on Telegram',
     description: 'Share TronKeeper on your story, then request review.', url: '',
-    reward: 0.2, verify: 'manual',
-    reward_keep: 500, repeat: 'weekly', goal: null, progress_type: null, current: null,
+    reward: 0.5, verify: 'manual',
+    reward_keep: 1500, repeat: 'weekly', goal: null, progress_type: null, current: null,
     share_text: '🎁 Join me on TronKeeper!',
   };
 
@@ -189,13 +189,13 @@ describe('Mision de compartir v3.4 (UI)', () => {
     render(<SocialMissions />);
     await waitFor(() => expect(screen.getByTestId('social-mission-tg_share')).toBeTruthy());
     expect(screen.getByTestId('reward-tg_share').textContent)
-      .toBe('+$0.20 USDT · +500 KEEP');
+      .toBe('+$0.50 USDT · +1,500 KEEP');
     expect(screen.getByTestId('verify-tg_share').textContent).toContain('Share on Telegram');
     // Sin url propia: no hay boton de abrir link.
     expect(screen.queryByTestId('open-tg_share')).toBeNull();
   });
 
-  it('al compartir crea la solicitud manual y abre el selector de Telegram', async () => {
+  it('al compartir crea la solicitud manual y sube la foto a la historia', async () => {
     api.getSocialMissions.mockResolvedValue({ ...MISSIONS, missions: [TG_SHARE] });
     api.verifySocialMission.mockResolvedValue({ ok: true, pending: true });
     render(<SocialMissions />);
@@ -203,8 +203,8 @@ describe('Mision de compartir v3.4 (UI)', () => {
 
     fireEvent.click(screen.getByTestId('verify-tg_share'));
     await waitFor(() => expect(screen.getByTestId('verify-tg_share')).toHaveTextContent('Under review'));
-    // Abre el selector con el uid del usuario y el texto de la mision.
-    expect(api.shareMissionText).toHaveBeenCalledWith('U123', '🎁 Join me on TronKeeper!');
+    // Sube la foto del bot a la historia con el uid y el texto de la mision.
+    expect(api.shareToStory).toHaveBeenCalledWith('U123', '🎁 Join me on TronKeeper!');
     // Y deja la solicitud en revision manual.
     expect(api.verifySocialMission).toHaveBeenCalledWith('tg_share');
     expect(screen.getByTestId('verify-tg_share')).toBeDisabled();

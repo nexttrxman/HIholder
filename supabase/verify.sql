@@ -294,10 +294,10 @@ BEGIN
   INSERT INTO _v VALUES ('social_missions.share_text existe',
     EXISTS (SELECT 1 FROM information_schema.columns
             WHERE table_name='social_missions' AND column_name='share_text'), '');
-  INSERT INTO _v VALUES ('tg_share sembrada (manual, semanal, 0.20 USDT, share_text)',
+  INSERT INTO _v VALUES ('tg_share sembrada (manual, semanal, 0.50 USDT, share_text)',
     (SELECT count(*) FROM social_missions
       WHERE id='tg_share' AND verify='manual' AND repeat='weekly'
-        AND reward_usdt=0.20 AND share_text IS NOT NULL) = 1, '');
+        AND reward_usdt=0.50 AND share_text IS NOT NULL) = 1, '');
 END $$;
 
 -- Resultado del humo. Cualquier FAIL significa que el deploy no está completo.

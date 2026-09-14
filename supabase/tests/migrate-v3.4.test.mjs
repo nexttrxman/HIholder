@@ -73,8 +73,8 @@ check('social_missions.share_text existe',
 
 const ts = await one(`SELECT reward_usdt, reward_keep, verify, repeat, share_text, enabled, platform
   FROM social_missions WHERE id='tg_share'`);
-check('tg_share: 0.20 USDT + 500 KEEP, manual, semanal, con share_text',
-  Number(ts.reward_usdt)===0.2 && ts.reward_keep===500 && ts.verify==='manual'
+check('tg_share: 0.50 USDT + 1500 KEEP, manual, semanal, con share_text',
+  Number(ts.reward_usdt)===0.5 && ts.reward_keep===1500 && ts.verify==='manual'
     && ts.repeat==='weekly' && ts.enabled===true && typeof ts.share_text==='string' && ts.share_text.length>0,
   JSON.stringify(ts));
 
@@ -97,11 +97,11 @@ check('una sola fila para tg_share',
   Number((await one(`SELECT count(*) c FROM user_social_missions WHERE user_id=$1 AND mission_id='tg_share'`, [u])).c) === 1);
 
 const ap = (await one(`SELECT approve_mission_request($1,'tg_share') AS r`, [u])).r;
-check('approve paga 0.20 USDT + 500 KEEP',
-  ap.ok===true && Number(ap.reward)===0.2 && Number(ap.keep_reward)===500, JSON.stringify(ap));
+check('approve paga 0.50 USDT + 1500 KEEP',
+  ap.ok===true && Number(ap.reward)===0.5 && Number(ap.keep_reward)===1500, JSON.stringify(ap));
 const w = await one(`SELECT usdt_balance, keep_balance FROM internal_wallets WHERE user_id=$1`, [u]);
 check('wallet refleja el pago',
-  Number(w.usdt_balance)===0.2 && Number(w.keep_balance)===500, JSON.stringify(w));
+  Number(w.usdt_balance)===0.5 && Number(w.keep_balance)===1500, JSON.stringify(w));
 check('la fila queda paid con el periodo ISO',
   (await one(`SELECT status s FROM user_social_missions WHERE user_id=$1 AND mission_id='tg_share'`, [u])).s === 'paid');
 

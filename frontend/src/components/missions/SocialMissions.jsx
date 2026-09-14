@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Check, ExternalLink, Loader2, Megaphone, Clock } from 'lucide-react';
-import { getSocialMissions, verifySocialMission, shareMissionText, KEEP_REWARDS } from '@/services/api';
+import { getSocialMissions, verifySocialMission, shareToStory, KEEP_REWARDS } from '@/services/api';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useWallet } from '@/contexts/WalletContext';
 
@@ -44,7 +44,8 @@ function SocialMissionCard({ mission, done, pending, keepMin, keepMax, onVerifie
         // v3.4: si es de "compartir", abrimos ademas el selector de Telegram.
         // Como no se puede verificar una historia/post, el admin aprueba a mano.
         vibrate('success');
-        if (mission.share_text) shareMissionText(uid, mission.share_text);
+        // v3.4: sube la FOTO del bot a su historia (no un reenvio de link).
+        if (mission.share_text) shareToStory(uid, mission.share_text);
         setState('pending');
         return;
       }

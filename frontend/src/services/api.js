@@ -285,21 +285,41 @@ export const shareReferralLink = (uid) => {
 };
 
 /**
- * v3.4: comparte el link de referido con un texto propio (misiones de
- * "compartir"). Abre el selector de Telegram; dentro de la Mini App usa
- * openTelegramLink y fuera cae a window.open. No hay forma de verificar que
- * el usuario realmente publico, por eso estas misiones son de aprobacion
- * manual en el servidor.
+ * v3.4 (story): comparte una FOTO del bot a la historia del usuario.
+ *
+ * Telegram no permite verificar que alguien publico una historia, asi que
+ * estas misiones son de aprobacion manual en el servidor. Aca solo abrimos el
+ * editor de historias con la foto del bot precargada (Bot API 7.8+,
+ * WebApp.shareToStory). La imagen vive en /share-story.jpg y debe ser una URL
+ * HTTPS publica porque Telegram la descarga. El caption es el share_text de la
+ * mision y, para usuarios Premium, se pega un sticker de link con su referido
+ * (al resto se les ignora en silencio). En clientes viejos o navegador sin
+ * shareToStory, cae a compartir link+texto.
  */
-export const shareMissionText = (uid, text) => {
+export const SHARE_STORY_IMAGE = '/share-story.jpg';
+
+export const shareToStory = (uid, caption) => {
   const tg = getTelegram();
   const link = buildReferralLink(uid);
-  const url = `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text || '')}`;
+
+  if (typeof tg?.shareToStory === 'function') {
+    const mediaUrl = new URL(SHARE_STORY_IMAGE, window.location.origin).href;
+    tg.shareToStory(mediaUrl, {
+      text: caption || '',
+      // Solo Premium: sticker de link con el referido (ignorado al resto).
+      widget_link: { url: link, name: 'TronKeeper' },
+    });
+    return true;
+  }
+
+  // Fallback: clientes < 7.8 o navegador -> selector de link+texto.
+  const url = `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(caption || '')}`;
   if (tg?.openTelegramLink) {
     tg.openTelegramLink(url);
   } else {
     window.open(url, '_blank');
   }
+  return false;
 };
 
 // ============================================
@@ -883,7 +903,8 @@ export default {
   initTelegram,
   hapticFeedback,
   shareReferralLink,
-  shareMissionText,
+  shareToStory,
+  SHARE_STORY_IMAGE,
   DEPOSIT_INFO,
   TON_CONFIG,
 };
