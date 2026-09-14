@@ -219,6 +219,5 @@ export default {
   'Earn USDT + KEEP': 'Ganá USDT + KEEP',
   'Request review': 'Solicitar revisión',
   'Share on Telegram': 'Compartir en Telegram',
-  'First Deposit mission minimum': 'Mínimo de la misión First Deposit',
   'Weekly bonus': 'Bono semanal',
 };

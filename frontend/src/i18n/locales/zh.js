@@ -213,6 +213,5 @@ export default {
   'Earn USDT + KEEP': '赚取 USDT + KEEP',
   'Request review': '申请审核',
   'Share on Telegram': '在 Telegram 上分享',
-  'First Deposit mission minimum': 'First Deposit 任务最低要求',
   'Weekly bonus': '每周奖金',
 };

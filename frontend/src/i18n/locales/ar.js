@@ -213,6 +213,5 @@ export default {
   'Earn USDT + KEEP': 'اكسب USDT + KEEP',
   'Request review': 'طلب مراجعة',
   'Share on Telegram': 'شارك على تيليجرام',
-  'First Deposit mission minimum': 'الحد الأدنى لمهمة الإيداع الأول',
   'Weekly bonus': 'مكافأة الأسبوع',
 };

@@ -213,6 +213,5 @@ export default {
   'Earn USDT + KEEP': 'Зарабатывайте USDT + KEEP',
   'Request review': 'Запросить проверку',
   'Share on Telegram': 'Поделиться в Telegram',
-  'First Deposit mission minimum': 'Минимум для миссии First Deposit',
   'Weekly bonus': 'Недельный бонус',
 };

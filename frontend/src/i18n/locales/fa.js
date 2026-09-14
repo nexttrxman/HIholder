@@ -213,6 +213,5 @@ export default {
   'Earn USDT + KEEP': 'USDT + KEEP کسب کنید',
   'Request review': 'درخواست بررسی',
   'Share on Telegram': 'اشتراک‌گذاری در تلگرام',
-  'First Deposit mission minimum': 'حداقلِ ماموریت اولین واریز',
   'Weekly bonus': 'پاداش هفتگی',
 };

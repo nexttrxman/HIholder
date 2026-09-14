@@ -95,7 +95,7 @@ function SocialMissionCard({ mission, done, pending, keepMin, keepMax, onVerifie
             )}
           </div>
           <div className="min-w-0">
-            <h4 className="font-semibold text-white text-sm truncate flex items-center gap-2">
+            <h4 className="font-semibold text-white text-sm flex items-center gap-2">
               {mission.title}
               {REPEAT_LABEL[mission.repeat] && (
                 <span
@@ -107,7 +107,7 @@ function SocialMissionCard({ mission, done, pending, keepMin, keepMax, onVerifie
               )}
             </h4>
             {mission.description && (
-              <p className="text-xs text-white/40 truncate">{mission.description}</p>
+              <p className="text-xs text-white/40 mt-0.5">{mission.description}</p>
             )}
             <p className="text-xs text-brand-green font-semibold mt-0.5" data-testid={`reward-${mission.id}`}>
               {rewardLabel(mission, keepMin, keepMax)}

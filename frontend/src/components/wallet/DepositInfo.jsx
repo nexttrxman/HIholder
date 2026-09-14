@@ -29,13 +29,8 @@ export function DepositInfo({ onClose }) {
         </div>
       </div>
 
-      {/* v3.3: minimo de la mision First Deposit (exhibido; el acreditado es manual). */}
-      {depositInfo.minimum && (
-        <div className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10 mb-4" data-testid="deposit-minimum">
-          <span className="text-xs text-white/60">First Deposit mission minimum</span>
-          <span className="font-mono text-xs text-white font-semibold">{depositInfo.minimum}</span>
-        </div>
-      )}
+      {/* El minimo (5 TRX o 1 USDT) es requisito de la mision First Deposit y
+          se exhibe en la descripcion de la propia mision, no en el deposito. */}
 
       {/* Address */}
       <div className="mb-4">

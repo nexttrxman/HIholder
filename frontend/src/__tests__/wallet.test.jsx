@@ -81,10 +81,10 @@ describe('Wallet — layout', () => {
     expect(screen.getByTestId('deposit-info')).toBeInTheDocument();
   });
 
-  it('muestra el minimo de deposito (5 TRX o 1 USDT)', () => {
+  it('ya no exhibe el minimo de deposito en el panel (vive en la mision)', () => {
     renderWallet();
-    const min = screen.getByTestId('deposit-minimum');
-    expect(min.textContent).toContain('5 TRX or 1 USDT');
+    expect(screen.getByTestId('deposit-info')).toBeInTheDocument();
+    expect(screen.queryByTestId('deposit-minimum')).not.toBeInTheDocument();
   });
 
   it('el toggle cierra y abre el panel de depósito', async () => {
