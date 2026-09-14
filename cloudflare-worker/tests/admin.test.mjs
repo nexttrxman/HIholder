@@ -13,6 +13,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import worker from '../worker.js';
+import { safeEqualStrings } from '../lib.js';
 
 const ENV = {
   BOT_TOKEN: '123456789:AA-secret-token',
@@ -78,4 +79,16 @@ test('el preflight CORS permite el header x-admin-token', async () => {
   const allow = res.headers.get('Access-Control-Allow-Headers') || '';
   assert.match(allow, /x-admin-token/i);
   assert.match(allow, /Content-Type/i);
+});
+
+test('safeEqualStrings: iguales, distintas y casos borde', () => {
+  assert.equal(safeEqualStrings('abc123', 'abc123'), true);
+  assert.equal(safeEqualStrings('abc123', 'abc124'), false);
+  assert.equal(safeEqualStrings('abc123', 'abc12'), false);   // longitud distinta
+  assert.equal(safeEqualStrings('', ''), true);
+  assert.equal(safeEqualStrings('', 'x'), false);
+  assert.equal(safeEqualStrings('x', null), false);
+  assert.equal(safeEqualStrings(undefined, 'x'), false);
+  // Unicode: mismo largo en chars, contenido distinto.
+  assert.equal(safeEqualStrings('señał', 'senal'), false);
 });

@@ -8,8 +8,8 @@ import {
   adminResolveWithdrawal,
 } from '@/services/api';
 
-// Panel de admin (v3.3). Vive en /admin (o #admin) y NO forma parte de la Mini
-// App: funciona en un navegador comun, fuera de Telegram, y autentica con el
+// Panel de admin (v3.3). Vive en #TKadminTK (ruta no publicada) y NO forma
+// parte de la Mini App: funciona en un navegador comun, fuera de Telegram, y autentica con el
 // secreto ADMIN_TOKEN del Worker (header x-admin-token). El token se guarda en
 // sessionStorage: al cerrar la pestana hay que volver a ponerlo.
 //

@@ -171,13 +171,15 @@ export function AppContent() {
 }
 
 /**
- * v3.3: /admin (o #admin) es el panel del operador. Corre en un navegador
- * comun, fuera de Telegram, y NO monta los providers de la Mini App.
+ * v3.3: el panel del operador vive en una ruta no publicada (#TKadminTK).
+ * Corre en un navegador comun, fuera de Telegram, y NO monta los providers
+ * de la Mini App. Ojo: el nombre es solo discrecion (el bundle es publico y
+ * la puerta real es el ADMIN_TOKEN del Worker), pero evita visitas casuales.
  */
 function isAdminRoute() {
   if (typeof window === 'undefined') return false;
   const { pathname, hash } = window.location;
-  return pathname.endsWith('/admin') || hash === '#admin' || hash.startsWith('#/admin');
+  return hash === '#TKadminTK' || pathname.endsWith('/TKadminTK');
 }
 
 function App() {

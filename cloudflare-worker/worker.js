@@ -42,6 +42,7 @@ import {
   summarizeCheckins,
   CHECKIN_CONFIG,
   isoWeekKey,
+  safeEqualStrings,
   rollHoldPrize,
 } from './lib.js';
 
@@ -1165,7 +1166,9 @@ async function handleAdmin(request, env, path) {
     return jsonResponse({ ok: false, error: 'Admin not configured' }, 503);
   }
   const token = request.headers.get('x-admin-token') || '';
-  if (token !== env.ADMIN_TOKEN) {
+  // Comparacion de tiempo constante: un `!==` comun corta en el primer
+  // caracter distinto y filtra informacion util para fuerza bruta.
+  if (!safeEqualStrings(token, env.ADMIN_TOKEN)) {
     return jsonResponse({ ok: false, error: 'Unauthorized' }, 401);
   }
 
@@ -1397,7 +1400,7 @@ export default {
           // misiones reales (progress/manual) y cola admin. Sirve para
           // verificar EN VIVO que el Worker corre el codigo nuevo: si /health
           // devuelve una version menor, el deploy no se hizo.
-          version: '3.4.1',
+          version: '3.4.2',
           treasury: CONFIG.TREASURY_WALLET,
           env: {
             BOT_TOKEN: Boolean(env.BOT_TOKEN),

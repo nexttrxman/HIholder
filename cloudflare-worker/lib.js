@@ -1043,6 +1043,24 @@ export function isValidTronAddress(address) {
 // DAILY CHECK-IN
 // ============================================
 
+/**
+ * Compara dos secretos sin revelar cuantos caracteres coinciden.
+ *
+ * `a === b` en JS corta en el primer caracter distinto: midiendo el tiempo de
+ * respuesta un atacante podria reconstruir el token letra por letra. Aca se
+ * recorre todo el string acumulando diferencias. (La longitud si se filtra;
+ * es el tradeoff estandar y no sirve de nada sin el contenido.)
+ */
+export function safeEqualStrings(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
 export const CHECKIN_CONFIG = {
   // v3.3: premios fijos. El diario se acredita al toque; el semanal NO se
   // acredita directo: abre un claim (claims.claim_type='weekly') que el
