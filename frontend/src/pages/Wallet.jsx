@@ -215,7 +215,7 @@ export function WalletPage({ onOpenWithdraw, initialSection = 'balance' }) {
               <BalanceCard
                 asset="KEEP"
                 amount={keepBalance}
-                label="Keeper Token"
+                label="Keeper"
                 icon={<KeepIcon className="w-6 h-6" />}
                 onSend={handleSend}
                 sendDisabled

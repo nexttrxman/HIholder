@@ -167,7 +167,7 @@ export default {
   'Edit': 'تعديل',
   'Confirm close': 'تأكيد الإغلاق',
   'The position closes automatically when the price reaches either level. Prices are checked every few seconds, so a fast move can fill slightly past the level.': 'تُغلق الصفقة تلقائيًا عند بلوغ السعر أيًا من المستويين. يتم فحص الأسعار كل بضع ثوانٍ، لذا قد ينفذ الأمر قليلاً بعد المستوى عند الحركة السريعة.',
-  'Practice trading with your demo USDT. Prices follow the real market; orders settle instantly against your internal balance — no funds leave the app.': 'تدرّب برصيد USDT التجريبي. تتبع الأسعار السوق الحقيقية؛ تُنفَّذ الأوامر فورًا من رصيدك الداخلي — لا تغادر الأموال التطبيق.',
+  'Trading involves risk — you may lose your funds. Trade carefully.': 'التداول ينطوي على مخاطر وقد تخسر أموالك. تداول بحذر.',
   'Without the MEMO, your deposit cannot be credited to your account.': 'بدون MEMO، لا يمكن إضافة إيداعك إلى حسابك.',
   'Only send TRX or USDT (TRC-20) to this address. Include your MEMO to identify your deposit.': 'أرسل فقط TRX أو USDT (TRC-20) إلى هذا العنوان. أرفق MEMO الخاص بك لتحديد إيداعك.',
   'Important': 'مهم',
@@ -213,6 +213,6 @@ export default {
   'Earn USDT + KEEP': 'اكسب USDT + KEEP',
   'Request review': 'طلب مراجعة',
   'Share on Telegram': 'شارك على تيليجرام',
-  'Minimum deposit': 'الحد الأدنى للإيداع',
+  'First Deposit mission minimum': 'الحد الأدنى لمهمة الإيداع الأول',
   'Weekly bonus': 'مكافأة الأسبوع',
 };

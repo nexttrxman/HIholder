@@ -167,7 +167,7 @@ export default {
   'Edit': 'Изменить',
   'Confirm close': 'Подтвердить закрытие',
   'The position closes automatically when the price reaches either level. Prices are checked every few seconds, so a fast move can fill slightly past the level.': 'Позиция закрывается автоматически при достижении любого из уровней. Цены проверяются раз в несколько секунд, поэтому резкое движение может исполниться чуть за уровнем.',
-  'Practice trading with your demo USDT. Prices follow the real market; orders settle instantly against your internal balance — no funds leave the app.': 'Тренируйтесь на демо-USDT. Цены следуют за реальным рынком; ордера исполняются мгновенно за счёт внутреннего баланса — средства не покидают приложение.',
+  'Trading involves risk — you may lose your funds. Trade carefully.': 'Торговля связана с риском: вы можете потерять средства. Действуйте осторожно.',
   'Without the MEMO, your deposit cannot be credited to your account.': 'Без MEMO депозит нельзя зачислить на ваш аккаунт.',
   'Only send TRX or USDT (TRC-20) to this address. Include your MEMO to identify your deposit.': 'Отправляйте на этот адрес только TRX или USDT (TRC-20). Укажите MEMO, чтобы определить депозит.',
   'Important': 'Важно',
@@ -213,6 +213,6 @@ export default {
   'Earn USDT + KEEP': 'Зарабатывайте USDT + KEEP',
   'Request review': 'Запросить проверку',
   'Share on Telegram': 'Поделиться в Telegram',
-  'Minimum deposit': 'Минимальный депозит',
+  'First Deposit mission minimum': 'Минимум для миссии First Deposit',
   'Weekly bonus': 'Недельный бонус',
 };

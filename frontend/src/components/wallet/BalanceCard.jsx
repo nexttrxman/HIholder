@@ -58,7 +58,7 @@ export function BalanceCard({
           <div>
             <p className="sys-label">{label || asset}</p>
             <p className="text-2xl font-bold text-white mt-1">
-              {isUSDT ? '$' : ''}{amount.toFixed(2)}
+              {asset === 'KEEP' ? '' : '$'}{amount.toFixed(2)}
               {!isUSDT && <span className="text-sm text-white/40 ml-1">{asset}</span>}
             </p>
           </div>

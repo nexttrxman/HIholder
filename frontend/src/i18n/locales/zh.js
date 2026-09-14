@@ -167,7 +167,7 @@ export default {
   'Edit': '编辑',
   'Confirm close': '确认平仓',
   'The position closes automatically when the price reaches either level. Prices are checked every few seconds, so a fast move can fill slightly past the level.': '价格触及任一水平时会自动平仓。价格每隔几秒检查一次，因此剧烈波动可能略超出该水平成交.',
-  'Practice trading with your demo USDT. Prices follow the real market; orders settle instantly against your internal balance — no funds leave the app.': '用模拟 USDT 练习交易。价格跟随真实市场；订单即时以内部余额结算 —— 资金不会离开应用.',
+  'Trading involves risk — you may lose your funds. Trade carefully.': '交易有风险，您可能损失资金，请谨慎操作。',
   'Without the MEMO, your deposit cannot be credited to your account.': '缺少 MEMO 将无法入账到您的账户.',
   'Only send TRX or USDT (TRC-20) to this address. Include your MEMO to identify your deposit.': '请仅向此地址发送 TRX 或 USDT（TRC-20）。附上 MEMO 以标识您的充值.',
   'Important': '重要',
@@ -213,6 +213,6 @@ export default {
   'Earn USDT + KEEP': '赚取 USDT + KEEP',
   'Request review': '申请审核',
   'Share on Telegram': '在 Telegram 上分享',
-  'Minimum deposit': '最低充值',
+  'First Deposit mission minimum': 'First Deposit 任务最低要求',
   'Weekly bonus': '每周奖金',
 };

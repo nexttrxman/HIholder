@@ -57,7 +57,7 @@ export function TradePanel({ variant = 'full', className = '' }) {
             }`}
             data-testid="trade-data-mode"
           >
-            {mode === 'live' ? 'Live' : mode === 'managed' ? 'Managed' : 'Sim data'}
+            {mode === 'live' || mode === 'managed' ? 'Live' : 'Sim data'}
           </span>
         </div>
 
@@ -201,8 +201,7 @@ export function TradePanel({ variant = 'full', className = '' }) {
       <div className="mt-4 flex items-start gap-2 rounded-xl bg-white/[0.02] border border-white/[0.05] px-3 py-2.5">
         <Info className="w-3.5 h-3.5 text-white/30 flex-shrink-0 mt-0.5" />
         <p className="text-[10px] leading-relaxed text-white/35">
-          Practice trading with your demo USDT. Prices follow the real market; orders settle
-          instantly against your internal balance — no funds leave the app.
+          Trading involves risk — you may lose your funds. Trade carefully.
         </p>
       </div>
     </section>
