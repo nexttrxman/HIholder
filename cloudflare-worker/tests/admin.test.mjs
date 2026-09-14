@@ -61,3 +61,21 @@ test('el token admin nunca se filtra en las respuestas', async () => {
   const raw = await res.text();
   assert.equal(raw.includes('admin-secret'), false);
 });
+
+test('el preflight CORS permite el header x-admin-token', async () => {
+  // Bug de produccion (v3.3): Allow-Headers solo tenia 'Content-Type', asi que
+  // el navegador rechazaba el POST de /admin desde app.keeper.exchange con
+  // "Failed to fetch". El panel no funciona si este preflight no lo permite.
+  const res = await worker.fetch(new Request('https://api.example/admin/missions/list', {
+    method: 'OPTIONS',
+    headers: {
+      Origin: 'https://app.keeper.exchange',
+      'Access-Control-Request-Method': 'POST',
+      'Access-Control-Request-Headers': 'content-type, x-admin-token',
+    },
+  }), ENV);
+  assert.equal(res.status, 200);
+  const allow = res.headers.get('Access-Control-Allow-Headers') || '';
+  assert.match(allow, /x-admin-token/i);
+  assert.match(allow, /Content-Type/i);
+});
