@@ -203,19 +203,22 @@ BEGIN
   INSERT INTO _v VALUES ('credit_claim no acredita dos veces',
     COALESCE((v_r->>'ok')::boolean, true) = false, v_r::text);
 
-  -- 3) el referente cobra en el primer claim del invitado -------------------
-  SELECT trx_balance INTO v_trx FROM internal_wallets WHERE user_id = v_ref;
-  INSERT INTO _v VALUES ('el referente recibió 2 TRX', v_trx = 2, COALESCE(v_trx::text,'sin wallet'));
+  -- 3) el referente cobra en el primer claim del invitado (v3.3: en USDT) --
+  SELECT usdt_balance INTO v_trx FROM internal_wallets WHERE user_id = v_ref;
+  INSERT INTO _v VALUES ('el referente recibió 2 USDT', v_trx = 2, COALESCE(v_trx::text,'sin wallet'));
   INSERT INTO _v VALUES ('el referido pasó a confirmed',
     (SELECT status FROM referrals WHERE referred_id = v_inv) = 'confirmed', '');
   INSERT INTO _v VALUES ('quedó el asiento en wallet_ledger',
     EXISTS (SELECT 1 FROM wallet_ledger
-            WHERE user_id = v_ref AND operation = 'referral_bonus' AND asset = 'TRX'), '');
+            WHERE user_id = v_ref AND operation = 'referral_bonus' AND asset = 'USDT'), '');
 
-  -- 4) venta del saldo de la wallet ----------------------------------------
+  -- 4) venta del saldo de la wallet (v3.3: el referido ya no deja TRX, se
+  --    siembra el saldo para la venta y se mide el DELTA de USDT) -----------
+  UPDATE internal_wallets SET trx_balance = trx_balance + 1 WHERE user_id = v_ref;
+  SELECT usdt_balance INTO v_usdt FROM internal_wallets WHERE user_id = v_ref;
   v_r := sell_wallet_asset(v_ref, 'TRX', 1, 0.30);
   INSERT INTO _v VALUES ('sell_wallet_asset vende TRX', COALESCE((v_r->>'ok')::boolean, false), v_r::text);
-  SELECT usdt_balance INTO v_usdt FROM internal_wallets WHERE user_id = v_ref;
+  SELECT usdt_balance - v_usdt INTO v_usdt FROM internal_wallets WHERE user_id = v_ref;
   INSERT INTO _v VALUES ('sell_wallet_asset acredita USDT neto de fee',
     v_usdt BETWEEN 0.29 AND 0.30, v_usdt::text);
   v_r := sell_wallet_asset(v_ref, 'USDT', 1, 1);
@@ -252,6 +255,40 @@ BEGIN
   v_r := daily_checkin(v_inv)::jsonb;
   INSERT INTO _v VALUES ('daily_checkin rechaza el segundo check-in del día',
     COALESCE(v_r->>'error','') = 'already_checked_in', v_r::text);
+  -- v3.3: el diario paga fijo 0.15 USDT + 500 KEEP.
+  INSERT INTO _v VALUES ('daily_checkin paga 0.15 USDT fijo (v3.3)',
+    (SELECT 1 FROM wallet_ledger
+      WHERE user_id=v_inv AND operation='checkin_daily' AND asset='USDT'
+        AND amount = 0.15 LIMIT 1) = 1, '');
+  INSERT INTO _v VALUES ('daily_checkin paga 500 KEEP fijo (v3.3)',
+    (SELECT 1 FROM wallet_ledger
+      WHERE user_id=v_inv AND operation='checkin_daily' AND asset='KEEP'
+        AND amount = 500 LIMIT 1) = 1, '');
+
+  -- 7) v3.3 — claim semanal, misiones reales y referidos en USDT ----------
+  INSERT INTO _v VALUES ('claims acepta claim_type weekly',
+    EXISTS (SELECT 1 FROM information_schema.columns
+            WHERE table_name='claims' AND column_name='claim_type'), '');
+  INSERT INTO _v VALUES ('social_missions tiene las 4 misiones nuevas',
+    (SELECT count(*) FROM social_missions
+      WHERE id IN ('first_deposit','daily_hold','weekly_referral','big_earner')) = 4, '');
+  INSERT INTO _v VALUES ('user_social_missions con period y status',
+    (SELECT count(*) FROM information_schema.columns
+      WHERE table_name='user_social_missions' AND column_name IN ('period','status')) = 2, '');
+  INSERT INTO _v VALUES ('funciones v3.3 presentes',
+    (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+      WHERE n.nspname='public' AND p.proname IN ('request_manual_mission',
+        'approve_mission_request','reject_mission_request',
+        'list_pending_mission_requests','mission_progress')) = 5, '');
+  v_r := mission_progress(v_inv);
+  INSERT INTO _v VALUES ('mission_progress responde', v_r ? 'holds_today', v_r::text);
+  v_r := request_manual_mission(v_inv, 'first_deposit');
+  INSERT INTO _v VALUES ('request_manual_mission crea la solicitud',
+    COALESCE((v_r->>'pending')::boolean, false), v_r::text);
+  v_r := approve_mission_request(v_inv, 'first_deposit');
+  INSERT INTO _v VALUES ('approve_mission_request paga 1 USDT + 3000 KEEP',
+    COALESCE((v_r->>'ok')::boolean, false)
+      AND (v_r->>'reward')::numeric = 1 AND (v_r->>'keep_reward')::int = 3000, v_r::text);
 END $$;
 
 -- Resultado del humo. Cualquier FAIL significa que el deploy no está completo.

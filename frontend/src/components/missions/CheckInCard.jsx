@@ -2,9 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CalendarCheck, Flame, Gift, Loader2, Check } from 'lucide-react';
 
-import { checkinStatus, dailyCheckin, KEEP_REWARDS } from '@/services/api';
+import { checkinStatus, dailyCheckin } from '@/services/api';
 import { useWallet } from '@/contexts/WalletContext';
 import { CHECKIN_CONFIG } from '@/lib/checkin';
+import { ClaimModal } from '@/components/earn/ClaimModal';
 
 const EMPTY = {
   checked_in_today: false,
@@ -15,14 +16,17 @@ const EMPTY = {
   weekly_complete: false,
   daily_reward: CHECKIN_CONFIG.DAILY_REWARD_USDT,
   weekly_bonus: CHECKIN_CONFIG.WEEKLY_BONUS_USDT,
+  weekly_claim: null,
 };
 
 /**
- * Daily check-in with a weekly bonus.
+ * Daily check-in with a weekly prize (v3.3).
  *
- * One tap a day credits the daily reward; the 7th day of the ISO week also
- * pays the weekly bonus. The state lives in Supabase (checkins table) through
- * the worker, with a localStorage mirror in the dev preview.
+ * One tap a day credits 0.15 USDT + 500 KEEP (fijos). Al 7mo dia de la semana
+ * ISO se abre un CLAIM semanal (1.5 USDT + 2000 KEEP) que se cobra pagando
+ * 0.15 TON via TonConnect, igual que el claim del hold; si no se cobra antes
+ * del lunes 00:00 UTC, se pierde. El estado vive en Supabase (checkins +
+ * claims) a traves del worker, con un mirror de localStorage en el dev preview.
  */
 export function CheckInCard() {
   const { pushLocalTransaction, refreshData } = useWallet();
@@ -31,12 +35,18 @@ export function CheckInCard() {
   const [busy, setBusy] = useState(false);
   const [reward, setReward] = useState(null);
   const [error, setError] = useState('');
+  // v3.3: claim semanal (1.5 USDT + 2000 KEEP) cobrable via TonConnect.
+  const [weeklyClaim, setWeeklyClaim] = useState(null);
+  const [claimOpen, setClaimOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await checkinStatus();
-      if (res?.ok !== false) setStatus({ ...EMPTY, ...res });
+      if (res?.ok !== false) {
+        setStatus({ ...EMPTY, ...res });
+        setWeeklyClaim(res?.weekly_claim || null);
+      }
     } catch (err) {
       setError('Could not load your check-in status');
     } finally {
@@ -64,10 +74,26 @@ export function CheckInCard() {
       setStatus({ ...EMPTY, ...res });
       const weekly = Number(res.weekly_bonus) || 0;
       const total = Number(res.credited) || status.daily_reward + weekly;
-      // v3.2: el check-in tambien paga KEEP (500-1200 el diario, y otros
-      // 500-1200 el bono semanal cuando corresponde).
+      // v3.3: el diario paga 500 KEEP fijos; el semanal ya no acredita nada
+      // aca (se cobra por el claim con TonConnect).
       const keep = (Number(res.keep_reward) || 0) + (Number(res.keep_weekly) || 0);
       setReward({ total, weekly, keep });
+
+      // Dia 7: se abrio el claim semanal — ofrecer el cobro enseguida.
+      const wc = res.weekly_claim
+        || (res.weekly_claim_id
+          ? {
+              claim_id: res.weekly_claim_id,
+              expires_at: res.weekly_claim_expires,
+              total_prize: CHECKIN_CONFIG.WEEKLY_BONUS_USDT,
+              ton_fee: 0.15,
+              keep_bonus: CHECKIN_CONFIG.WEEKLY_KEEP,
+            }
+          : null);
+      if (wc) {
+        setWeeklyClaim(wc);
+        setClaimOpen(true);
+      }
 
       pushLocalTransaction({
         id: `checkin_${Date.now()}`,
@@ -114,7 +140,7 @@ export function CheckInCard() {
               Daily Check-In
             </h3>
             <p className="text-xs text-ink-dim mt-0.5">
-              {`+${status.daily_reward.toFixed(2)} USDT · ${KEEP_REWARDS.checkin.min}–${KEEP_REWARDS.checkin.max} KEEP a day`}
+              {`+${status.daily_reward.toFixed(2)} USDT · ${CHECKIN_CONFIG.DAILY_KEEP} KEEP a day`}
             </p>
           </div>
         </div>
@@ -167,9 +193,9 @@ export function CheckInCard() {
       {/* weekly progress */}
       <div className="mb-4">
         <div className="flex items-center justify-between mb-1.5">
-          <span className="sys-label">Weekly bonus</span>
+          <span className="sys-label">Weekly prize</span>
           <span className="font-mono text-[11px] text-brand-gold" data-testid="checkin-progress">
-            {done}/{days} · +{status.weekly_bonus.toFixed(2)} USDT
+            {done}/{days} · +{status.weekly_bonus.toFixed(2)} USDT + {CHECKIN_CONFIG.WEEKLY_KEEP} KEEP
           </span>
         </div>
         <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
@@ -185,6 +211,19 @@ export function CheckInCard() {
           />
         </div>
       </div>
+
+      {/* v3.3: claim semanal pendiente — se cobra con TonConnect (0.15 TON) */}
+      {weeklyClaim && (
+        <button
+          type="button"
+          onClick={() => setClaimOpen(true)}
+          data-testid="claim-weekly-button"
+          className="w-full mb-3 py-3.5 rounded-2xl font-bold flex items-center justify-center gap-2 bg-brand-gold text-black shadow-glow-gold hover:brightness-110 transition-all active:scale-[0.98]"
+        >
+          <Gift className="w-4 h-4" />
+          Claim weekly prize · +{Number(weeklyClaim.total_prize).toFixed(2)} USDT + {CHECKIN_CONFIG.WEEKLY_KEEP} KEEP
+        </button>
+      )}
 
       {/* action */}
       <button
@@ -239,6 +278,22 @@ export function CheckInCard() {
         <p className="mt-3 text-center text-xs text-brand-red" data-testid="checkin-error">
           {error}
         </p>
+      )}
+
+      {/* Reutiliza el modal del hold: misma mecánica (0.15 TON al treasury
+          con el claim_id de comentario y verificacion on-chain). Se monta
+          solo al abrirlo: el modal usa hooks de TonConnect y no debe
+          arrastrar ese provider mientras nadie lo necesita. */}
+      {claimOpen && weeklyClaim && (
+        <ClaimModal
+          isOpen
+          onClose={() => {
+            setClaimOpen(false);
+            load();
+            refreshData?.();
+          }}
+          claim={weeklyClaim}
+        />
       )}
     </div>
   );

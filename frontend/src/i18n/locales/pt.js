@@ -123,7 +123,7 @@ export default {
   'Verifying on TON blockchain...': 'Verificando na blockchain TON...',
   'View all': 'Ver tudo',
   Wallet: 'Carteira',
-  'Weekly bonus': 'Bônus semanal',
+  'Weekly prize': 'Prêmio semanal',
   Withdraw: 'Sacar',
   Withdrawal: 'Saque',
   Withdrawals: 'Saques',
@@ -209,4 +209,9 @@ export default {
 
   // Envío interno (opción visible, todavía deshabilitada)
   'Internal transfers are coming soon.': 'As transferências internas chegam em breve.',
+  'Under review': 'Em análise',
+  'Earn USDT + KEEP': 'Ganhe USDT + KEEP',
+  'Request review': 'Solicitar análise',
+  'Minimum deposit': 'Depósito mínimo',
+  'Weekly bonus': 'Bônus semanal',
 };

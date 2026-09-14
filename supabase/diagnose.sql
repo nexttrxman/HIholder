@@ -306,6 +306,34 @@ BEGIN
                                  AND column_name = 'reward_keep')
                  THEN 'OK' ELSE 'FALTA' END;
   RETURN NEXT;
+
+  n := 10; chequeo := 'v3.3: claims.claim_type existe (claim semanal)';
+  estado := CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns
+                               WHERE table_name = 'claims'
+                                 AND column_name = 'claim_type')
+                 THEN 'OK' ELSE 'FALTA' END;
+  RETURN NEXT;
+
+  n := 11; chequeo := 'v3.3: las 4 misiones reales estan sembradas';
+  IF to_regclass('public.social_missions') IS NULL THEN
+    estado := 'FALTA (sin tabla social_missions)';
+  ELSE
+    EXECUTE 'SELECT count(*) FROM social_missions
+              WHERE id IN (''first_deposit'',''daily_hold'',''weekly_referral'',''big_earner'')'
+      INTO v_num;
+    estado := CASE WHEN v_num = 4 THEN 'OK' ELSE 'REVISAR (' || v_num || '/4)' END;
+  END IF;
+  RETURN NEXT;
+
+  n := 12; chequeo := 'v3.3: funciones de misiones manuales/progreso (esperado 5)';
+  SELECT count(*) INTO v_num
+  FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
+  WHERE ns.nspname = 'public'
+    AND p.proname IN ('request_manual_mission', 'approve_mission_request',
+                      'reject_mission_request', 'list_pending_mission_requests',
+                      'mission_progress');
+  estado := CASE WHEN v_num = 5 THEN 'OK' ELSE 'FALTA (' || v_num || '/5)' END;
+  RETURN NEXT;
 END;
 $BODY$ LANGUAGE plpgsql;
 

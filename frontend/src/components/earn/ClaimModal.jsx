@@ -117,8 +117,15 @@ export function ClaimModal({ isOpen, onClose, claim }) {
     return () => clearInterval(interval);
   }, [claim?.expires_at, vibrate]);
 
-  // Format time
+  // Format time. Los claims de holds duran minutos (m:ss); el claim semanal
+  // vive hasta el fin de la semana ISO, así que hace falta formato de días.
   const formatTime = (secs) => {
+    if (secs >= 3600) {
+      const d = Math.floor(secs / 86400);
+      const h = Math.floor((secs % 86400) / 3600);
+      const m = Math.floor((secs % 3600) / 60);
+      return d > 0 ? `${d}d ${h}h ${m}m` : `${h}h ${m}m`;
+    }
     const mins = Math.floor(secs / 60);
     const s = secs % 60;
     return `${mins}:${s.toString().padStart(2, '0')}`;
@@ -293,13 +300,15 @@ export function ClaimModal({ isOpen, onClose, claim }) {
                 <div className="text-center py-4">
                   <p className="sys-label mb-1.5">Your Reward</p>
                   <p className="font-display text-4xl font-bold gradient-text-gold text-glow-gold">
-                    ${claim.total_prize.toFixed(2)}
+                    ${Number(claim.total_prize).toFixed(2)}
                   </p>
                   <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-dim mt-1.5">
                     USDT · internal balance
                   </p>
                   <p className="text-xs text-brand-gold font-semibold mt-2" data-testid="claim-keep-hint">
-                    {`Includes a ${KEEP_REWARDS.claim.min}–${KEEP_REWARDS.claim.max} KEEP bonus`}
+                    {claim.keep_bonus
+                      ? `Includes ${Number(claim.keep_bonus).toLocaleString('en-US')} KEEP`
+                      : `Includes a ${KEEP_REWARDS.claim.min}–${KEEP_REWARDS.claim.max} KEEP bonus`}
                   </p>
                 </div>
 
@@ -421,7 +430,7 @@ export function ClaimModal({ isOpen, onClose, claim }) {
                 </motion.div>
                 <h3 className="text-2xl font-bold text-white mb-2">Claimed!</h3>
                 <p className="font-display text-4xl font-bold gradient-text-gold text-glow-gold mb-2">
-                  +${claim.total_prize.toFixed(2)}
+                  +${Number(claim.total_prize).toFixed(2)}
                 </p>
                 <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-dim">
                   Added to your internal balance

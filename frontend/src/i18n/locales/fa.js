@@ -123,7 +123,7 @@ export default {
   'Verifying on TON blockchain...': 'در حال بررسی روی بلاکچین TON…',
   'View all': 'مشاهده همه',
   Wallet: 'کیف پول',
-  'Weekly bonus': 'پاداش هفتگی',
+  'Weekly prize': 'جایزه هفتگی',
   Withdraw: 'برداشت',
   Withdrawal: 'برداشت',
   Withdrawals: 'برداشت‌ها',
@@ -209,4 +209,9 @@ export default {
 
   // Envío interno (opción visible, todavía deshabilitada)
   'Internal transfers are coming soon.': 'انتقال‌های داخلی به‌زودی اضافه می‌شوند.',
+  'Under review': 'در حال بررسی',
+  'Earn USDT + KEEP': 'USDT + KEEP کسب کنید',
+  'Request review': 'درخواست بررسی',
+  'Minimum deposit': 'حداقل واریز',
+  'Weekly bonus': 'پاداش هفتگی',
 };

@@ -12,6 +12,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 
 // Pages
 import { HomePage } from '@/pages/Home';
+import { AdminPage } from '@/pages/Admin';
 import { WalletPage } from '@/pages/Wallet';
 import { TradePage } from '@/pages/Trade';
 import { MissionsPage } from '@/pages/Missions';
@@ -169,7 +170,21 @@ export function AppContent() {
   );
 }
 
+/**
+ * v3.3: /admin (o #admin) es el panel del operador. Corre en un navegador
+ * comun, fuera de Telegram, y NO monta los providers de la Mini App.
+ */
+function isAdminRoute() {
+  if (typeof window === 'undefined') return false;
+  const { pathname, hash } = window.location;
+  return pathname.endsWith('/admin') || hash === '#admin' || hash.startsWith('#/admin');
+}
+
 function App() {
+  if (isAdminRoute()) {
+    return <AdminPage />;
+  }
+
   // Fuera de Telegram no hay initData. Sin initData la app entera corre en modo
   // mock con un saldo inventado, así que en producción se muestra la puerta en
   // vez de montar los providers. Ver shouldShowTelegramGate.

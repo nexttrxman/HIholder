@@ -1,4 +1,3 @@
-import { MissionsList } from '@/components/missions/MissionsList';
 import { CheckInCard } from '@/components/missions/CheckInCard';
 import { SocialMissions } from '@/components/missions/SocialMissions';
 
@@ -16,14 +15,12 @@ export function MissionsPage() {
         <CheckInCard />
       </div>
 
-      {/* Misiones sociales one-time (canal/comunidad). La verificacion la hace
-          el Worker contra Telegram; van antes que las clasicas porque son las
-          unicas que pagan de verdad hoy. */}
+      {/* Misiones reales (v3.3): sociales de Telegram, de progreso (holds,
+          referidos, ganancias) y manuales (First Deposit). Todas las verifica
+          el Worker contra la base; la lista demo client-side se elimino. */}
       <div className="mb-4">
         <SocialMissions />
       </div>
-
-      <MissionsList />
     </div>
   );
 }

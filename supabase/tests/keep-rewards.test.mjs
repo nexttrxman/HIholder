@@ -59,28 +59,28 @@ const wallet = async (u) => one(`SELECT usdt_balance, keep_balance FROM internal
   near('banda superior 0.0006', row.cap_price, 0.0006, 1e-9);
 }
 
-// ---- 1) Check-in diario paga KEEP ------------------------------------------
+// ---- 1) Check-in diario paga KEEP (v3.3: 0.15 USDT + 500 KEEP fijos) ------
 {
   const u = await seedUser(10);
   const r1 = (await one(`SELECT daily_checkin($1) AS r`, [u])).r;
   eq('checkin ok', r1.ok, true);
   const k = Number(r1.keep_reward);
-  check('checkin: KEEP entre 500 y 1200', Number.isInteger(k) && k >= 500 && k <= 1200, String(k));
-  eq('checkin: keep_reward es entero', k % 1, 0);
+  eq('checkin: KEEP fijo 500 (v3.3)', k, 500);
   eq('checkin: saldo KEEP = keep_reward', Number((await wallet(u)).keep_balance), k);
   const ledger = (await q(`SELECT asset, amount FROM wallet_ledger
                             WHERE user_id=$1 AND operation='checkin_daily'`, [u])).rows;
   eq('checkin: dos renglones (USDT + KEEP)', ledger.length, 2);
   check('checkin: renglon KEEP por el monto', ledger.some((l) => l.asset === 'KEEP' && Number(l.amount) === k));
-  check('checkin: el USDT sigue intacto (0.05)', ledger.some((l) => l.asset === 'USDT' && Number(l.amount) === 0.05));
-  near('checkin: USDT acreditado igual que antes', (await wallet(u)).usdt_balance, 10.05);
+  check('checkin: USDT fijo 0.15 (v3.3)', ledger.some((l) => l.asset === 'USDT' && Number(l.amount) === 0.15));
+  near('checkin: USDT acreditado', (await wallet(u)).usdt_balance, 10.15);
 
   const r2 = (await one(`SELECT daily_checkin($1) AS r`, [u])).r;
   eq('checkin: segundo intento = already_checked_in', r2.error, 'already_checked_in');
   eq('checkin: ya hecho no paga KEEP', Number(r2.keep_reward), 0);
   eq('checkin: saldo KEEP no cambia', Number((await wallet(u)).keep_balance), k);
 
-  // Semana completa: el bono semanal paga OTRO KEEP 500–1200.
+  // v3.3: la semana completa NO paga directo; abre un claim semanal que al
+  // cobrarse (credit_claim) acredita 1.5 USDT + 2000 KEEP FIJOS.
   const u3 = await seedUser(0);
   await q(`INSERT INTO checkins (user_id, checkin_date, streak, week_key)
            SELECT $1, d, 1, to_char(now() AT TIME ZONE 'UTC','IYYY-"W"IW')
@@ -91,14 +91,25 @@ const wallet = async (u) => one(`SELECT usdt_balance, keep_balance FROM internal
            WHERE d::date <> (now() AT TIME ZONE 'UTC')::date`, [u3]);
   const r3 = (await one(`SELECT daily_checkin($1) AS r`, [u3])).r;
   const kd = Number(r3.keep_reward);
-  const kw = Number(r3.keep_weekly);
-  check('semanal: KEEP diario en rango', kd >= 500 && kd <= 1200, String(kd));
-  check('semanal: KEEP semanal en rango', kw >= 500 && kw <= 1200, String(kw));
-  eq('semanal: saldo = diario + semanal', Number((await wallet(u3)).keep_balance), kd + kw);
+  eq('semanal: KEEP diario sigue siendo 500', kd, 500);
+  eq('semanal: ya no hay keep_weekly directo', Number(r3.keep_weekly), 0);
+  const claimId = r3.weekly_claim_id;
+  check('semanal: se abrio el claim semanal', Boolean(claimId), String(claimId));
+  eq('semanal: saldo KEEP = solo el diario', Number((await wallet(u3)).keep_balance), kd);
+  const wk0 = (await q(`SELECT count(*)::int n FROM wallet_ledger
+                        WHERE user_id=$1 AND operation='checkin_weekly'`, [u3])).rows[0];
+  eq('semanal: no hay renglones checkin_weekly', wk0.n, 0);
+
+  // Cobro del claim semanal: 1.5 USDT + 2000 KEEP fijos.
+  const rc = (await one(`SELECT credit_claim($1, 'TX_KRW', 0.15, '0:aa') AS r`, [claimId])).r;
+  eq('semanal: credit_claim ok', rc.ok, true);
+  eq('semanal: KEEP del claim FIJO 2000', Number(rc.keep_credited), 2000);
+  eq('semanal: saldo KEEP = 500 + 2000', Number((await wallet(u3)).keep_balance), kd + 2000);
   const wk = (await q(`SELECT asset, amount FROM wallet_ledger
-                        WHERE user_id=$1 AND operation='checkin_weekly'`, [u3])).rows;
-  eq('semanal: dos renglones (USDT + KEEP)', wk.length, 2);
-  check('semanal: renglon KEEP por el monto', wk.some((l) => l.asset === 'KEEP' && Number(l.amount) === kw));
+                        WHERE user_id=$1 AND operation='claim_credit'`, [u3])).rows;
+  eq('semanal: dos renglones claim_credit (USDT + KEEP)', wk.length, 2);
+  check('semanal: renglon USDT por 1.5', wk.some((l) => l.asset === 'USDT' && Number(l.amount) === 1.5));
+  check('semanal: renglon KEEP por 2000', wk.some((l) => l.asset === 'KEEP' && Number(l.amount) === 2000));
 }
 
 // ---- 2) Mision social paga KEEP --------------------------------------------

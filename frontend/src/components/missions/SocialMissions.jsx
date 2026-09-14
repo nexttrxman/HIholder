@@ -1,26 +1,49 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Check, ExternalLink, Loader2, Megaphone } from 'lucide-react';
+import { Check, ExternalLink, Loader2, Megaphone, Clock } from 'lucide-react';
 import { getSocialMissions, verifySocialMission, KEEP_REWARDS } from '@/services/api';
 import { useTelegram } from '@/hooks/useTelegram';
 import { useWallet } from '@/contexts/WalletContext';
 
-// Misiones sociales one-time (v3.1). La verificacion de Telegram la hace el
-// Worker preguntando a la Bot API; aca solo se muestra el estado y se dispara
-// el verify. Los titulos y descripciones vienen de social_missions en la base:
-// agregar una mision es un INSERT, no un deploy.
+// Misiones (v3.1 Telegram, v3.3 reales). La verificacion la hace SIEMPRE el
+// Worker: Telegram (getChatMember), progreso (holds/referidos/ganancias en la
+// base) o revision manual (First Deposit: el usuario pide y el admin aprueba).
+// Los titulos, descripciones y premios vienen de social_missions: agregar una
+// mision de Telegram es un INSERT, no un deploy.
 
-function SocialMissionCard({ mission, done, onVerified, index }) {
+const REPEAT_LABEL = { daily: 'Daily', weekly: 'Weekly' };
+
+function rewardLabel(mission, keepMin, keepMax) {
+  const usdt = `+$${Number(mission.reward).toFixed(2)} USDT`;
+  const keep = mission.reward_keep != null
+    ? `+${Number(mission.reward_keep).toLocaleString('en-US')} KEEP`
+    : `+${keepMin}–${keepMax} KEEP`;
+  return `${usdt} · ${keep}`;
+}
+
+function SocialMissionCard({ mission, done, pending, keepMin, keepMax, onVerified, index }) {
   const { vibrate } = useTelegram();
-  const [state, setState] = useState(done ? 'done' : 'idle');
+  const [state, setState] = useState(done ? 'done' : pending ? 'pending' : 'idle');
   const [error, setError] = useState(null);
 
+  const isProgress = mission.verify === 'progress';
+  const current = Number(mission.current || 0);
+  const goal = Number(mission.goal || 0);
+  const progressReady = !isProgress || current >= goal;
+
   const handleVerify = async () => {
-    if (state === 'done' || state === 'verifying') return;
+    if (state === 'done' || state === 'pending' || state === 'verifying') return;
+    if (isProgress && !progressReady) return;
     setState('verifying');
     setError(null);
     try {
       const res = await verifySocialMission(mission.id);
+      if (res?.ok && res?.pending) {
+        // Mision manual: queda en revision hasta que el admin la apruebe.
+        vibrate('success');
+        setState('pending');
+        return;
+      }
       if (res?.ok) {
         vibrate('success');
         setState('done');
@@ -32,12 +55,14 @@ function SocialMissionCard({ mission, done, onVerified, index }) {
       }
     } catch (err) {
       // apiCall levanta el `error` del Worker tal cual ('Not joined yet',
-      // 'Check failed. Try again.'), asi el usuario ve la causa real.
+      // 'Progress not complete'...), asi el usuario ve la causa real.
       vibrate('error');
       setState('idle');
       setError(err?.message || 'Failed');
     }
   };
+
+  const buttonLabel = mission.verify === 'manual' ? 'Request review' : 'Verify';
 
   return (
     <motion.div
@@ -50,57 +75,94 @@ function SocialMissionCard({ mission, done, onVerified, index }) {
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-            state === 'done' ? 'bg-brand-green/20' : 'bg-white/5'
+            state === 'done' ? 'bg-brand-green/20' : state === 'pending' ? 'bg-brand-gold/15' : 'bg-white/5'
           }`}>
             {state === 'done' ? (
               <Check className="w-5 h-5 text-brand-green" />
+            ) : state === 'pending' ? (
+              <Clock className="w-5 h-5 text-brand-gold" />
             ) : (
               <Megaphone className="w-5 h-5 text-white/40" />
             )}
           </div>
           <div className="min-w-0">
-            <h4 className="font-semibold text-white text-sm truncate">{mission.title}</h4>
+            <h4 className="font-semibold text-white text-sm truncate flex items-center gap-2">
+              {mission.title}
+              {REPEAT_LABEL[mission.repeat] && (
+                <span
+                  className="font-mono text-[9px] uppercase tracking-[0.12em] px-1.5 py-0.5 rounded-full bg-brand-teal/10 text-brand-teal border border-brand-teal/20"
+                  data-testid={`repeat-${mission.id}`}
+                >
+                  {REPEAT_LABEL[mission.repeat]}
+                </span>
+              )}
+            </h4>
             {mission.description && (
               <p className="text-xs text-white/40 truncate">{mission.description}</p>
             )}
-            <p className="text-xs text-brand-green font-semibold mt-0.5">
-              {`+$${Number(mission.reward).toFixed(2)} USDT · ${KEEP_REWARDS.mission.min}–${KEEP_REWARDS.mission.max} KEEP`}
+            <p className="text-xs text-brand-green font-semibold mt-0.5" data-testid={`reward-${mission.id}`}>
+              {rewardLabel(mission, keepMin, keepMax)}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          <a
-            href={mission.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            data-testid={`open-${mission.id}`}
-            className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-white/60 hover:bg-white/10 active:scale-95 transition-all"
-            aria-label="Open"
-          >
-            <ExternalLink className="w-4 h-4" />
-          </a>
+          {mission.url ? (
+            <a
+              href={mission.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid={`open-${mission.id}`}
+              className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-white/60 hover:bg-white/10 active:scale-95 transition-all"
+              aria-label="Open"
+            >
+              <ExternalLink className="w-4 h-4" />
+            </a>
+          ) : null}
           <button
             type="button"
             onClick={handleVerify}
-            disabled={state === 'done' || state === 'verifying'}
+            disabled={state === 'done' || state === 'pending' || state === 'verifying' || (isProgress && !progressReady)}
             data-testid={`verify-${mission.id}`}
             className={`px-4 py-2 rounded-xl text-sm font-medium transition-all flex items-center gap-2 ${
               state === 'done'
                 ? 'bg-brand-green/20 text-brand-green cursor-default'
-                : 'bg-brand-teal text-black hover:bg-brand-teal/90 active:scale-95'
+                : state === 'pending'
+                  ? 'bg-brand-gold/15 text-brand-gold cursor-default'
+                  : isProgress && !progressReady
+                    ? 'bg-white/5 text-ink-dim cursor-not-allowed'
+                    : 'bg-brand-teal text-black hover:bg-brand-teal/90 active:scale-95'
             }`}
           >
             {state === 'verifying' ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : state === 'done' ? (
               <><Check className="w-4 h-4" /> Done</>
+            ) : state === 'pending' ? (
+              <>Under review</>
             ) : (
-              'Verify'
+              buttonLabel
             )}
           </button>
         </div>
       </div>
+
+      {/* v3.3: barra de progreso real (la mide el Worker contra la base). */}
+      {isProgress && state !== 'done' && (
+        <div className="mt-3" data-testid={`progress-${mission.id}`}>
+          <div className="flex items-center justify-between mb-1">
+            <span className="font-mono text-[10px] text-ink-dim">
+              {Math.min(current, goal)}/{goal}
+            </span>
+          </div>
+          <div className="h-1 rounded-full bg-white/[0.06] overflow-hidden">
+            <div
+              className={`h-full rounded-full ${progressReady ? 'bg-brand-green' : 'bg-brand-teal'}`}
+              style={{ width: `${Math.min(100, goal > 0 ? (current / goal) * 100 : 0)}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {error && (
         <p className="mt-2 text-xs text-brand-red" data-testid={`error-${mission.id}`}>
@@ -115,6 +177,8 @@ export function SocialMissions() {
   const { refreshData } = useWallet();
   const [missions, setMissions] = useState([]);
   const [completed, setCompleted] = useState([]);
+  const [pending, setPending] = useState([]);
+  const [keepRange, setKeepRange] = useState({ min: KEEP_REWARDS.mission.min, max: KEEP_REWARDS.mission.max });
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -123,6 +187,10 @@ export function SocialMissions() {
       if (!alive) return;
       setMissions(res?.missions || []);
       setCompleted(res?.completed || []);
+      setPending(res?.pending || []);
+      if (res?.keep_min != null && res?.keep_max != null) {
+        setKeepRange({ min: Number(res.keep_min), max: Number(res.keep_max) });
+      }
       setLoaded(true);
     });
     return () => { alive = false; };
@@ -140,9 +208,9 @@ export function SocialMissions() {
   return (
     <div className="space-y-3" data-testid="social-missions">
       <div className="flex items-center justify-between">
-        <h3 className="font-display text-base font-bold text-white">Social</h3>
+        <h3 className="font-display text-base font-bold text-white">Missions</h3>
         <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-dim">
-          One-time
+          Earn USDT + KEEP
         </span>
       </div>
       {missions.map((m, i) => (
@@ -150,6 +218,9 @@ export function SocialMissions() {
           key={m.id}
           mission={m}
           done={completed.includes(m.id)}
+          pending={pending.includes(m.id)}
+          keepMin={keepRange.min}
+          keepMax={keepRange.max}
           onVerified={handleVerified}
           index={i}
         />

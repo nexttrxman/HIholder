@@ -123,7 +123,7 @@ export default {
   'Verifying on TON blockchain...': '正在 TON 区块链上验证…',
   'View all': '查看全部',
   Wallet: '钱包',
-  'Weekly bonus': '每周奖励',
+  'Weekly prize': '每周奖励',
   Withdraw: '提现',
   Withdrawal: '提现',
   Withdrawals: '提现记录',
@@ -209,4 +209,9 @@ export default {
 
   // Envío interno (opción visible, todavía deshabilitada)
   'Internal transfers are coming soon.': '内部转账即将推出。',
+  'Under review': '审核中',
+  'Earn USDT + KEEP': '赚取 USDT + KEEP',
+  'Request review': '申请审核',
+  'Minimum deposit': '最低充值',
+  'Weekly bonus': '每周奖金',
 };

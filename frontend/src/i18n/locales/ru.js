@@ -123,7 +123,7 @@ export default {
   'Verifying on TON blockchain...': 'Проверяем в блокчейне TON...',
   'View all': 'Показать все',
   Wallet: 'Кошелёк',
-  'Weekly bonus': 'Недельный бонус',
+  'Weekly prize': 'Недельная награда',
   Withdraw: 'Вывести',
   Withdrawal: 'Вывод',
   Withdrawals: 'Выводы',
@@ -209,4 +209,9 @@ export default {
 
   // Envío interno (opción visible, todavía deshabilitada)
   'Internal transfers are coming soon.': 'Внутренние переводы скоро появятся.',
+  'Under review': 'На проверке',
+  'Earn USDT + KEEP': 'Зарабатывайте USDT + KEEP',
+  'Request review': 'Запросить проверку',
+  'Minimum deposit': 'Минимальный депозит',
+  'Weekly bonus': 'Недельный бонус',
 };

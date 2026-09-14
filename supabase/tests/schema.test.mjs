@@ -207,12 +207,12 @@ async function seedUser(balance = 0) {
   const u = await seedUser(10);
   const r1 = await one(`SELECT daily_checkin($1) AS r`, [u]);
   eq('checkin: primer día streak=1', r1.r.streak, 1);
-  near('checkin: acredita 0.05', (await one(`SELECT usdt_balance b FROM internal_wallets WHERE user_id=$1`, [u])).b, 10.05, 0.000001);
+  near('checkin: acredita 0.15', (await one(`SELECT usdt_balance b FROM internal_wallets WHERE user_id=$1`, [u])).b, 10.15, 0.000001);
 
   const r2 = await one(`SELECT daily_checkin($1) AS r`, [u]);
   const rows = await one(`SELECT count(*)::int n FROM checkins WHERE user_id=$1`, [u]);
   eq('checkin: dos llamadas el mismo día = 1 fila', rows.n, 1);
-  near('checkin: no paga dos veces', (await one(`SELECT usdt_balance b FROM internal_wallets WHERE user_id=$1`, [u])).b, 10.05, 0.000001);
+  near('checkin: no paga dos veces', (await one(`SELECT usdt_balance b FROM internal_wallets WHERE user_id=$1`, [u])).b, 10.15, 0.000001);
 
   // streak que continúa desde ayer
   const u2 = await seedUser(0);
@@ -233,11 +233,21 @@ async function seedUser(balance = 0) {
   const days = await one(`SELECT count(*)::int n FROM checkins WHERE user_id=$1`, [u3]);
   eq('checkin: 6 días previos sembrados', days.n, 6);
   const r4 = await one(`SELECT daily_checkin($1) AS r`, [u3]);
-  near('checkin: 7mo día paga el bono semanal 0.50 + 0.05',
-    (await one(`SELECT usdt_balance b FROM internal_wallets WHERE user_id=$1`, [u3])).b, 0.55, 0.000001);
+  // v3.3: el 7mo día NO acredita bono: paga el diario 0.15 y abre un CLAIM
+  // semanal (1.5 USDT + 2000 KEEP) cobrable con 0.15 TON via TonConnect.
+  near('checkin: 7mo día paga solo el diario 0.15',
+    (await one(`SELECT usdt_balance b FROM internal_wallets WHERE user_id=$1`, [u3])).b, 0.15, 0.000001);
+  const wclaim = await one(`SELECT claim_id, total_prize, ton_fee, status, claim_type, week_key
+    FROM claims WHERE user_id=$1 AND claim_type='weekly'`, [u3]);
+  check('checkin: 7mo día abre el claim semanal (1.5 / 0.15 TON / pending)',
+    !!wclaim && parseFloat(wclaim.total_prize) === 1.5 && parseFloat(wclaim.ton_fee) === 0.15
+      && wclaim.status === 'pending', JSON.stringify(wclaim));
+  eq('checkin: el JSON reporta el claim semanal', Boolean(r4.r.weekly_claim_id), true);
   const r5 = await one(`SELECT daily_checkin($1) AS r`, [u3]);
-  near('checkin: el bono semanal no se repite',
-    (await one(`SELECT usdt_balance b FROM internal_wallets WHERE user_id=$1`, [u3])).b, 0.55, 0.000001);
+  near('checkin: el segundo llamado no paga de nuevo',
+    (await one(`SELECT usdt_balance b FROM internal_wallets WHERE user_id=$1`, [u3])).b, 0.15, 0.000001);
+  eq('checkin: un solo claim semanal por semana',
+    (await one(`SELECT count(*)::int n FROM claims WHERE user_id=$1 AND claim_type='weekly'`, [u3])).n, 1);
 
   // el week_key generado por SQL tiene que coincidir con el de lib.js
   const wk = await one(`SELECT to_char(now() AT TIME ZONE 'UTC','IYYY-"W"IW') AS k`);
@@ -257,8 +267,9 @@ async function seedUser(balance = 0) {
   }
   eq('ledger: checkin_daily registrado', cl['checkin_daily:USDT'], 1);
   eq('ledger: checkin_daily KEEP registrado', cl['checkin_daily:KEEP'], 1);
-  eq('ledger: checkin_weekly registrado una sola vez', cl['checkin_weekly:USDT'], 1);
-  eq('ledger: checkin_weekly KEEP registrado una sola vez', cl['checkin_weekly:KEEP'], 1);
+  // v3.3: el bono semanal ya no se acredita directo; lo paga credit_claim
+  // cuando el usuario cobra el claim con TonConnect (operation claim_credit).
+  eq('ledger: ya no hay checkin_weekly directo', cl['checkin_weekly:USDT'], undefined);
 }
 
 // ---- 5) constraints de integridad ---------------------------------------
@@ -406,7 +417,7 @@ async function seedUser(balance = 0) {
 
   // todavía no se pagó nada
   eq('referrer: sin TRX antes del claim',
-    parseFloat((await one(`SELECT trx_balance FROM internal_wallets WHERE user_id = $1`, [referrer])).trx_balance), 0);
+    parseFloat((await one(`SELECT usdt_balance FROM internal_wallets WHERE user_id = $1`, [referrer])).usdt_balance), 0);
 
   // El pago lo dispara credit_claim, no una llamada manual.
   const cyc = await one(
@@ -421,14 +432,14 @@ async function seedUser(balance = 0) {
     `SELECT credit_claim('CLM_REF_1','TXHASH_REF',0.05,'0:aa') AS r`)).r;
   eq('credit_claim: acredita el claim', credited.ok, true);
 
-  eq('referrer: 2 TRX tras el primer claim del referido',
-    parseFloat((await one(`SELECT trx_balance FROM internal_wallets WHERE user_id = $1`, [referrer])).trx_balance), 2);
+  eq('referrer: 2 USDT tras el primer claim del referido (v3.3)',
+    parseFloat((await one(`SELECT usdt_balance FROM internal_wallets WHERE user_id = $1`, [referrer])).usdt_balance), 2);
   eq('referrals: pasa a confirmed',
     (await one(`SELECT status FROM referrals WHERE referred_id = $1`, [referred])).status, 'confirmed');
 
   const led = await one(
     `SELECT * FROM wallet_ledger WHERE user_id = $1 AND operation = 'referral_bonus'`, [referrer]);
-  eq('ledger: fila referral_bonus', led.asset, 'TRX');
+  eq('ledger: fila referral_bonus', led.asset, 'USDT');
   eq('ledger: monto 2', parseFloat(led.amount), 2);
   eq('ledger: balance después', parseFloat(led.balance_after), 2);
   eq('ledger: referencia al referido', led.reference_id, referred);
@@ -439,8 +450,8 @@ async function seedUser(balance = 0) {
   // no se paga dos veces
   const second = (await one(`SELECT confirm_pending_referral($1) AS r`, [referred])).r;
   eq('confirm_pending_referral: sin pendiente no paga', second.confirmed, false);
-  eq('referrer: sigue en 2 TRX',
-    parseFloat((await one(`SELECT trx_balance FROM internal_wallets WHERE user_id = $1`, [referrer])).trx_balance), 2);
+  eq('referrer: sigue en 2 USDT',
+    parseFloat((await one(`SELECT usdt_balance FROM internal_wallets WHERE user_id = $1`, [referrer])).usdt_balance), 2);
 
   // un segundo claim del mismo usuario no vuelve a pagar
   const cyc2 = await one(
@@ -452,7 +463,7 @@ async function seedUser(balance = 0) {
     [referred, cyc2.id]);
   await one(`SELECT credit_claim('CLM_REF_2','TXHASH_REF_2',0.05,'0:aa') AS r`);
   eq('referrer: un segundo claim no paga de nuevo',
-    parseFloat((await one(`SELECT trx_balance FROM internal_wallets WHERE user_id = $1`, [referrer])).trx_balance), 2);
+    parseFloat((await one(`SELECT usdt_balance FROM internal_wallets WHERE user_id = $1`, [referrer])).usdt_balance), 2);
 
   // sin pendiente: no hace nada y no rompe
   const loner = await seedUser(0);
@@ -471,14 +482,14 @@ async function seedUser(balance = 0) {
   eq('pool agotado: la fila sigue pending',
     (await one(`SELECT status FROM referrals WHERE referred_id = $1`, [d2])).status, 'pending');
   eq('pool agotado: el referente no cobra',
-    parseFloat((await one(`SELECT trx_balance FROM internal_wallets WHERE user_id = $1`, [r2])).trx_balance), 0);
+    parseFloat((await one(`SELECT usdt_balance FROM internal_wallets WHERE user_id = $1`, [r2])).usdt_balance), 0);
 
   // y cuando hay lugar de nuevo, se paga
   await q(`UPDATE referral_pool SET distributed = 0`);
   const recovered = (await one(`SELECT confirm_pending_referral($1) AS r`, [d2])).r;
   eq('pool con lugar: confirma el pendiente', recovered.confirmed, true);
   eq('pool con lugar: el referente cobra',
-    parseFloat((await one(`SELECT trx_balance FROM internal_wallets WHERE user_id = $1`, [r2])).trx_balance), 2);
+    parseFloat((await one(`SELECT usdt_balance FROM internal_wallets WHERE user_id = $1`, [r2])).usdt_balance), 2);
 
   await q(`UPDATE referral_pool SET distributed = 0`);
 }

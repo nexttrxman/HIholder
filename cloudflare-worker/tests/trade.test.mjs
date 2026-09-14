@@ -475,7 +475,8 @@ test('KEEP_CONFIG: rangos de recompensa espejo del SQL', () => {
   // Debe coincidir con schema.sql v3.2: 500+floor(random()*701) y 500+floor(random()*2001).
   assert.equal(KEEP_CONFIG.PAIR, 'KEEPUSDT');
   assert.deepEqual([KEEP_CONFIG.MISSION_MIN, KEEP_CONFIG.MISSION_MAX], [500, 1200]);
-  assert.deepEqual([KEEP_CONFIG.CHECKIN_MIN, KEEP_CONFIG.CHECKIN_MAX], [500, 1200]);
+  assert.deepEqual([KEEP_CONFIG.CHECKIN_MIN, KEEP_CONFIG.CHECKIN_MAX], [500, 500]);
+  assert.equal(KEEP_CONFIG.CHECKIN_WEEKLY, 2000);
   assert.deepEqual([KEEP_CONFIG.CLAIM_MIN, KEEP_CONFIG.CLAIM_MAX], [500, 2500]);
 });
 

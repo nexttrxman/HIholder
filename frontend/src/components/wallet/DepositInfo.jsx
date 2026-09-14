@@ -29,6 +29,14 @@ export function DepositInfo({ onClose }) {
         </div>
       </div>
 
+      {/* v3.3: minimo de deposito (exhibido; el acreditado es manual). */}
+      {depositInfo.minimum && (
+        <div className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10 mb-4" data-testid="deposit-minimum">
+          <span className="text-xs text-white/60">Minimum deposit</span>
+          <span className="font-mono text-xs text-white font-semibold">{depositInfo.minimum}</span>
+        </div>
+      )}
+
       {/* Address */}
       <div className="mb-4">
         <label className="sys-label mb-2 block">

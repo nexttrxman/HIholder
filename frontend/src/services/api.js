@@ -429,6 +429,32 @@ export const verifyPayment = async (claimId, senderAddress) => {
     if (result) return result;
 
     // Dev mode
+    // v3.3: el claim semanal (CLMW_DEV_*) paga 1.5 USDT + 2000 KEEP fijos.
+    // OJO al prefijo: los claims de HOLD del mock tambien empiezan 'CLM_DEV_'.
+    if (String(claimId).startsWith('CLMW_DEV_')) {
+      const wc = readMockWeeklyClaim();
+      const prize = Number(wc?.total_prize ?? CHECKIN_CONFIG.WEEKLY_BONUS_USDT);
+      const keep = Number(wc?.keep_bonus ?? CHECKIN_CONFIG.WEEKLY_KEEP);
+      MOCK_USER.usdt_balance += prize;
+      MOCK_USER.keep_balance = (MOCK_USER.keep_balance || 0) + keep;
+      try {
+        const raw = window.localStorage.getItem(WEEKLY_CLAIM_KEY);
+        if (raw) {
+          const c = JSON.parse(raw);
+          c.status = 'credited';
+          window.localStorage.setItem(WEEKLY_CLAIM_KEY, JSON.stringify(c));
+        }
+      } catch (e) {
+        /* ignore */
+      }
+      return {
+        ok: true,
+        credited: prize,
+        new_balance: MOCK_USER.usdt_balance,
+        keep_credited: keep,
+        keep_balance: MOCK_USER.keep_balance,
+      };
+    }
     MOCK_USER.usdt_balance += 0.15;
     // Bonus KEEP del claim (v3.2): mismo sorteo que el SQL, 500–2500.
     const mockKeep = 500 + Math.floor(Math.random() * 2001);
@@ -519,7 +545,8 @@ export const sellWalletAsset = async ({ asset, amount, price }) => {
 // solo para mostrarlos (debe coincidir con KEEP_CONFIG en worker/lib.js).
 export const KEEP_REWARDS = {
   mission: { min: 500, max: 1200 },
-  checkin: { min: 500, max: 1200 },
+  checkin: { min: 500, max: 500 }, // v3.3: 500 KEEP fijos por dia
+  weekly: 2000,                    // v3.3: fijos, con el claim semanal
   claim: { min: 500, max: 2500 },
 };
 
@@ -620,6 +647,8 @@ export const getReferralPool = async () => {
 export const DEPOSIT_INFO = {
   network: 'TRON (TRC-20)',
   address: DEPOSIT_ADDRESS,
+  // v3.3: minimo exhibido en la pantalla de deposito (el acreditado es manual).
+  minimum: '5 TRX or 1 USDT',
 };
 
 export const TON_CONFIG = {
@@ -633,6 +662,45 @@ export const TON_CONFIG = {
 // ============================================
 const CHECKIN_KEY = 'tk_checkins_v1';
 const CHECKIN_WEEKLY_KEY = 'tk_checkin_weekly_paid_v1';
+const WEEKLY_CLAIM_KEY = 'tk_weekly_claim_v1';
+
+// v3.3 (dev): el premio semanal ya no se acredita solo; es un claim que se
+// cobra pagando 0.15 TON via TonConnect. Sin Worker lo simulamos aca.
+const readMockWeeklyClaim = () => {
+  try {
+    const raw = window.localStorage.getItem(WEEKLY_CLAIM_KEY);
+    const c = raw ? JSON.parse(raw) : null;
+    if (!c || c.week !== isoWeekKey() || c.status !== 'pending') return null;
+    return c;
+  } catch (e) {
+    return null;
+  }
+};
+
+const ensureMockWeeklyClaim = (week) => {
+  const existing = readMockWeeklyClaim();
+  if (existing) return existing;
+  // Expira al fin de la semana ISO: proximo lunes 00:00 UTC (igual que el SQL).
+  const monday = new Date();
+  const day = monday.getUTCDay() || 7;
+  monday.setUTCDate(monday.getUTCDate() + (8 - day));
+  monday.setUTCHours(0, 0, 0, 0);
+  const c = {
+    week,
+    status: 'pending',
+    claim_id: `CLMW_DEV_${week}`,
+    expires_at: monday.toISOString(),
+    total_prize: CHECKIN_CONFIG.WEEKLY_BONUS_USDT,
+    ton_fee: 0.15,
+    keep_bonus: CHECKIN_CONFIG.WEEKLY_KEEP,
+  };
+  try {
+    window.localStorage.setItem(WEEKLY_CLAIM_KEY, JSON.stringify(c));
+  } catch (e) {
+    /* ignore */
+  }
+  return c;
+};
 
 const readMockCheckins = () => {
   try {
@@ -661,6 +729,7 @@ export const checkinStatus = async () => {
     return {
       ok: true,
       ...summarizeCheckins(readMockCheckins().map((d) => ({ checkin_date: d }))),
+      weekly_claim: readMockWeeklyClaim(),
     };
   } catch (error) {
     console.error('Check-in status error:', error);
@@ -668,6 +737,7 @@ export const checkinStatus = async () => {
       return {
         ok: true,
         ...summarizeCheckins(readMockCheckins().map((d) => ({ checkin_date: d }))),
+        weekly_claim: readMockWeeklyClaim(),
       };
     }
     throw error;
@@ -697,42 +767,28 @@ export const dailyCheckin = async () => {
     const summary = summarizeCheckins(asRows(days));
     const week = isoWeekKey();
 
-    // weekly bonus: 7 days in the ISO week, paid at most once per week
-    let weeklyPaid = 0;
-    let paidWeek = null;
-    try {
-      paidWeek = window.localStorage.getItem(CHECKIN_WEEKLY_KEY);
-    } catch (e) {
-      paidWeek = null;
-    }
-    if (summary.weekly_complete && paidWeek !== week) {
-      weeklyPaid = CHECKIN_CONFIG.WEEKLY_BONUS_USDT;
-      try {
-        window.localStorage.setItem(CHECKIN_WEEKLY_KEY, week);
-      } catch (e) {
-        /* ignore */
-      }
-    }
-
-    const credited = CHECKIN_CONFIG.DAILY_REWARD_USDT + weeklyPaid;
+    // v3.3: diario FIJO 0.15 USDT + 500 KEEP. El premio semanal ya no se
+    // acredita directo: al completar los 7 dias se abre un claim semanal que
+    // se cobra pagando 0.15 TON via TonConnect (en dev queda en localStorage).
+    const credited = CHECKIN_CONFIG.DAILY_REWARD_USDT;
     const newBalance = applyLocalBalanceDelta(credited);
+    const keepDaily = CHECKIN_CONFIG.DAILY_KEEP;
+    MOCK_USER.keep_balance = (MOCK_USER.keep_balance || 0) + keepDaily;
 
-    // v3.2: el check-in tambien paga KEEP (mismos rangos que el SQL:
-    // 500-1200 el diario y otros 500-1200 el bono semanal).
-    const keepRoll = () => 500 + Math.floor(Math.random() * 701);
-    const keepDaily = keepRoll();
-    const keepWeekly = weeklyPaid > 0 ? keepRoll() : 0;
-    MOCK_USER.keep_balance = (MOCK_USER.keep_balance || 0) + keepDaily + keepWeekly;
+    const weeklyClaim = summary.weekly_complete ? ensureMockWeeklyClaim(week) : null;
 
     return {
       ok: true,
       ...summary,
-      weekly_bonus: weeklyPaid,
+      weekly_bonus: 0,
       credited,
       new_balance: newBalance,
       keep_reward: keepDaily,
-      keep_weekly: keepWeekly,
+      keep_weekly: 0,
       keep_balance: MOCK_USER.keep_balance,
+      weekly_claim_id: weeklyClaim?.claim_id || null,
+      weekly_claim_expires: weeklyClaim?.expires_at || null,
+      weekly_claim: weeklyClaim,
     };
   } catch (error) {
     console.error('Check-in error:', error);
@@ -745,10 +801,44 @@ export const resetMockCheckins = () => {
   try {
     window.localStorage.removeItem(CHECKIN_KEY);
     window.localStorage.removeItem(CHECKIN_WEEKLY_KEY);
+    window.localStorage.removeItem(WEEKLY_CLAIM_KEY);
   } catch (e) {
     /* ignore */
   }
 };
+
+// ============================================
+// ADMIN (v3.3) — colas de aprobacion desde /admin
+// ============================================
+// No usa initData: el admin entra desde un navegador comun y autentica con el
+// secreto ADMIN_TOKEN del Worker via header x-admin-token.
+export const adminCall = async (path, token, body = {}) => {
+  const base = requireWorkerUrl(WORKER_URL);
+  const response = await fetch(`${base}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { 'x-admin-token': token } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data?.ok === false) {
+    throw new Error(data?.error || `Admin request failed (${response.status})`);
+  }
+  return data;
+};
+
+export const adminListMissionRequests = (token) => adminCall('/admin/missions/list', token);
+export const adminApproveMission = (token, userId, missionId) =>
+  adminCall('/admin/missions/approve', token, { user_id: userId, mission_id: missionId });
+export const adminRejectMission = (token, userId, missionId) =>
+  adminCall('/admin/missions/reject', token, { user_id: userId, mission_id: missionId });
+export const adminListWithdrawals = (token) => adminCall('/admin/withdrawals/list', token);
+export const adminResolveWithdrawal = (token, requestId, status, txId = null, note = null) =>
+  adminCall('/admin/withdrawals/resolve', token, {
+    request_id: requestId, status, tx_id: txId, note,
+  });
 
 export default {
   authUser,

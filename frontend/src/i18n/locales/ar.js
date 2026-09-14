@@ -123,7 +123,7 @@ export default {
   'Verifying on TON blockchain...': 'جارٍ التحقق على شبكة TON…',
   'View all': 'عرض الكل',
   Wallet: 'المحفظة',
-  'Weekly bonus': 'مكافأة أسبوعية',
+  'Weekly prize': 'جائزة الأسبوع',
   Withdraw: 'سحب',
   Withdrawal: 'سحب',
   Withdrawals: 'السحوبات',
@@ -209,4 +209,9 @@ export default {
 
   // Envío interno (opción visible, todavía deshabilitada)
   'Internal transfers are coming soon.': 'التحويلات الداخلية قادمة قريبًا.',
+  'Under review': 'قيد المراجعة',
+  'Earn USDT + KEEP': 'اكسب USDT + KEEP',
+  'Request review': 'طلب مراجعة',
+  'Minimum deposit': 'الحد الأدنى للإيداع',
+  'Weekly bonus': 'مكافأة الأسبوع',
 };

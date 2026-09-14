@@ -30,11 +30,16 @@ const check = (n, ok, d) => { if (!ok) failures++; console.log(`${ok?'PASS':'FAI
   // (la separadora que la precede queda fuera de la comparacion).
   const s32 = schemaLines.findIndex((l) => l.startsWith('-- v3.2 — $KEEP'));
   const mi = migLines.findIndex((l) => l.startsWith('-- v3.2 — $KEEP'));
-  const cuerpo = schemaLines.slice(s32);
+  // Desde v3.3 el bloque v3.2 ya no llega al EOF de schema.sql: termina donde
+  // empieza el bloque v3.3 (su marca, precedida de separadora y linea en blanco).
+  const s33 = schemaLines.findIndex((l) => l.startsWith('-- v3.3 — check-in'));
+  let end32 = s33 >= 0 ? s33 - 2 : schemaLines.length;
+  while (end32 > 0 && schemaLines[end32 - 1].trim() === '') end32 -= 1;
+  const cuerpo = schemaLines.slice(s32, end32);
   check('migrate-v3.2.sql no se desincronizo de schema.sql',
     s32 >= 0 && mi >= 0 && JSON.stringify(migLines.slice(mi, mi + cuerpo.length)) === JSON.stringify(cuerpo),
     `schema.sql:${s32 + 1}.. vs migrate-v3.2.sql:${mi + 1}`);
-  check('migrate-v3.2.sql termina donde termina schema.sql',
+  check('migrate-v3.2.sql termina donde termina su bloque',
     migLines.length - (mi + cuerpo.length) <= 1,
     `${migLines.length} vs ${mi + cuerpo.length}`);
 }

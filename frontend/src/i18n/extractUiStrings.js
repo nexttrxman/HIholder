@@ -23,9 +23,17 @@ export const DO_NOT_TRANSLATE = {
   MAX: 'jerga de trading', PnL: 'sigla', Live: 'etiqueta de estado del feed',
   '24h H': 'etiqueta de tabla', '24h L': 'etiqueta de tabla',
   'TP / SL · optional': 'siglas', 'Add TP/SL': 'siglas',
-  // Títulos de misión: el usuario pidió que queden en inglés a propósito.
-  'Big Earner': 'título de misión (a pedido)', 'Daily Holder': 'título de misión (a pedido)',
-  'First Deposit': 'título de misión (a pedido)', 'Social Butterfly': 'título de misión (a pedido)',
+  // (Los títulos de misión ya no están en el JSX: vienen de social_missions
+  // en la base, así que no hay nada que eximir acá.)
+  // Panel de admin (/admin): herramienta interna del operador, no es UI de
+  // usuario y no se traduce.
+  'Admin queue': 'panel de admin',
+  'Enter the ADMIN_TOKEN configured on the Worker.': 'panel de admin',
+  'Log out': 'aria-label de admin', 'Mark paid': 'aria-label de admin',
+  'Mission requests': 'panel de admin', 'No pending mission requests': 'panel de admin',
+  'No pending withdrawals': 'panel de admin', 'Rejected by admin': 'nota interna de admin',
+  'Rejected withdrawal for': 'mensaje interno de admin',
+  'TX hash of the on-chain payment:': 'prompt de admin',
   // Mensajes para desarrolladores, nunca los ve un usuario final.
   'Referral links are being generated in': 'aviso de configuración (dev)',
   'form, which opens the bot chat instead of the app — invites will not be tracked. Set': 'aviso de configuración (dev)',

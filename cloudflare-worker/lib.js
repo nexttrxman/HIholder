@@ -1044,9 +1044,14 @@ export function isValidTronAddress(address) {
 // ============================================
 
 export const CHECKIN_CONFIG = {
-  DAILY_REWARD_USDT: 0.05,
-  WEEKLY_BONUS_USDT: 0.5,
+  // v3.3: premios fijos. El diario se acredita al toque; el semanal NO se
+  // acredita directo: abre un claim (claims.claim_type='weekly') que el
+  // usuario cobra pagando 0.15 TON via TonConnect antes del fin de la semana.
+  DAILY_REWARD_USDT: 0.15,
+  WEEKLY_BONUS_USDT: 1.5,
   DAYS_FOR_WEEKLY: 7,
+  DAILY_KEEP: 500,
+  WEEKLY_KEEP: 2000,
 };
 
 // ============================================
@@ -1059,8 +1064,10 @@ export const KEEP_CONFIG = {
   PAIR: 'KEEPUSDT',
   MISSION_MIN: 500,
   MISSION_MAX: 1200,
+  // v3.3: el check-in diario paga 500 KEEP fijos (min == max a proposito).
   CHECKIN_MIN: 500,
-  CHECKIN_MAX: 1200,
+  CHECKIN_MAX: 500,
+  CHECKIN_WEEKLY: 2000,
   CLAIM_MIN: 500,
   CLAIM_MAX: 2500,
   // La compra usa los mismos limites de notional que el book simulado.

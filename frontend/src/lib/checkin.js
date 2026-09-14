@@ -10,9 +10,12 @@
 // ============================================
 
 export const CHECKIN_CONFIG = {
-  DAILY_REWARD_USDT: 0.05,
-  WEEKLY_BONUS_USDT: 0.5,
+  // v3.3: premios fijos (espejo de cloudflare-worker/lib.js).
+  DAILY_REWARD_USDT: 0.15,
+  WEEKLY_BONUS_USDT: 1.5, // via claim semanal (0.15 TON con TonConnect)
   DAYS_FOR_WEEKLY: 7,
+  DAILY_KEEP: 500,
+  WEEKLY_KEEP: 2000,
 };
 
 const MS_PER_DAY = 86400000;

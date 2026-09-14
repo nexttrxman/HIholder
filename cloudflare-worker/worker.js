@@ -41,6 +41,7 @@ import {
   resolvePendingClaim,
   summarizeCheckins,
   CHECKIN_CONFIG,
+  isoWeekKey,
   rollHoldPrize,
 } from './lib.js';
 
@@ -1046,12 +1047,33 @@ async function handleCheckinStatus(request, env) {
     limit: 60
   });
 
+  // v3.3: el premio de la semana completa (1.5 USDT + 2000 KEEP) no se
+  // acredita solo: queda como claim pendiente que el usuario cobra pagando
+  // 0.15 TON via TonConnect. Si hay uno vivo, la UI muestra el CTA.
+  const weeklyRows = await db.query('claims', 'select', {
+    filters: { user_id: tgId, status: 'pending', claim_type: 'weekly' },
+    order: 'created_at.desc',
+    limit: 1,
+  });
+  const wc = (Array.isArray(weeklyRows) ? weeklyRows : [])[0] || null;
+  const weeklyClaim = wc && new Date(wc.expires_at) > new Date()
+    ? {
+        claim_id: wc.claim_id,
+        expires_at: wc.expires_at,
+        total_prize: Number(wc.total_prize),
+        ton_fee: Number(wc.ton_fee),
+        keep_bonus: CHECKIN_CONFIG.WEEKLY_KEEP,
+      }
+    : null;
+
   return jsonResponse({
     ok: true,
     ...summarizeCheckins(rows),
-    // Rango de KEEP por check-in (v3.2): diario y semanal pagan 500-1200.
+    // v3.3: el diario paga 500 KEEP fijos (min == max) y el semanal 2000.
     keep_min: KEEP_CONFIG.CHECKIN_MIN,
     keep_max: KEEP_CONFIG.CHECKIN_MAX,
+    weekly_keep: KEEP_CONFIG.CHECKIN_WEEKLY,
+    weekly_claim: weeklyClaim,
   });
 }
 
@@ -1130,6 +1152,67 @@ async function handleWithdrawSettings(request, env) {
 }
 
 // ============================================
+// ADMIN — cola de aprobaciones
+// ============================================
+// Dos colas manuales en una sola pantalla /admin:
+//   * misiones de revision humana (First Deposit)
+//   * retiros pendientes de pago on-chain
+// Autentica con el secreto ADMIN_TOKEN (header x-admin-token); no usa
+// initData porque el admin entra desde un navegador comun, fuera de Telegram.
+// Sin ADMIN_TOKEN configurado, todo el modulo responde 503.
+async function handleAdmin(request, env, path) {
+  if (!env.ADMIN_TOKEN) {
+    return jsonResponse({ ok: false, error: 'Admin not configured' }, 503);
+  }
+  const token = request.headers.get('x-admin-token') || '';
+  if (token !== env.ADMIN_TOKEN) {
+    return jsonResponse({ ok: false, error: 'Unauthorized' }, 401);
+  }
+
+  const db = supabase(env);
+
+  if (path === '/admin/missions/list') {
+    const rows = await db.rpc('list_pending_mission_requests', {});
+    return jsonResponse({ ok: true, requests: Array.isArray(rows) ? rows : [] });
+  }
+
+  if (path === '/admin/missions/approve' || path === '/admin/missions/reject') {
+    const { user_id, mission_id } = await request.json();
+    if (!user_id || !mission_id) {
+      return jsonResponse({ ok: false, error: 'Missing user_id or mission_id' }, 400);
+    }
+    const fn = path.endsWith('approve') ? 'approve_mission_request' : 'reject_mission_request';
+    const r = await db.rpc(fn, { p_user_id: String(user_id), p_mission_id: String(mission_id) });
+    return jsonResponse(r || { ok: false, error: 'failed' }, r?.ok ? 200 : 400);
+  }
+
+  if (path === '/admin/withdrawals/list') {
+    const rows = await db.query('withdrawal_requests', 'select', {
+      filters: { status: 'pending' },
+      order: 'created_at.asc',
+      limit: 100,
+    });
+    return jsonResponse({ ok: true, requests: Array.isArray(rows) ? rows : [] });
+  }
+
+  if (path === '/admin/withdrawals/resolve') {
+    const { request_id, status, tx_id, note } = await request.json();
+    if (!request_id || !status) {
+      return jsonResponse({ ok: false, error: 'Missing request_id or status' }, 400);
+    }
+    const r = await db.rpc('resolve_withdrawal', {
+      p_request_id: request_id,
+      p_status: String(status),
+      p_tx_id: tx_id == null ? null : String(tx_id),
+      p_note: note == null ? null : String(note),
+    });
+    return jsonResponse(r || { ok: false, error: 'failed' }, r?.ok ? 200 : 400);
+  }
+
+  return jsonResponse({ ok: false, error: 'Not found' }, 404);
+}
+
+// ============================================
 // SOCIAL MISSIONS
 // ============================================
 async function handleMissions(request, env) {
@@ -1145,17 +1228,45 @@ async function handleMissions(request, env) {
     order: 'sort.asc',
   });
   const done = await db.query('user_social_missions', 'select', {
-    filters: { user_id: tgId },
+    filters: { user_id: tgId, status: 'paid' },
   });
-  const completed = (Array.isArray(done) ? done : []).map((d) => d.mission_id);
+  // v3.3: las misiones repetibles solo cuentan como "Done" si se completaron
+  // en el periodo actual (daily = hoy UTC, weekly = semana ISO en curso); si
+  // no, Daily Holder quedaria marcada "Done" para siempre desde ayer.
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const weekKey = isoWeekKey(new Date());
+  const currentPeriod = (repeat) =>
+    (repeat === 'daily' ? todayKey : repeat === 'weekly' ? weekKey : '');
+  const byId = new Map((Array.isArray(missions) ? missions : []).map((x) => [x.id, x]));
+  const completed = (Array.isArray(done) ? done : [])
+    .filter((d) => (d.period || '') === currentPeriod(byId.get(d.mission_id)?.repeat || 'once'))
+    .map((d) => d.mission_id);
+  // v3.3: misiones manuales en revision (First Deposit): se muestran como
+  // "Under review" en vez del boton de verify.
+  const pendingRows = await db.query('user_social_missions', 'select', {
+    filters: { user_id: tgId, status: 'pending' },
+  });
+  const pending = (Array.isArray(pendingRows) ? pendingRows : []).map((d) => d.mission_id);
+
+  // v3.3: progreso REAL de las misiones 'progress' (holds de hoy, referidos
+  // de la semana, ganancias de holds). Una sola llamada SQL para todas.
+  const progress = await db.rpc('mission_progress', { p_user_id: tgId });
 
   return jsonResponse({
     ok: true,
     missions: (Array.isArray(missions) ? missions : []).map((m) => ({
       id: m.id, platform: m.platform, title: m.title, description: m.description,
       url: m.url, reward: Number(m.reward_usdt), verify: m.verify,
+      // v3.3: KEEP fijo por mision (null = sorteo 500-1200), repetibilidad,
+      // y para las de progreso su meta y el avance actual.
+      reward_keep: m.reward_keep == null ? null : Number(m.reward_keep),
+      repeat: m.repeat || 'once',
+      goal: m.goal == null ? null : Number(m.goal),
+      progress_type: m.progress_type || null,
+      current: m.progress_type ? Number(progress?.[m.progress_type] || 0) : null,
     })),
     completed,
+    pending,
     // Rango de KEEP que paga cada mision (v3.2), para mostrarlo en la card.
     keep_min: KEEP_CONFIG.MISSION_MIN,
     keep_max: KEEP_CONFIG.MISSION_MAX,
@@ -1188,9 +1299,27 @@ async function handleVerifyMission(request, env) {
         ? { ok: false, reason: check.reason, error: 'Not joined yet' }
         : { ok: false, reason: check.reason, error: 'Check failed. Try again.' }, 400);
     }
+  } else if (mission.verify === 'progress') {
+    // v3.3: misiones de progreso (Daily Holder, Social Butterfly, Big Earner).
+    // El avance se mide SIEMPRE en el servidor contra datos reales; el numero
+    // que muestra la app es solo informativo.
+    const progress = await db.rpc('mission_progress', { p_user_id: tgId });
+    const current = Number(progress?.[mission.progress_type] || 0);
+    const goal = Number(mission.goal || 0);
+    if (current < goal) {
+      return jsonResponse({ ok: false, error: 'Progress not complete', current, goal }, 400);
+    }
   } else if (mission.verify === 'manual') {
-    // Placeholder: hasta que exista la UI de revision humana, no se paga.
-    return jsonResponse({ ok: false, error: 'Manual review not available yet' }, 400);
+    // v3.3: mision de revision humana (First Deposit). Se crea la solicitud y
+    // el admin la aprueba cuando ve el deposito; aca no se paga nada todavia.
+    const req = await db.rpc('request_manual_mission', {
+      p_user_id: tgId,
+      p_mission_id: missionId,
+    });
+    if (req?.ok && req.pending) {
+      return jsonResponse({ ok: true, pending: true });
+    }
+    return jsonResponse(req || { ok: false, error: 'failed' }, 400);
   }
   // 'honor' pasa directo: la unicidad la garantiza la PK en la base.
 
@@ -1243,6 +1372,13 @@ export default {
           case '/withdraw/settings': return await handleWithdrawSettings(request, env);
           case '/checkin':        return await handleCheckin(request, env);
           case '/checkin/status': return await handleCheckinStatus(request, env);
+          // v3.3: cola de aprobaciones del admin (misiones manuales + retiros).
+          case '/admin/missions/list':
+          case '/admin/missions/approve':
+          case '/admin/missions/reject':
+          case '/admin/withdrawals/list':
+          case '/admin/withdrawals/resolve':
+            return await handleAdmin(request, env, path);
         }
       }
 
@@ -1257,16 +1393,18 @@ export default {
         return jsonResponse({
           ok: true,
           service: 'TronKeeper API',
-          // 3.3: $KEEP (recompensas en KEEP, precio manejado, compra sin
-          // venta). Sirve para verificar EN VIVO que el Worker corre el codigo
-          // nuevo: si /health devuelve una version menor, el deploy no se hizo.
-          version: '3.3',
+          // 3.4: check-in fijo 0.15+500, claim semanal por TonConnect,
+          // misiones reales (progress/manual) y cola admin. Sirve para
+          // verificar EN VIVO que el Worker corre el codigo nuevo: si /health
+          // devuelve una version menor, el deploy no se hizo.
+          version: '3.4',
           treasury: CONFIG.TREASURY_WALLET,
           env: {
             BOT_TOKEN: Boolean(env.BOT_TOKEN),
             SUPA_URL: Boolean(env.SUPA_URL),
             SUPA_SERVICE_KEY: Boolean(env.SUPA_SERVICE_KEY),
             TON_API_KEY: Boolean(env.TON_API_KEY),
+            ADMIN_TOKEN: Boolean(env.ADMIN_TOKEN),
           },
           // Acá iba `envKeys: Object.keys(env)`, que listaba los nombres de
           // todas las variables del runtime — incluidas las internas de
