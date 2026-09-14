@@ -160,15 +160,15 @@ $$ LANGUAGE plpgsql;
 
 -- 3) MISION: compartir en Telegram. Telegram no permite verificar
 --    historias/estados, asi que verify='manual' (el admin aprueba en
---    /admin). Repetible semanal: 0.20 USDT + 500 KEEP por semana ISO.
+--    /admin). Repetible semanal: 0.50 USDT + 1500 KEEP por semana ISO.
 INSERT INTO social_missions
   (id, platform, title, description, url, reward_usdt, verify, chat_id,
    enabled, sort, reward_keep, repeat, goal, progress_type, share_text)
 VALUES
   ('tg_share', 'telegram', 'Share on Telegram',
    'Share TronKeeper on your Telegram story or status, then request review.',
-   '', 0.20, 'manual', NULL, true, 14, 500, 'weekly', NULL, NULL,
-   '🎁 I''m earning daily on TronKeeper — hold crypto, get paid. Join me!')
+   '', 0.50, 'manual', NULL, true, 14, 1500, 'weekly', NULL, NULL,
+   '🎁 I''m earning daily on Keeper — Hold, Claim, Trade and get paid. Join me!')
 ON CONFLICT (id) DO UPDATE SET
   platform      = EXCLUDED.platform,
   title         = EXCLUDED.title,
