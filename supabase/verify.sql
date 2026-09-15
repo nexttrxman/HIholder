@@ -284,6 +284,8 @@ BEGIN
         'list_pending_mission_requests','mission_progress')) = 5, '');
   v_r := mission_progress(v_inv);
   INSERT INTO _v VALUES ('mission_progress responde', v_r ? 'holds_today', v_r::text);
+  INSERT INTO _v VALUES ('First Deposit wallet review acepta evidencia USDT',
+    to_regprocedure('complete_first_deposit_from_wallet(text)') IS NOT NULL, '');
   INSERT INTO _v VALUES ('First Deposit tiene descripción, recompensa y revisión automática',
     (SELECT description = 'Make your first deposit (min 1GRAM or 1 USDT). (review automatico con la wallet)'
        AND reward_usdt = 1 AND reward_keep = 3000 AND verify = 'automatic'

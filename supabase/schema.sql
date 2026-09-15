@@ -3291,8 +3291,8 @@ ALTER TABLE social_missions ADD COLUMN IF NOT EXISTS share_text TEXT;
 
 -- 2) MISIONES MANUALES POR PERIODO. Hasta v3.3 request/approve/reject
 --    hardcodeaban period='', asi que una mision manual solo podia ser
---    'once' (First Deposit): tras el primer pago, request devolvia
---    'already' para siempre. Ahora el periodo se calcula desde `repeat`
+--    las misiones 'once' podían quedar bloqueadas tras el primer pago.
+--    Ahora el periodo se calcula desde `repeat`
 --    (daily=hoy UTC, weekly=semana ISO, igual que complete_social_mission)
 --    y approve/reject operan sobre la solicitud 'pending' cualquiera sea
 --    su periodo. Retrocompatible: las 'once' siguen usando period=''.
@@ -3885,6 +3885,150 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+
+-- Revisión automática de la rama alternativa de First Deposit.
+--
+-- El balance actual no es evidencia suficiente: puede provenir de rewards,
+-- trading o una devolución. Un adaptador de depósitos USDT verificado debe
+-- escribir primero un renglón de wallet_ledger con reference_type=
+-- 'usdt_deposit' y el hash de cadena en reference_id. Solo ese evento (o un
+-- depósito TON ya acreditado por credit_ton_deposit) puede activar la misión.
+-- Los refunds de retiros usan reference_type='withdrawal' y quedan fuera.
+CREATE OR REPLACE FUNCTION complete_first_deposit_from_wallet(
+  p_user_id TEXT
+) RETURNS JSONB AS $$
+DECLARE
+  v_evidence RECORD;
+  v_mission social_missions%ROWTYPE;
+  v_mission_row user_social_missions%ROWTYPE;
+  v_wallet internal_wallets%ROWTYPE;
+  v_inserted_user TEXT;
+  v_usdt_before NUMERIC;
+  v_usdt_after NUMERIC;
+  v_keep_before NUMERIC;
+  v_keep_after NUMERIC;
+  v_reward_usdt NUMERIC;
+  v_reward_keep NUMERIC;
+BEGIN
+  IF p_user_id IS NULL OR BTRIM(p_user_id) = '' THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Missing user');
+  END IF;
+
+  -- Nunca se mira usdt_balance/ton_balance a secas. La condición se apoya en
+  -- un depósito individual >= 1 con su referencia de cadena persistida.
+  SELECT l.asset, l.reference_id, l.amount
+  INTO v_evidence
+  FROM wallet_ledger l
+  WHERE l.user_id = p_user_id
+    AND l.operation = 'deposit'
+    AND l.amount >= 1
+    AND NULLIF(BTRIM(COALESCE(l.reference_id, '')), '') IS NOT NULL
+    AND (
+      (l.asset = 'TON' AND l.reference_type = 'ton_deposit')
+      OR (l.asset = 'USDT' AND l.reference_type = 'usdt_deposit')
+    )
+  ORDER BY l.created_at ASC, l.id ASC
+  LIMIT 1;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object(
+      'ok', true,
+      'eligible', false,
+      'first_deposit_credited', false
+    );
+  END IF;
+
+  SELECT * INTO v_mission
+  FROM social_missions
+  WHERE id = 'first_deposit' AND enabled AND verify = 'automatic'
+  FOR SHARE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'First Deposit mission unavailable');
+  END IF;
+
+  -- Bloquea la wallet antes de escribir el premio para que el saldo y los dos
+  -- renglones de recompensa sean una sola operación atómica.
+  SELECT * INTO v_wallet
+  FROM internal_wallets
+  WHERE user_id = p_user_id
+  FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'No wallet');
+  END IF;
+
+  INSERT INTO user_social_missions (
+    user_id, mission_id, period, status, reward_usdt, reward_keep
+  ) VALUES (
+    p_user_id, 'first_deposit', '', 'paid',
+    v_mission.reward_usdt, COALESCE(v_mission.reward_keep, 3000)
+  )
+  ON CONFLICT (user_id, mission_id, period) DO NOTHING
+  RETURNING user_id INTO v_inserted_user;
+
+  SELECT * INTO v_mission_row
+  FROM user_social_missions
+  WHERE user_id = p_user_id AND mission_id = 'first_deposit' AND period = ''
+  FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'First Deposit row unavailable');
+  END IF;
+
+  IF v_inserted_user IS NULL AND v_mission_row.status = 'paid' THEN
+    RETURN jsonb_build_object(
+      'ok', true,
+      'eligible', true,
+      'first_deposit_credited', false,
+      'already_credited', true,
+      'evidence_id', v_evidence.reference_id
+    );
+  END IF;
+
+  v_reward_usdt := COALESCE(v_mission.reward_usdt, 1.00);
+  v_reward_keep := COALESCE(v_mission.reward_keep, 3000);
+  v_usdt_before := COALESCE(v_wallet.usdt_balance, 0);
+  v_keep_before := COALESCE(v_wallet.keep_balance, 0);
+  v_usdt_after := v_usdt_before + v_reward_usdt;
+  v_keep_after := v_keep_before + v_reward_keep;
+
+  UPDATE user_social_missions
+  SET status = 'paid', reward_usdt = v_reward_usdt,
+      reward_keep = v_reward_keep, completed_at = NOW()
+  WHERE user_id = p_user_id AND mission_id = 'first_deposit' AND period = '';
+
+  UPDATE internal_wallets
+  SET usdt_balance = v_usdt_after,
+      keep_balance = v_keep_after,
+      updated_at = NOW()
+  WHERE user_id = p_user_id;
+
+  INSERT INTO wallet_ledger (
+    user_id, operation, reference_type, reference_id, asset, amount,
+    balance_before, balance_after, description
+  ) VALUES (
+    p_user_id, 'mission_reward', 'social_mission', v_evidence.reference_id,
+    'USDT', v_reward_usdt, v_usdt_before, v_usdt_after,
+    'First Deposit mission approved automatically from wallet evidence'
+  );
+  INSERT INTO wallet_ledger (
+    user_id, operation, reference_type, reference_id, asset, amount,
+    balance_before, balance_after, description
+  ) VALUES (
+    p_user_id, 'mission_reward', 'social_mission', v_evidence.reference_id,
+    'KEEP', v_reward_keep, v_keep_before, v_keep_after,
+    'First Deposit KEEP reward approved automatically from wallet evidence'
+  );
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'eligible', true,
+    'first_deposit_credited', true,
+    'first_deposit_usdt', v_reward_usdt,
+    'first_deposit_keep', v_reward_keep,
+    'evidence_id', v_evidence.reference_id
+  );
+END;
+$$ LANGUAGE plpgsql;
+
 -- Solo el Worker entra con service_role. Las claves anon/authenticated no
 -- pueden crear un saldo ni resolver evidencia de cadena.
 ALTER TABLE deposit_codes ENABLE ROW LEVEL SECURITY;
@@ -3911,6 +4055,22 @@ BEGIN
     GRANT EXECUTE ON FUNCTION credit_ton_deposit(
       TEXT, TEXT, TEXT, NUMERIC, TEXT, TIMESTAMPTZ, UUID
     ) TO service_role;
+  END IF;
+END $$;
+
+
+REVOKE EXECUTE ON FUNCTION complete_first_deposit_from_wallet(TEXT) FROM PUBLIC;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    REVOKE EXECUTE ON FUNCTION complete_first_deposit_from_wallet(TEXT) FROM anon;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    REVOKE EXECUTE ON FUNCTION complete_first_deposit_from_wallet(TEXT) FROM authenticated;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    GRANT EXECUTE ON FUNCTION complete_first_deposit_from_wallet(TEXT) TO service_role;
   END IF;
 END $$;
 

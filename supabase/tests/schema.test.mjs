@@ -150,6 +150,47 @@ async function seedUser(balance = 0) {
     1);
 }
 
+// ---- 2a) First Deposit por USDT: evidencia, no balance arbitrario ---------
+{
+  const balanceOnly = await seedUser(5);
+  const noEvidence = (await one(
+    `SELECT complete_first_deposit_from_wallet($1) AS r`, [balanceOnly])).r;
+  eq('First Deposit USDT: saldo actual sin evidencia no alcanza', noEvidence.eligible, false);
+  eq('First Deposit USDT: saldo actual no crea la misión',
+    (await one(`SELECT count(*)::int n FROM user_social_missions
+      WHERE user_id=$1 AND mission_id='first_deposit'`, [balanceOnly])).n, 0);
+
+  const u = await seedUser(0);
+  // Este renglón representa la salida de un adaptador USDT verificado: el
+  // hash/referencia es obligatorio y el tipo no puede confundirse con un
+  // refund de retiro (reference_type='withdrawal').
+  await q(`UPDATE internal_wallets SET usdt_balance = 1.25 WHERE user_id=$1`, [u]);
+  await q(`INSERT INTO wallet_ledger
+    (user_id, operation, reference_type, reference_id, asset, amount,
+     balance_before, balance_after, description)
+    VALUES ($1, 'deposit', 'usdt_deposit', 'USDT_HASH_1', 'USDT',
+      1.25, 0, 1.25, 'USDT deposit verified by chain adapter')`, [u]);
+
+  const first = (await one(
+    `SELECT complete_first_deposit_from_wallet($1) AS r`, [u])).r;
+  eq('First Deposit USDT: evidencia de 1 USDT completa automáticamente',
+    first.first_deposit_credited, true);
+  near('First Deposit USDT: acredita 1 USDT',
+    (await one(`SELECT usdt_balance FROM internal_wallets WHERE user_id=$1`, [u])).usdt_balance,
+    2.25, 0.000001);
+  near('First Deposit USDT: acredita 3000 KEEP',
+    (await one(`SELECT keep_balance FROM internal_wallets WHERE user_id=$1`, [u])).keep_balance,
+    3000, 0.000001);
+
+  const again = (await one(
+    `SELECT complete_first_deposit_from_wallet($1) AS r`, [u])).r;
+  eq('First Deposit USDT: evidencia repetida es idempotente', again.already_credited, true);
+  eq('First Deposit USDT: un solo premio USDT en ledger',
+    (await one(`SELECT count(*)::int n FROM wallet_ledger
+      WHERE user_id=$1 AND reference_id='USDT_HASH_1' AND asset='USDT'
+        AND operation='mission_reward'`, [u])).n, 1);
+}
+
 // ---- 3) EL BUG DEL CRON: claim expirado sin reclamar ---------------------
 {
   const u = await seedUser(0);

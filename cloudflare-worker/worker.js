@@ -183,6 +183,16 @@ async function handleAuth(request, env) {
   // nunca dependa de un valor generado en el navegador.
   const depositCode = await ensureDepositCode(db, tgId);
 
+  // First Deposit también puede habilitarse por un depósito USDT real. El SQL
+  // no mira el saldo actual: exige evidencia de wallet_ledger con referencia
+  // de cadena, así que rewards/trading/refunds no activan la misión.
+  const firstDepositReview = await db.rpc('complete_first_deposit_from_wallet', {
+    p_user_id: tgId,
+  });
+  if (firstDepositReview?.ok === false) {
+    console.error('First Deposit automatic review failed:', firstDepositReview.error);
+  }
+
   // Referidos: Telegram pone el valor de ?startapp=<uid> en start_param.
   // El initData ya fue validado, así que el parámetro es confiable. Se registra
   // en 'pending'; el pago de 2 TRX al referente lo dispara confirm_pending_referral
@@ -1323,7 +1333,7 @@ async function handleWithdrawSettings(request, env) {
 // ADMIN — cola de aprobaciones
 // ============================================
 // Dos colas manuales en una sola pantalla /admin:
-//   * misiones de revision humana (First Deposit)
+//   * misiones de revision humana (acciones no verificables en cadena)
 //   * retiros pendientes de pago on-chain
 // Autentica con el secreto ADMIN_TOKEN (header x-admin-token); no usa
 // initData porque el admin entra desde un navegador comun, fuera de Telegram.
