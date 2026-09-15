@@ -424,12 +424,14 @@ export async function fetchTreasuryTransactions({
     limit: String(limit),
     archival: 'true',
   });
-  if (tonApiKey) params.set('api_key', tonApiKey);
 
   const url = `${CONFIG.TONCENTER_BASE}/getTransactions?${params.toString()}`;
-  const res = await fetchImpl(url, {
-    headers: { 'Accept': 'application/json' },
-  });
+  const headers = { 'Accept': 'application/json' };
+  // TonCenter v2 authenticates with X-API-Key. Sending the key as an
+  // api_key query parameter is not part of the current API contract and can
+  // leave the cron on the unauthenticated/rate-limited endpoint.
+  if (tonApiKey) headers['X-API-Key'] = tonApiKey;
+  const res = await fetchImpl(url, { headers });
 
   if (!res.ok) {
     throw new Error(`TonCenter HTTP ${res.status}`);

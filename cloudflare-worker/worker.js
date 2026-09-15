@@ -1679,7 +1679,15 @@ export default {
   },
 
   async scheduled(controller, env, ctx) {
-    const sweep = runTonDepositSweep(env);
+    const sweep = runTonDepositSweep(env)
+      .then((summary) => {
+        console.log('TON deposit sweep completed', summary);
+        return summary;
+      })
+      .catch((error) => {
+        console.error('TON deposit sweep failed', error);
+        throw error;
+      });
     if (ctx?.waitUntil) return ctx.waitUntil(sweep);
     return sweep;
   },
