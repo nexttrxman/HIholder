@@ -124,14 +124,12 @@ async function seedUser(balance = 0) {
   const claim = await one(`SELECT status FROM claims WHERE claim_id='CLM_TEST_1'`);
   eq('cron: claim pasa a expired_unclaimed', claim.status, 'expired_unclaimed');
 
-  const c = await one(`SELECT holds_completed, status, ends_at FROM hold_cycles WHERE id=$1`, [cyc.id]);
-  // v3.5: el claim expirado sin cobrar cierra el ciclo con el mismo cooldown
-  // que un claim cobrado: status expired, ends_at ~8 h adelante y los holds se
-  // quedan en 3/3 para que el boton siga bloqueado hasta que pase la ventana.
-  eq('cron: el ciclo conserva los 3 holds (regla v3.5)', c.holds_completed, 3);
-  eq('cron: el ciclo se cierra como expired', c.status, 'expired');
-  const hoursLeft = (new Date(c.ends_at).getTime() - Date.now()) / 3600000;
-  check('cron: el cooldown dura 8 h', hoursLeft > 7.9 && hoursLeft <= 8.01, `${hoursLeft.toFixed(3)} h`);
+  const c = await one(`SELECT holds_completed, status FROM hold_cycles WHERE id=$1`, [cyc.id]);
+  // v3.6 (regla final): el claim expirado sin firmar se pierde y los 3 holds
+  // con él. El ciclo vuelve a 0 y sigue activo: el hold se reabre enseguida.
+  // El bloqueo de 8 h rige solo tras un claim cobrado.
+  eq('cron: el ciclo vuelve a 0 holds tras el claim vencido (regla v3.6)', c.holds_completed, 0);
+  eq('cron: el ciclo sigue activo para volver a jugar', c.status, 'active');
 
   const cl = await one(`SELECT status FROM claims WHERE cycle_id=$1`, [cyc.id]);
   eq('cron: el claim queda marcado como vencido sin cobrar', cl.status, 'expired_unclaimed');

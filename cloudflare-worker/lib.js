@@ -847,24 +847,18 @@ export function previewLevelPnl({ qty, entryPrice, targetPrice }) {
  * @returns {{pendingClaim: object|null, forfeited: boolean, holdsCompleted: number}}
  *          holdsCompleted is what the cycle must report after this decision.
  */
-export function resolvePendingClaim(pendingClaim, now = new Date()) {
+export function resolvePendingClaim(pendingClaim, now = new Date(), currentHolds = 0) {
   if (!pendingClaim) {
-    return { pendingClaim: null, forfeited: false, cooldownEndsAt: null };
+    return { pendingClaim: null, forfeited: false, holdsCompleted: currentHolds };
   }
   const expired = new Date(pendingClaim.expires_at).getTime() < now.getTime();
   if (!expired) {
-    return { pendingClaim, forfeited: false, cooldownEndsAt: null };
+    return { pendingClaim, forfeited: false, holdsCompleted: currentHolds };
   }
-  // v3.5: el vencimiento sin cobro YA NO libera al usuario: el ciclo se cierra
-  // con el mismo cooldown de 8 h que deja un claim cobrado. Sin esto, se podia
-  // encadenar holds infinitos dejando vencer el premio.
-  return {
-    pendingClaim: null,
-    forfeited: true,
-    cooldownEndsAt: new Date(
-      now.getTime() + CONFIG.CYCLE_DURATION_HOURS * 3600000
-    ).toISOString(),
-  };
+  // v3.6 (regla final): el claim que vence sin firmarse se pierde y el ciclo
+  // vuelve a 0 holds: el hold se reabre enseguida. El cooldown de 8 h es SOLO
+  // tras un claim cobrado. La ventana de 15 min ya es el castigo por no firmar.
+  return { pendingClaim: null, forfeited: true, holdsCompleted: 0 };
 }
 
 /**
@@ -933,13 +927,13 @@ export function resolveHoldGate(latestCycle, pendingClaim, now = new Date()) {
     const endsAt = new Date(latestCycle.ends_at).getTime();
     const inCooldown = Number.isFinite(endsAt) && endsAt > nowMs;
 
-    // v3.5: el standby rige tras un claim cobrado ('completed') Y tras un
-    // claim que vencio sin cobrarse ('expired' con ends_at futuro).
-    if ((latestCycle.status === 'completed' || latestCycle.status === 'expired') && inCooldown) {
+    // Único standby legítimo: cobró, y la ventana de 8 h sigue corriendo.
+    if (latestCycle.status === 'completed' && inCooldown) {
       return {
         action: 'reject',
         reason: 'cooldown',
         cooldownEndsAt: latestCycle.ends_at,
+        resetHolds: false,
         cycle: latestCycle,
       };
     }
@@ -954,59 +948,35 @@ export function resolveHoldGate(latestCycle, pendingClaim, now = new Date()) {
     return {
       action: 'reject',
       reason: 'claim_pending',
+      resetHolds: false,
       cycle: latestCycle,
     };
   }
 
-  const cooldownFromNow = new Date(
-    nowMs + CONFIG.CYCLE_DURATION_HOURS * 3600000
-  ).toISOString();
+  const forfeitClaimId = pendingClaim ? pendingClaim.claim_id : null;
 
-  // v3.5: claim que vencio sin cobrarse: el premio se pierde y el ciclo se
-  // cierra con cooldown de 8 h (igual que si lo hubieran cobrado).
-  // applyCooldown le dice a /hold que lo persista en este mismo pedido.
-  if (pendingClaim) {
-    return {
-      action: 'reject',
-      reason: 'cooldown',
-      cooldownEndsAt: cooldownFromNow,
-      forfeitClaimId: pendingClaim.claim_id,
-      applyCooldown: true,
-      cycle: latestCycle,
-    };
-  }
-
-  // Estado residual de la regla vieja (ciclo activo 3/3 cuyo claim ya fue
-  // marcado expired_unclaimed por un deploy anterior): se cierra con cooldown
-  // tambien, en vez de revivirlo a 0 holds.
-  if (
-    latestCycle &&
-    latestCycle.status === 'active' &&
-    Number(latestCycle.holds_completed) >= CONFIG.MAX_HOLDS_PER_CYCLE
-  ) {
-    return {
-      action: 'reject',
-      reason: 'cooldown',
-      cooldownEndsAt: cooldownFromNow,
-      applyCooldown: true,
-      cycle: latestCycle,
-    };
-  }
-
-  // Sin ciclo, o con un ciclo ya cerrado fuera de cooldown: arrancar uno
-  // nuevo en vez de revivir el viejo, que es lo que deja la contabilidad limpia.
+  // Sin ciclo, o con un ciclo ya cerrado (expired / completed fuera de
+  // cooldown): arrancar uno nuevo en vez de revivir el viejo, que es lo que
+  // deja la contabilidad limpia.
   if (!latestCycle || latestCycle.status !== 'active') {
-    return { action: 'create', cycle: null };
+    return { action: 'create', resetHolds: true, forfeitClaimId, cycle: null };
   }
 
-  // Ciclo activo y usable. ends_at es NOT NULL y se fija al crear el ciclo,
-  // asi que puede tener la ventana vencida en medio de la jugada: se renueva
-  // para que el pg_cron no lo marque 'expired' mientras se juega.
+  // Ciclo activo y usable. Si traía 3 holds con el claim vencido, se reinicia.
+  const needsReset =
+    Number(latestCycle.holds_completed) >= CONFIG.MAX_HOLDS_PER_CYCLE;
+
+  // ends_at es NOT NULL y se fija al crear el ciclo, así que un ciclo activo
+  // puede tener la ventana vencida. No por eso se le niega el hold al usuario:
+  // la espera de 8 h es solo post-claim. Se pide renovar ends_at para que el
+  // pg_cron no lo marque 'expired' en medio de la jugada.
   const endsAt = new Date(latestCycle.ends_at).getTime();
   const extendEndsAt = !Number.isFinite(endsAt) || endsAt <= nowMs;
 
   return {
     action: 'reuse',
+    resetHolds: needsReset,
+    forfeitClaimId: needsReset ? forfeitClaimId : null,
     extendEndsAt,
     cycle: latestCycle,
   };

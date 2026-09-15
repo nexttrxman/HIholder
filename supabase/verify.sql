@@ -299,11 +299,11 @@ BEGIN
       WHERE id='tg_share' AND verify='manual' AND repeat='weekly'
         AND reward_usdt=0.50 AND share_text IS NOT NULL) = 1, '');
 
-  -- 9) v3.5 — cooldown tras el vencimiento sin cobrar ----------------------
-  INSERT INTO _v VALUES ('v3.5: el cron cierra el ciclo con cooldown de 8 h (ya no resetea a 0)',
-    position('make_interval(hours => 8)' in
+  -- 9) v3.6 — el vencimiento sin firmar libera el hold ---------------------
+  INSERT INTO _v VALUES ('v3.6: el cron devuelve el ciclo a 0 holds (sin cooldown al vencer)',
+    position('holds_completed = 0' in
       pg_get_functiondef('expire_claims_and_cycles()'::regprocedure)) > 0
-    AND position('holds_completed = 0' in
+    AND position('make_interval' in
       pg_get_functiondef('expire_claims_and_cycles()'::regprocedure)) = 0, '');
 END $$;
 

@@ -31,12 +31,16 @@ const check = (n, ok, d) => { if (!ok) failures++; console.log(`${ok?'PASS':'FAI
   const migLines = fs.readFileSync(path.resolve(HERE,'..','migrate-v3.5.sql'),'utf8').split('\n');
   const s35 = schemaLines.findIndex((l) => l.startsWith('-- v3.5 — cooldown'));
   const mi = migLines.findIndex((l) => l.startsWith('-- v3.5 — cooldown'));
-  // v3.5 es el ultimo bloque: llega al EOF de schema.sql.
-  const cuerpo = schemaLines.slice(s35);
+  // Desde v3.6 el bloque v3.5 ya no llega al EOF de schema.sql: termina donde
+  // empieza el bloque v3.6 (su marca, precedida de separadora y linea en blanco).
+  const s36 = schemaLines.findIndex((l) => l.startsWith('-- v3.6 —'));
+  let end35 = s36 >= 0 ? s36 - 2 : schemaLines.length;
+  while (end35 > 0 && schemaLines[end35 - 1].trim() === '') end35 -= 1;
+  const cuerpo = schemaLines.slice(s35, end35);
   check('migrate-v3.5.sql no se desincronizo de schema.sql',
     s35 >= 0 && mi >= 0 && JSON.stringify(migLines.slice(mi, mi + cuerpo.length)) === JSON.stringify(cuerpo),
     `schema.sql:${s35 + 1}.. vs migrate-v3.5.sql:${mi + 1}`);
-  check('migrate-v3.5.sql termina donde termina schema.sql',
+  check('migrate-v3.5.sql termina donde termina su bloque',
     migLines.length - (mi + cuerpo.length) <= 1,
     `${migLines.length} vs ${mi + cuerpo.length}`);
 }

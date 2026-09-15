@@ -6,7 +6,8 @@
  * Los tests de lib.js no alcanzan: el bug de produccion del deploy 3.6 fue un
  * `claimState` fuera de scope DENTRO de handleAuth (ReferenceError -> 500
  * "Internal server error" en cada login). Solo se caza ejercitando el handler
- * completo contra un REST fake.
+ * completo contra un REST fake. Regla vigente (v3.6): claim vencido sin
+ * firmar -> ciclo a 0 holds y disponible; cooldown 8 h solo post-cobro.
  */
 
 import { test } from 'node:test';
@@ -129,7 +130,7 @@ const postAuth = async (fake) => {
 const user = () => ({ telegram_id: TG_ID, uid: `TK${TG_ID}`, username: 'ana' });
 const wallet = () => ({ user_id: TG_ID, usdt_balance: '1.00', trx_balance: '1.00', ton_balance: '0', keep_balance: '0' });
 
-test('/auth con claim vencido: 200, ciclo en cooldown 8 h y claim forfeited (bug del 3.6)', async () => {
+test('/auth con claim vencido: 200, ciclo a 0 holds y claim forfeited (regla v3.6)', async () => {
   const now = Date.now();
   const fake = fakeSupabase({
     users: [user()],
@@ -152,19 +153,17 @@ test('/auth con claim vencido: 200, ciclo en cooldown 8 h y claim forfeited (bug
   assert.equal(status, 200, 'el ReferenceError de claimState devolvía 500 acá');
   assert.equal(body.ok, true);
   assert.equal(body.pending_claim, null, 'el claim vencido no se ofrece');
-  assert.equal(body.cycle.holds_completed, 3, 'los holds se quedan en 3/3');
+  // v3.6: venció la ventana de 15 min sin firmar → el ciclo vuelve a 0 y el
+  // hold queda disponible de nuevo (el cooldown de 8 h es solo post-cobro).
+  assert.equal(body.cycle.holds_completed, 0);
+  assert.equal(body.cycle.remaining_holds, CONFIG.MAX_HOLDS_PER_CYCLE);
 
   const claimPatch = fake.calls.find((c) => c.table === 'claims');
   assert.equal(claimPatch.body.status, 'expired_unclaimed');
 
   const cyclePatch = fake.calls.find((c) => c.table === 'hold_cycles');
-  assert.equal(cyclePatch.body.status, 'expired');
-  const hours = (new Date(cyclePatch.body.ends_at).getTime() - now) / 3600000;
-  assert.ok(hours > 7.9 && hours <= 8.01, `cooldown debe ser 8 h, dio ${hours}`);
-
-  const endsAt = new Date(body.cycle.ends_at).getTime();
-  assert.ok(endsAt > now + 7.9 * 3600000, 'la respuesta refleja el cooldown');
-  assert.equal(body.cycle.remaining_holds, 0);
+  assert.deepEqual(cyclePatch.body, { holds_completed: 0 },
+    'el ciclo NO se cierra con cooldown; solo vuelve a 0 holds');
 });
 
 test('/auth con claim vivo: lo devuelve y no toca nada', async () => {

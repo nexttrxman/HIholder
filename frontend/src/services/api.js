@@ -204,11 +204,11 @@ const resolveMockPendingClaim = () => {
   if (new Date(MOCK_PENDING_CLAIM.expires_at) >= new Date()) return MOCK_PENDING_CLAIM;
 
   MOCK_PENDING_CLAIM = null;
-  // v3.5: igual que el worker, el claim vencido sin cobro cierra el ciclo con
-  // el cooldown de 8 h; los holds quedan en 3/3 hasta que pase la ventana.
-  MOCK_CYCLE.holds_completed = MAX_HOLDS_PER_CYCLE_MOCK;
-  MOCK_CYCLE.remaining_holds = 0;
-  MOCK_CYCLE.ends_at = new Date(Date.now() + CYCLE_HOURS_MOCK * 60 * 60 * 1000).toISOString();
+  // v3.6: igual que el worker, el claim vencido sin firmar se pierde y los 3
+  // holds con él. El ciclo vuelve a 0 y se puede holdear de nuevo enseguida;
+  // el bloqueo de 8 h rige solo tras un claim cobrado.
+  MOCK_CYCLE.holds_completed = 0;
+  MOCK_CYCLE.remaining_holds = MAX_HOLDS_PER_CYCLE_MOCK;
   return null;
 };
 

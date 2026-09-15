@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Prueba supabase/schema.sql contra un PostgreSQL real (embebido).",
   "scripts": {
-    "test": "node schema.test.mjs && node migration.test.mjs && node withdrawal.test.mjs && node migrate-v3.0.test.mjs && node social-missions.test.mjs && node migrate-v3.2.test.mjs && node keep-rewards.test.mjs && node migrate-v3.3.test.mjs && node migrate-v3.4.test.mjs && node migrate-v3.5.test.mjs && node verify-sql.mjs",
+    "test": "node schema.test.mjs && node migration.test.mjs && node withdrawal.test.mjs && node migrate-v3.0.test.mjs && node social-missions.test.mjs && node migrate-v3.2.test.mjs && node keep-rewards.test.mjs && node migrate-v3.3.test.mjs && node migrate-v3.4.test.mjs && node migrate-v3.5.test.mjs && node migrate-v3.6.test.mjs && node verify-sql.mjs",
     "test:schema": "node schema.test.mjs",
     "test:migration": "node migration.test.mjs",
     "verify:sql": "node verify-sql.mjs",
@@ -14,7 +14,8 @@
     "test:keep": "node migrate-v3.2.test.mjs && node keep-rewards.test.mjs",
     "test:migrate-v33": "node migrate-v3.3.test.mjs",
     "test:migrate-v34": "node migrate-v3.4.test.mjs",
-    "test:migrate-v35": "node migrate-v3.5.test.mjs"
+    "test:migrate-v35": "node migrate-v3.5.test.mjs",
+    "test:migrate-v36": "node migrate-v3.6.test.mjs"
   },
   "devDependencies": {
     "embedded-postgres": "^18.4.0-beta.17",
