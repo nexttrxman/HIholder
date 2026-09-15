@@ -111,8 +111,13 @@ describe('Wallet — layout', () => {
     expect(screen.queryByTestId('withdraw-panels')).not.toBeInTheDocument();
     expect(screen.queryByTestId('withdraw-panel-usdt')).not.toBeInTheDocument();
 
-    // Y la función sigue viva: exactamente un botón Withdraw por activo.
+    // USDT y TRX tienen retiro habilitado; GRAM conserva el botón visible
+    // con estado Soon mientras su rail nativo no está habilitado.
     expect(screen.getAllByRole('button', { name: 'Withdraw' })).toHaveLength(2);
+    const gramWithdraw = screen.getByTestId('withdraw-gram-btn');
+    expect(gramWithdraw).toBeDisabled();
+    expect(gramWithdraw).toHaveTextContent('Soon');
+    expect(screen.getByTestId('send-gram-btn')).toBeInTheDocument();
   });
 
   it('el orden es: total, depósito, tarjetas', () => {

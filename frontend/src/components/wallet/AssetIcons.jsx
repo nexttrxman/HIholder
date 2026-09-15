@@ -54,20 +54,25 @@ export function TrxIcon({ className = 'w-6 h-6', ...props }) {
   );
 }
 
-/** GRAM — nombre visual de TON dentro de la wallet. */
+/**
+ * GRAM — official Gram token mark from TON's media assets:
+ * a white star on the blue diamond (#30A1F5). GRAM is the product name shown
+ * in the wallet; TON remains the technical chain/storage name internally.
+ * Source: https://ton.org/media/
+ */
 export function GramIcon({ className = 'w-6 h-6', ...props }) {
   return (
     <svg
       viewBox="0 0 64 64"
       className={className}
       role="img"
-      aria-label="GRAM"
+      aria-label="GRAM (ex TON)"
       {...props}
     >
-      <circle cx="32" cy="32" r="32" fill="#0098EA" />
+      <path fill="#30A1F5" d="M32 1.5 62.5 32 32 62.5 1.5 32 32 1.5Z" />
       <path
         fill="#fff"
-        d="M18 18h28v7H25v14h14v-4h-7v-6h14v17H18V18Z"
+        d="m32 12 5.7 14.3L52 32l-14.3 5.7L32 52l-5.7-14.3L12 32l14.3-5.7L32 12Z"
       />
     </svg>
   );

@@ -130,6 +130,24 @@ describe('BalanceCard: botón de envío interno', () => {
     );
     expect(screen.getByTestId('withdraw-trx-btn')).toBeTruthy();
   });
+
+  it('GRAM muestra Withdraw en estado Soon y conserva Send pronto', () => {
+    render(
+      <BalanceCard
+        asset="GRAM"
+        amount={0.15}
+        label="GRAM (ex TON)"
+        onWithdraw={() => {}}
+        withdrawDisabled
+        withdrawSoon
+        onSend={() => {}}
+        sendDisabled
+      />,
+    );
+    expect(screen.getByTestId('withdraw-gram-btn')).toBeDisabled();
+    expect(screen.getByTestId('withdraw-gram-btn')).toHaveTextContent('Soon');
+    expect(screen.getByTestId('send-gram-btn')).toHaveAttribute('aria-disabled', 'true');
+  });
 });
 
 // ==========================================================================

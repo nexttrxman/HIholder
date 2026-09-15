@@ -108,6 +108,13 @@ describe('Misiones v3.3 (UI)', () => {
     reward: 0.1, verify: 'progress',
     reward_keep: null, repeat: 'daily', goal: 3, progress_type: 'holds_today', current: 1,
   };
+  const WEEKLY_REFERRAL = {
+    id: 'weekly_referral', platform: 'app', title: 'Social Butterfly',
+    description: 'Invite 5 friends this week.', url: '',
+    reward: 2.5, verify: 'progress',
+    reward_keep: 5000, repeat: 'weekly', goal: 5,
+    progress_type: 'referrals_week', current: 5,
+  };
 
   it('First Deposit muestra descripcion exacta, premio fijo y revision automatica', async () => {
     api.getSocialMissions.mockResolvedValue({ ...MISSIONS, missions: [FIRST_DEPOSIT] });
@@ -121,6 +128,17 @@ describe('Misiones v3.3 (UI)', () => {
     expect(screen.getByTestId('verify-first_deposit').textContent).toContain('Automatic review');
     expect(screen.getByTestId('verify-first_deposit')).toBeDisabled();
     expect(api.verifySocialMission).not.toHaveBeenCalled();
+  });
+
+  it('Social ButterflyWeekly muestra descripcion y premio exactos', async () => {
+    api.getSocialMissions.mockResolvedValue({ ...MISSIONS, missions: [WEEKLY_REFERRAL] });
+    render(<SocialMissions />);
+    await waitFor(() => expect(screen.getByTestId('social-mission-weekly_referral')).toBeTruthy());
+    expect(screen.getByText(WEEKLY_REFERRAL.description)).toBeTruthy();
+    expect(screen.getByTestId('reward-weekly_referral').textContent)
+      .toBe('+$2.50 USDT · +5,000 KEEP');
+    expect(screen.getByTestId('repeat-weekly_referral')).toHaveTextContent('Weekly');
+    expect(screen.getByTestId('progress-weekly_referral')).toHaveTextContent('5/5');
   });
 
   it('mision de progreso: barra 1/3 y boton deshabilitado hasta la meta', async () => {

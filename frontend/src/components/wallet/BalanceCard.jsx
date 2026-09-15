@@ -16,6 +16,11 @@ export function BalanceCard({
   // Apagada de verdad: el botón no hace nada y queda atenuado; la única
   // explicación es el circulito de información al lado de la palabra Send.
   sendDisabled = false,
+  // Some assets have a visible withdrawal action before their withdrawal
+  // rail is enabled. Keep the action in the same place as the other cards,
+  // but make the state explicit instead of opening an unsupported modal.
+  withdrawDisabled = false,
+  withdrawSoon = false,
   showActions = true
 }) {
   const isUSDT = asset === 'USDT';
@@ -79,11 +84,24 @@ export function BalanceCard({
           )}
           {onWithdraw && (
             <button
-              onClick={onWithdraw}
+              type="button"
+              onClick={withdrawDisabled ? undefined : onWithdraw}
+              disabled={withdrawDisabled}
+              aria-disabled={withdrawDisabled || undefined}
+              title={withdrawSoon ? `${asset} withdrawals are coming soon.` : undefined}
               data-testid={`withdraw-${low}-btn`}
-              className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm font-medium text-white/80 hover:bg-white/10 active:scale-95 transition-all"
+              className={`flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm font-medium text-white/80 transition-all ${
+                withdrawDisabled
+                  ? 'opacity-40 cursor-not-allowed'
+                  : 'hover:bg-white/10 active:scale-95'
+              }`}
             >
-              Withdraw
+              <span className="inline-flex items-center justify-center gap-1.5">
+                Withdraw
+                {withdrawSoon && (
+                  <span className="text-[10px] uppercase tracking-wide text-brand-gold/90">Soon</span>
+                )}
+              </span>
             </button>
           )}
           {onSend && (

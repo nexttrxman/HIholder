@@ -208,6 +208,13 @@ export function WalletPage({ onOpenWithdraw, initialSection = 'balance' }) {
                 amount={tonBalance}
                 label="GRAM (ex TON)"
                 icon={<GramIcon className="w-6 h-6" />}
+                // The native withdrawal rail is not enabled yet, but GRAM
+                // keeps the same action layout as the other wallet cards.
+                onWithdraw={() => {}}
+                withdrawDisabled
+                withdrawSoon
+                onSend={handleSend}
+                sendDisabled={!INTERNAL_TRANSFER_ENABLED}
               />
               <BalanceCard
                 asset="TRX"
