@@ -4,6 +4,7 @@ import {
   registerHold,
   getClaim,
   verifyPayment,
+  verifyDeposit as verifyTronDeposit,
   getTransactions,
   getReferralPool,
   getTelegramUser,
@@ -249,6 +250,24 @@ export function WalletProvider({ children }) {
   }, [usdtBalance, refreshData]);
 
   /**
+   * Verify a TRX/USDT deposit by its on-chain transaction hash. The hash is
+   * enough for deposits sent without a MEMO; the Worker verifies the chain and
+   * the RPC makes the credit idempotent.
+   */
+  const verifyDeposit = useCallback(async ({ txHash, asset }) => {
+    try {
+      const result = await verifyTronDeposit({ txHash, asset });
+      if (result.ok) {
+        await refreshData();
+      }
+      return result;
+    } catch (err) {
+      console.error('Verify deposit error:', err);
+      return { ok: false, error: err.message || 'Deposit verification failed' };
+    }
+  }, [refreshData]);
+
+  /**
    * Apply an internal USDT movement (trading) to the cached balance.
    * Also mirrors it into the dev-mode mock so reloads stay consistent.
    */
@@ -431,6 +450,7 @@ export function WalletProvider({ children }) {
 
     // Deposit
     depositInfo,
+    verifyDeposit,
 
     // Actions
     refreshData,

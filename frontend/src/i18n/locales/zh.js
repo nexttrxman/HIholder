@@ -214,4 +214,18 @@ export default {
   'Request review': '申请审核',
   'Share on Telegram': '在 Telegram 上分享',
   'Weekly bonus': '每周奖金',
+  // Verificador de depósitos TRON v3.7
+  'You can include it for the legacy flow, or send without a MEMO and paste the tx hash below.': '你可以在旧流程中填写它，也可以不填写 MEMO，直接在下方粘贴交易哈希。',
+  'Verify a deposit without MEMO': '无 MEMO 验证充值',
+  'Paste the confirmed TRON transaction hash. The Worker checks the chain and credits the exact amount.': '粘贴已确认的 TRON 交易哈希。Worker 会检查链上记录并记入准确金额。',
+  'Paste the TRON transaction hash first.': '请先粘贴 TRON 交易哈希。',
+  'This transaction was already credited to your wallet.': '这笔交易已经记入你的钱包。',
+  'Checking TronGrid…': '正在查询 TronGrid…',
+  'Verify deposit': '验证充值',
+  'Deposit asset': '充值资产',
+  '64-character transaction hash': '64 位交易哈希',
+  'TRON transaction hash': 'TRON 交易哈希',
+  'Deposit verified.': '充值已验证。',
+  'Verify deposit error:': '验证充值时出错：',
+
 };

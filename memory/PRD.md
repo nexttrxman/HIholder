@@ -181,3 +181,27 @@ El archivo `/app/frontend/src/services/api.js` actúa como adapter entre el fron
 - Cambiar endpoints sin tocar componentes
 - Mock data para desarrollo
 - Fallback cuando backend no responde
+
+---
+
+## Handoff — v3.7 (depósitos TRON sin MEMO)
+
+### Estado
+- [x] El Worker expone `POST /verify-deposit`.
+- [x] El usuario autenticado puede enviar el hash de una transferencia TRX o USDT TRC-20 sin MEMO.
+- [x] TronGrid valida destino, contrato, monto y estado confirmado antes de acreditar.
+- [x] `tron_deposits.tx_hash` es único y `credit_tron_deposit()` hace el crédito idempotente.
+- [x] El health del Worker debe responder `"version":"3.9"`.
+- [x] El logo oficial de `$KEEP` se sirve como `/keep-logo.jpg` desde Pages.
+
+### Operación del verificador
+- La Mini App manda `initData`, `tx_hash` y `asset` (`TRX` o `USDT`). El `user_id` no viene del cliente: sale del `initData` firmado por Telegram.
+- Para USDT se consulta el contrato TRC-20 oficial `TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t`; para TRX se valida el `TransferContract` nativo.
+- Un hash ya acreditado es seguro de reintentar para el mismo usuario; otro usuario recibe `deposit_already_claimed`.
+- El `MEMO` queda opcional para este flujo. La prueba de pago es el hash de transacción confirmado.
+
+### Deploy pendiente
+1. Ejecutar `supabase/migrate-v3.7.sql` en el SQL Editor de Supabase.
+2. Verificar que `POST /health` responda con `"version":"3.9"` después del deploy del Worker.
+3. Configurar opcionalmente el secret `TRONGRID_API_KEY` para mayores límites de TronGrid.
+4. Confirmar que `frontend/public/keep-logo.jpg` esté incluido en el build y redeployar Cloudflare Pages.

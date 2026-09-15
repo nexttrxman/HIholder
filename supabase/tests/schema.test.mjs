@@ -502,9 +502,9 @@ async function seedUser(balance = 0) {
     SELECT relname FROM pg_class
     WHERE relname IN ('users','hold_cycles','holds','claims','claim_payments',
                       'internal_wallets','wallet_ledger','referral_pool','referrals',
-                      'transactions','trade_positions','checkins')
+                      'transactions','trade_positions','checkins','tron_deposits')
       AND relrowsecurity = false`)).rows;
-  eq('RLS: habilitado en las 12 tablas', rlsOff.length, 0);
+  eq('RLS: habilitado en las 13 tablas', rlsOff.length, 0);
 
   // Ninguna función sensible puede ser ejecutada por PUBLIC
   const perms = (await q(`
@@ -513,8 +513,8 @@ async function seedUser(balance = 0) {
     FROM pg_proc p
     WHERE p.proname IN ('credit_claim','open_trade','close_trade',
                         'set_trade_levels','daily_checkin','expire_claims_and_cycles',
-                        'register_referral','confirm_pending_referral')`)).rows;
-  eq('RPC: las 8 funciones sensibles existen', perms.length, 8);
+                        'register_referral','confirm_pending_referral','credit_tron_deposit')`)).rows;
+  eq('RPC: las 9 funciones sensibles existen', perms.length, 9);
   eq('RPC: ninguna queda ejecutable por PUBLIC', perms.filter((r) => r.pub).length, 0);
   eq('RPC: ninguna es SECURITY DEFINER', perms.filter((r) => r.prosecdef).length, 0);
 

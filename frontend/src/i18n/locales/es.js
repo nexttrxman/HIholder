@@ -220,4 +220,18 @@ export default {
   'Request review': 'Solicitar revisión',
   'Share on Telegram': 'Compartir en Telegram',
   'Weekly bonus': 'Bono semanal',
+  // Verificador de depósitos TRON v3.7
+  'You can include it for the legacy flow, or send without a MEMO and paste the tx hash below.': 'Podés incluirlo en el flujo anterior, o enviar sin MEMO y pegar abajo el hash de la transacción.',
+  'Verify a deposit without MEMO': 'Verificar un depósito sin MEMO',
+  'Paste the confirmed TRON transaction hash. The Worker checks the chain and credits the exact amount.': 'Pegá el hash confirmado de la transacción TRON. El Worker verifica la cadena y acredita el monto exacto.',
+  'Paste the TRON transaction hash first.': 'Pegá primero el hash de la transacción TRON.',
+  'This transaction was already credited to your wallet.': 'Esta transacción ya fue acreditada en tu billetera.',
+  'Checking TronGrid…': 'Consultando TronGrid…',
+  'Verify deposit': 'Verificar depósito',
+  'Deposit asset': 'Activo del depósito',
+  '64-character transaction hash': 'Hash de transacción de 64 caracteres',
+  'TRON transaction hash': 'Hash de transacción TRON',
+  'Deposit verified.': 'Depósito verificado.',
+  'Verify deposit error:': 'Error al verificar el depósito:',
+
 };

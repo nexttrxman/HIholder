@@ -23,6 +23,7 @@ const FULL_ENV = {
   SUPA_URL: 'https://abc.supabase.co',
   SUPA_SERVICE_KEY: 'eyJ-service-key',
   TON_API_KEY: 'toncenter-key',
+  TRONGRID_API_KEY: 'trongrid-key',
   ADMIN_TOKEN: 'admin-secret',
 };
 
@@ -37,12 +38,13 @@ test('GET /health reporta la versión y las variables presentes', async () => {
 
   assert.equal(body.ok, true);
   assert.equal(body.service, 'TronKeeper API');
-  assert.equal(body.version, '3.8');
+  assert.equal(body.version, '3.9');
   assert.deepEqual(body.env, {
     BOT_TOKEN: true,
     SUPA_URL: true,
     SUPA_SERVICE_KEY: true,
     TON_API_KEY: true,
+    TRONGRID_API_KEY: true,
     ADMIN_TOKEN: true,
   });
 });
@@ -55,6 +57,7 @@ test('GET /health marca en false lo que falta, sin romper', async () => {
     SUPA_URL: false,
     SUPA_SERVICE_KEY: false,
     TON_API_KEY: false,
+    TRONGRID_API_KEY: false,
     ADMIN_TOKEN: false,
   });
 });
@@ -68,6 +71,7 @@ test('GET /health con env vacío sigue respondiendo 200 y todo en false', async 
     SUPA_URL: false,
     SUPA_SERVICE_KEY: false,
     TON_API_KEY: false,
+    TRONGRID_API_KEY: false,
     ADMIN_TOKEN: false,
   });
 });
@@ -86,7 +90,7 @@ test('GET /health no filtra el valor de ningún secreto', async () => {
 test('GET / es un alias de /health', async () => {
   const res = await worker.fetch(new Request('https://api.example/'), FULL_ENV);
   const body = await res.json();
-  assert.equal(body.version, '3.8');
+  assert.equal(body.version, '3.9');
   assert.equal(body.env.BOT_TOKEN, true);
 });
 
@@ -125,6 +129,7 @@ test('GET /health no lista los nombres de las variables del runtime', async () =
     SUPA_URL: true,
     SUPA_SERVICE_KEY: true,
     TON_API_KEY: true,
+    TRONGRID_API_KEY: true,
     ADMIN_TOKEN: true,
   });
 

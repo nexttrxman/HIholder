@@ -214,4 +214,18 @@ export default {
   'Request review': 'درخواست بررسی',
   'Share on Telegram': 'اشتراک‌گذاری در تلگرام',
   'Weekly bonus': 'پاداش هفتگی',
+  // Verificador de depósitos TRON v3.7
+  'You can include it for the legacy flow, or send without a MEMO and paste the tx hash below.': 'می‌توانید آن را در روند قبلی وارد کنید، یا بدون MEMO ارسال کرده و هش تراکنش را پایین وارد کنید.',
+  'Verify a deposit without MEMO': 'تأیید واریز بدون MEMO',
+  'Paste the confirmed TRON transaction hash. The Worker checks the chain and credits the exact amount.': 'هش تأییدشده تراکنش TRON را وارد کنید. Worker شبکه را بررسی و مقدار دقیق را واریز می‌کند.',
+  'Paste the TRON transaction hash first.': 'ابتدا هش تراکنش TRON را وارد کنید.',
+  'This transaction was already credited to your wallet.': 'این تراکنش قبلاً به کیف پول شما واریز شده است.',
+  'Checking TronGrid…': 'در حال بررسی TronGrid…',
+  'Verify deposit': 'تأیید واریز',
+  'Deposit asset': 'دارایی واریز',
+  '64-character transaction hash': 'هش تراکنش ۶۴ کاراکتری',
+  'TRON transaction hash': 'هش تراکنش TRON',
+  'Deposit verified.': 'واریز تأیید شد.',
+  'Verify deposit error:': 'خطا در تأیید واریز:',
+
 };

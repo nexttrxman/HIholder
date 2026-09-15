@@ -44,6 +44,9 @@ import {
   isoWeekKey,
   safeEqualStrings,
   rollHoldPrize,
+  TRON_CONFIG,
+  isValidTronTxHash,
+  parseTronDeposit,
 } from './lib.js';
 
 // ============================================
@@ -556,6 +559,150 @@ async function handleVerifyPayment(request, env) {
     });
   }
   return jsonResponse({ ok: false, error: result.error || 'Credit failed' }, 400);
+}
+
+// ============================================
+// TRON DEPOSITS — verify by tx hash, no MEMO required (v3.7)
+// ============================================
+// A user can send TRX/TRC-20 USDT without a MEMO and paste the resulting tx
+// hash here. The authenticated Telegram user is the account that receives the
+// credit; the chain is still authoritative for destination, token and amount.
+// `tron_deposits.tx_hash` makes the operation idempotent and prevents one
+// on-chain transfer from being credited twice.
+async function fetchTronGridJson(url, env) {
+  const headers = { Accept: 'application/json' };
+  if (env.TRONGRID_API_KEY) headers['TRON-PRO-API-KEY'] = env.TRONGRID_API_KEY;
+
+  const response = await fetch(url, { headers });
+  if (!response.ok) throw new Error(`TronGrid HTTP ${response.status}`);
+  const body = await response.json();
+  if (body?.success === false) throw new Error('TronGrid rejected the request');
+  return body;
+}
+
+function tronGridRows(body) {
+  if (Array.isArray(body?.data)) return body.data;
+  if (body?.data && typeof body.data === 'object') return [body.data];
+  return body && typeof body === 'object' ? [body] : [];
+}
+
+async function findTronDeposit(txHash, asset, env) {
+  if (asset === 'TRX') {
+    const params = new URLSearchParams({ only_confirmed: 'true' });
+    const body = await fetchTronGridJson(
+      `${TRON_CONFIG.TRONGRID_BASE_URL}/v1/transactions/${encodeURIComponent(txHash)}?${params}`,
+      env,
+    );
+    const transaction = tronGridRows(body).find((row) =>
+      String(row?.txID || row?.txid || '').toLowerCase() === txHash.toLowerCase()
+    ) || tronGridRows(body)[0];
+    return parseTronDeposit({
+      asset,
+      txHash,
+      treasury: TRON_CONFIG.DEPOSIT_ADDRESS,
+      transaction,
+    });
+  }
+
+  // TronGrid exposes TRC-20 transfers through the destination account. The
+  // endpoint is deliberately filtered to the USDT contract and `only_to`, so
+  // a transfer of another token or an outgoing treasury transfer cannot match.
+  const params = new URLSearchParams({
+    only_to: 'true',
+    only_confirmed: 'true',
+    limit: '200',
+    order_by: 'block_timestamp,desc',
+    contract_address: TRON_CONFIG.USDT_CONTRACT,
+  });
+  const body = await fetchTronGridJson(
+    `${TRON_CONFIG.TRONGRID_BASE_URL}/v1/accounts/${encodeURIComponent(TRON_CONFIG.DEPOSIT_ADDRESS)}/transactions/trc20?${params}`,
+    env,
+  );
+  const transfer = tronGridRows(body).find((row) =>
+    String(row?.transaction_id || row?.txID || row?.txid || '').toLowerCase() === txHash.toLowerCase()
+  );
+  if (!transfer) return null;
+
+  // The TRC-20 row contains the confirmed block timestamp and token contract;
+  // parseTronDeposit performs the destination, contract and positive amount
+  // checks. There is no MEMO check by design.
+  return parseTronDeposit({
+    asset,
+    txHash,
+    treasury: TRON_CONFIG.DEPOSIT_ADDRESS,
+    transfer,
+    transaction: transfer,
+  });
+}
+
+async function handleVerifyDeposit(request, env) {
+  const body = await request.json();
+  const { initData } = body;
+  const telegramUser = await validateInitDataAny(initData, env.BOT_TOKEN);
+  if (!telegramUser) {
+    return jsonResponse({ ok: false, error: 'Invalid initData' }, 401);
+  }
+
+  // Accept the common spellings so the endpoint is easy to integrate from a
+  // wallet UI, but persist one canonical tx_hash in the database.
+  const txHash = String(body.tx_hash || body.tx_id || body.txid || '').trim();
+  const asset = String(body.asset || 'USDT').trim().toUpperCase();
+  if (!isValidTronTxHash(txHash)) {
+    return jsonResponse({ ok: false, error: 'A valid 64-character TRON transaction hash is required' }, 400);
+  }
+  if (asset !== 'TRX' && asset !== 'USDT') {
+    return jsonResponse({ ok: false, error: 'Asset must be TRX or USDT' }, 400);
+  }
+
+  let deposit;
+  try {
+    deposit = await findTronDeposit(txHash, asset, env);
+  } catch (error) {
+    // A rate limit, an optional API key that is not configured, or a temporary
+    // TronGrid outage is retryable; it must never create a local credit.
+    console.error('TRON deposit verify error:', error);
+    return jsonResponse({
+      ok: false,
+      pending: true,
+      error: 'TRON verification is temporarily unavailable. Retry in a few seconds.',
+    }, 202);
+  }
+
+  if (!deposit || !deposit.from_address) {
+    return jsonResponse({
+      ok: false,
+      pending: true,
+      error: 'Deposit not found yet. Check the transaction hash and retry after confirmation.',
+    }, 202);
+  }
+
+  const db = supabase(env);
+  const result = await db.rpc('credit_tron_deposit', {
+    p_user_id: telegramUser.id.toString(),
+    p_tx_hash: deposit.tx_hash,
+    p_asset: deposit.asset,
+    p_amount: deposit.amount,
+    p_from_address: deposit.from_address,
+    p_to_address: deposit.to_address,
+    p_block_timestamp: deposit.block_timestamp
+      ? new Date(deposit.block_timestamp).toISOString()
+      : null,
+    p_block_number: deposit.block_number == null ? null : Number(deposit.block_number),
+  });
+
+  if (!result || result.ok !== true) {
+    const status = result?.error === 'deposit_already_claimed' ? 409 : 400;
+    return jsonResponse(result || { ok: false, error: 'Deposit credit failed' }, status);
+  }
+
+  return jsonResponse({
+    ok: true,
+    asset: deposit.asset,
+    amount: Number(deposit.amount),
+    tx_hash: deposit.tx_hash,
+    new_balance: Number(result.new_balance),
+    already_credited: Boolean(result.already_credited),
+  });
 }
 
 // ============================================
@@ -1364,6 +1511,7 @@ export default {
           case '/claim':
           case '/get-claim':      return await handleGetClaim(request, env);
           case '/verify-payment': return await handleVerifyPayment(request, env);
+          case '/verify-deposit':  return await handleVerifyDeposit(request, env);
           case '/transactions':   return await handleTransactions(request, env);
           case '/referrals':      return await handleReferrals(request, env);
           case '/trade':          return await handleTrade(request, env);
@@ -1403,13 +1551,15 @@ export default {
           // misiones reales (progress/manual) y cola admin. Sirve para
           // verificar EN VIVO que el Worker corre el codigo nuevo: si /health
           // devuelve una version menor, el deploy no se hizo.
-          version: '3.8',
+          version: '3.9',
           treasury: CONFIG.TREASURY_WALLET,
+          deposit_address: TRON_CONFIG.DEPOSIT_ADDRESS,
           env: {
             BOT_TOKEN: Boolean(env.BOT_TOKEN),
             SUPA_URL: Boolean(env.SUPA_URL),
             SUPA_SERVICE_KEY: Boolean(env.SUPA_SERVICE_KEY),
             TON_API_KEY: Boolean(env.TON_API_KEY),
+            TRONGRID_API_KEY: Boolean(env.TRONGRID_API_KEY),
             ADMIN_TOKEN: Boolean(env.ADMIN_TOKEN),
           },
           // Acá iba `envKeys: Object.keys(env)`, que listaba los nombres de

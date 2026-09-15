@@ -214,4 +214,18 @@ export default {
   'Request review': 'Запросить проверку',
   'Share on Telegram': 'Поделиться в Telegram',
   'Weekly bonus': 'Недельный бонус',
+  // Verificador de depósitos TRON v3.7
+  'You can include it for the legacy flow, or send without a MEMO and paste the tx hash below.': 'Вы можете указать его в старом процессе или отправить без MEMO и вставить хеш транзакции ниже.',
+  'Verify a deposit without MEMO': 'Проверить депозит без MEMO',
+  'Paste the confirmed TRON transaction hash. The Worker checks the chain and credits the exact amount.': 'Вставьте подтверждённый хеш транзакции TRON. Worker проверит сеть и зачислит точную сумму.',
+  'Paste the TRON transaction hash first.': 'Сначала вставьте хеш транзакции TRON.',
+  'This transaction was already credited to your wallet.': 'Эта транзакция уже зачислена на ваш кошелёк.',
+  'Checking TronGrid…': 'Проверяем TronGrid…',
+  'Verify deposit': 'Проверить депозит',
+  'Deposit asset': 'Актив депозита',
+  '64-character transaction hash': 'Хеш транзакции из 64 символов',
+  'TRON transaction hash': 'Хеш транзакции TRON',
+  'Deposit verified.': 'Депозит подтверждён.',
+  'Verify deposit error:': 'Ошибка проверки депозита:',
+
 };

@@ -22,7 +22,7 @@ WITH esperado(tabla) AS (
          ('referrals'),('referral_pool'),('trade_positions'),
          ('withdrawal_requests'),('withdrawal_config'),
          ('social_missions'),('user_social_missions'),
-         ('managed_prices'),('managed_price_ticks')
+         ('managed_prices'),('managed_price_ticks'),('tron_deposits')
 ),
 tablas AS (
   SELECT e.tabla,
@@ -49,7 +49,8 @@ esperado_fn(nombre, firma) AS (
     ('complete_social_mission','p_user_id text, p_mission_id text'),
     ('buy_keep',               'p_user_id text, p_amount numeric, p_price numeric'),
     ('managed_price_tick',     'p_pair text'),
-    ('managed_price_candles',  'p_pair text, p_bucket_seconds integer, p_limit integer')
+    ('managed_price_candles',  'p_pair text, p_bucket_seconds integer, p_limit integer'),
+    ('credit_tron_deposit',    'p_user_id text, p_tx_hash text, p_asset text, p_amount numeric, p_from_address text, p_to_address text, p_block_timestamp timestamp with time zone, p_block_number bigint')
 ),
 funciones AS (
   SELECT e.nombre,
@@ -74,7 +75,7 @@ permisos AS (
                       'open_trade','close_trade','set_trade_levels',
                       'request_withdrawal','resolve_withdrawal','withdrawal_settings',
                       'complete_social_mission','buy_keep','managed_price_tick',
-                      'managed_price_candles')
+                      'managed_price_candles','credit_tron_deposit')
     AND (
       has_function_privilege('public'::name, p.oid, 'EXECUTE')
       OR EXISTS (

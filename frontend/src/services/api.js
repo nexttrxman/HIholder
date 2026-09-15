@@ -547,6 +547,27 @@ export const requestWithdraw = async ({ asset, amount, toAddress }) => {
 };
 
 // ============================================
+// TRON DEPOSITS (v3.7) — no MEMO required
+// ============================================
+// The Worker verifies the transaction against TronGrid. The frontend only
+// sends the hash and selected asset; it never sends an amount to credit.
+export const verifyDeposit = async ({ txHash, asset = 'USDT' }) => {
+  const result = await apiCall('/verify-deposit', {
+    tx_hash: String(txHash || '').trim(),
+    asset: String(asset || 'USDT').toUpperCase(),
+  });
+  if (result) return result;
+
+  // There is no safe local simulation for a chain deposit: a browser preview
+  // must not invent balance. Open the Mini App in Telegram with a deployed
+  // Worker to verify the real transaction.
+  return {
+    ok: false,
+    error: 'Deposit verification is available in the Telegram Mini App after the Worker is deployed.',
+  };
+};
+
+// ============================================
 // TRADE - simulated spot trading
 // ============================================
 // Returns `null` in dev mode so the caller can execute the order locally.
@@ -891,6 +912,7 @@ export default {
   registerHold,
   getClaim,
   verifyPayment,
+  verifyDeposit,
   describeApiError,
   placeTrade,
   sellWalletAsset,

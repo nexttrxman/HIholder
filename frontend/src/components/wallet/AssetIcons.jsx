@@ -54,22 +54,17 @@ export function TrxIcon({ className = 'w-6 h-6', ...props }) {
   );
 }
 
-/** $KEEP — token propio del proyecto: disco dorado con la K de Keeper. */
+/** $KEEP — token propio del proyecto. El asset oficial vive en Pages /keep-logo.jpg. */
 export function KeepIcon({ className = 'w-6 h-6', ...props }) {
   return (
-    <svg
-      viewBox="0 0 64 64"
-      className={className}
+    <img
+      src="/keep-logo.jpg"
+      className={`${className} rounded-full object-cover`}
       role="img"
       aria-label="KEEP"
+      alt="KEEP"
       {...props}
-    >
-      <circle cx="32" cy="32" r="32" fill="#E8B33A" />
-      <path
-        fill="#1A1408"
-        d="M22 14h7.2v14.2L41.4 14H50L36.6 29.6 51 50h-8.7L30.9 33.4 29.2 35.3V50H22V14Z"
-      />
-    </svg>
+    />
   );
 }
 
