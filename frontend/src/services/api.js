@@ -72,7 +72,6 @@ export const buildReferralLink = (uid, { botUrl = TELEGRAM_BOT_URL, appName = TE
     ? `${base}/${encodeURIComponent(appName)}?startapp=${param}`
     : `${base}?start=${param}`;
 };
-const DEPOSIT_ADDRESS = import.meta.env.VITE_DEPOSIT_ADDRESS || 'TNjqVzo47ndAvH241njkMLKbda3G6FPgVs';
 const TREASURY_WALLET = 'UQCydneDGeAcamdCFS6e13Z2xoxwA5DsLkFONRdp-cavw-Th';
 
 import {
@@ -157,6 +156,7 @@ export const applyLocalBalanceDelta = (delta) => {
 
 const MOCK_USER = {
   uid: 'TK_DEV_12345',
+  deposit_code: 'DEP:DEMO01',
   usdt_balance: readMockBalance(),
   trx_balance: 5.00,
   ton_balance: 0,
@@ -691,16 +691,19 @@ export const getReferralPool = async () => {
 // CONSTANTS
 // ============================================
 export const DEPOSIT_INFO = {
-  network: 'TRON (TRC-20)',
-  address: DEPOSIT_ADDRESS,
-  // v3.3: minimo exhibido en la pantalla de deposito (el acreditado es manual).
-  minimum: '5 TRX or 1 USDT',
+  // GRAM is the product name for the native TON balance. API/table names stay
+  // TON because the chain and existing records use that technical name.
+  network: 'GRAM (ex TON)',
+  address: TREASURY_WALLET,
+  minimum: '0.1 GRAM',
+  comment_prefix: 'DEP:',
 };
 
 export const TON_CONFIG = {
   treasury_wallet: TREASURY_WALLET,
   fee: 0.15,
   claim_expiry_minutes: 15,
+  deposit_minimum: 0.1,
 };
 
 // ============================================
@@ -885,6 +888,11 @@ export const adminResolveWithdrawal = (token, requestId, status, txId = null, no
   adminCall('/admin/withdrawals/resolve', token, {
     request_id: requestId, status, tx_id: txId, note,
   });
+export const adminListDeposits = (token) => adminCall('/admin/deposits/list', token);
+export const adminResolveDeposit = (token, depositId, status, { userId = null, code = null, note = null } = {}) =>
+  adminCall('/admin/deposits/resolve', token, {
+    deposit_id: depositId, status, user_id: userId, code, note,
+  });
 
 export default {
   authUser,
@@ -915,4 +923,6 @@ export default {
   SHARE_STORY_IMAGE,
   DEPOSIT_INFO,
   TON_CONFIG,
+  adminListDeposits,
+  adminResolveDeposit,
 };

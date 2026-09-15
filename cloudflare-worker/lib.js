@@ -11,6 +11,8 @@ export const CONFIG = {
   CYCLE_DURATION_HOURS: 8,
   MAX_HOLDS_PER_CYCLE: 3,
   TON_FEE: 0.15, // TON per claim
+  TON_DEPOSIT_MIN: 0.1,
+  TON_DEPOSIT_MIN_NANO: 100_000_000,
   // TRX de bienvenida: todo usuario arranca con esto. Sirve además para que
   // un retiro no sea imposible el primer día (ver WITHDRAWAL_FEE_TRX).
   SIGNUP_TRX_BONUS: 1,
@@ -64,6 +66,26 @@ export function generateClaimId() {
   const timestamp = Date.now().toString(36);
   const random = Math.random().toString(36).substring(2, 8);
   return `CLM_${timestamp}_${random}`.toUpperCase();
+}
+
+// ============================================
+// TON DEPOSIT CODE
+// ============================================
+const DEPOSIT_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+export function isValidDepositCode(value) {
+  return typeof value === 'string' && /^DEP:[A-Z0-9]{6}$/.test(value.trim());
+}
+
+/** Generate the six-character code assigned once during Telegram signup. */
+export function generateDepositCode() {
+  const bytes = new Uint8Array(6);
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  return `DEP:${Array.from(bytes, (byte) => DEPOSIT_CODE_ALPHABET[byte % DEPOSIT_CODE_ALPHABET.length]).join('')}`;
 }
 
 // ============================================
@@ -402,12 +424,14 @@ export async function fetchTreasuryTransactions({
     limit: String(limit),
     archival: 'true',
   });
-  if (tonApiKey) params.set('api_key', tonApiKey);
 
   const url = `${CONFIG.TONCENTER_BASE}/getTransactions?${params.toString()}`;
-  const res = await fetchImpl(url, {
-    headers: { 'Accept': 'application/json' },
-  });
+  const headers = { 'Accept': 'application/json' };
+  // TonCenter v2 authenticates with X-API-Key. Sending the key as an
+  // api_key query parameter is not part of the current API contract and can
+  // leave the cron on the unauthenticated/rate-limited endpoint.
+  if (tonApiKey) headers['X-API-Key'] = tonApiKey;
+  const res = await fetchImpl(url, { headers });
 
   if (!res.ok) {
     throw new Error(`TonCenter HTTP ${res.status}`);

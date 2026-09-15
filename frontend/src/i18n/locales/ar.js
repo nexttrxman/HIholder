@@ -168,8 +168,6 @@ export default {
   'Confirm close': 'تأكيد الإغلاق',
   'The position closes automatically when the price reaches either level. Prices are checked every few seconds, so a fast move can fill slightly past the level.': 'تُغلق الصفقة تلقائيًا عند بلوغ السعر أيًا من المستويين. يتم فحص الأسعار كل بضع ثوانٍ، لذا قد ينفذ الأمر قليلاً بعد المستوى عند الحركة السريعة.',
   'Trading involves risk — you may lose your funds. Trade carefully.': 'التداول ينطوي على مخاطر وقد تخسر أموالك. تداول بحذر.',
-  'Without the MEMO, your deposit cannot be credited to your account.': 'بدون MEMO، لا يمكن إضافة إيداعك إلى حسابك.',
-  'Only send TRX or USDT (TRC-20) to this address. Include your MEMO to identify your deposit.': 'أرسل فقط TRX أو USDT (TRC-20) إلى هذا العنوان. أرفق MEMO الخاص بك لتحديد إيداعك.',
   'Important': 'مهم',
   'Note:': 'ملاحظة:',
   'Confirm Withdrawal': 'تأكيد السحب',
@@ -211,7 +209,26 @@ export default {
   'Internal transfers are coming soon.': 'التحويلات الداخلية قادمة قريبًا.',
   'Under review': 'قيد المراجعة',
   'Earn USDT + KEEP': 'اكسب USDT + KEEP',
+  'Automatic review': 'مراجعة تلقائية',
   'Request review': 'طلب مراجعة',
   'Share on Telegram': 'شارك على تيليجرام',
   'Weekly bonus': 'مكافأة الأسبوع',
+
+  // Depósitos TON por código MEMO
+  'Only send GRAM (ex TON) to this address. Sending another asset or network can permanently lose your funds.': 'أرسل TON فقط إلى هذا العنوان. قد يؤدي إرسال أصل آخر أو استخدام شبكة أخرى إلى فقدان أموالك نهائيًا.',
+  'GRAM (ex TON) Treasury Address': 'عنوان خزينة TON',
+  'Your deposit code': 'رمز إيداعك',
+  'Send at least': 'أرسل ما لا يقل عن',
+  'and enter this exact comment:': 'وأدخل هذا التعليق حرفيًا:',
+  'The automatic scanner checks the GRAM (ex TON) treasury every two minutes. Deposits with a different comment are held for admin review.': 'يفحص الماسح التلقائي خزينة TON كل دقيقتين. تُحتجز الإيداعات ذات التعليق المختلف لمراجعة المسؤول.',
+
+  // Cola de depósitos TON para el administrador
+  'No pending deposits': 'لا توجد إيداعات معلقة',
+  'Chain evidence': 'دليل السلسلة',
+  'Credit deposit': 'إضافة الإيداع',
+  'Reject deposit': 'رفض الإيداع',
+  'Deposit code for this user:': 'رمز إيداع هذا المستخدم:',
+
+  'Rejected deposit': 'تم رفض الإيداع',
+
 };

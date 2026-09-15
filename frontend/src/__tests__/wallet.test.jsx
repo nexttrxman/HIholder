@@ -81,10 +81,14 @@ describe('Wallet — layout', () => {
     expect(screen.getByTestId('deposit-info')).toBeInTheDocument();
   });
 
-  it('ya no exhibe el minimo de deposito en el panel (vive en la mision)', () => {
+  it('muestra la treasury GRAM (ex TON) y el código individual copiable', async () => {
     renderWallet();
-    expect(screen.getByTestId('deposit-info')).toBeInTheDocument();
-    expect(screen.queryByTestId('deposit-minimum')).not.toBeInTheDocument();
+    expect(await screen.findByTestId('deposit-code')).toBeInTheDocument();
+    expect(screen.getByTestId('deposit-address')).toHaveTextContent(
+      'UQCydneDGeAcamdCFS6e13Z2xoxwA5DsLkFONRdp-cavw-Th'
+    );
+    expect(screen.getByTestId('deposit-memo')).toHaveTextContent('DEP:DEMO01');
+    expect(screen.getByTestId('deposit-info')).toHaveTextContent('exact comment');
   });
 
   it('el toggle cierra y abre el panel de depósito', async () => {
@@ -99,6 +103,7 @@ describe('Wallet — layout', () => {
   it('tiene una sola tarjeta por activo — sin una segunda versión duplicada', () => {
     renderWallet();
     expect(screen.getByTestId('balance-card-usdt')).toBeInTheDocument();
+    expect(screen.getByTestId('balance-card-gram')).toBeInTheDocument();
     expect(screen.getByTestId('balance-card-trx')).toBeInTheDocument();
 
     // Los paneles de withdrawal del pie repetían las mismas tarjetas en otro
@@ -106,8 +111,13 @@ describe('Wallet — layout', () => {
     expect(screen.queryByTestId('withdraw-panels')).not.toBeInTheDocument();
     expect(screen.queryByTestId('withdraw-panel-usdt')).not.toBeInTheDocument();
 
-    // Y la función sigue viva: exactamente un botón Withdraw por activo.
+    // USDT y TRX tienen retiro habilitado; GRAM conserva el botón visible
+    // con estado Soon mientras su rail nativo no está habilitado.
     expect(screen.getAllByRole('button', { name: 'Withdraw' })).toHaveLength(2);
+    const gramWithdraw = screen.getByTestId('withdraw-gram-btn');
+    expect(gramWithdraw).toBeDisabled();
+    expect(gramWithdraw).toHaveTextContent('Soon');
+    expect(screen.getByTestId('send-gram-btn')).toBeInTheDocument();
   });
 
   it('el orden es: total, depósito, tarjetas', () => {

@@ -168,8 +168,6 @@ export default {
   'Confirm close': 'Confirmar fechamento',
   'The position closes automatically when the price reaches either level. Prices are checked every few seconds, so a fast move can fill slightly past the level.': 'A posição fecha automaticamente quando o preço atinge qualquer um dos níveis. Os preços são verificados a cada poucos segundos, então um movimento rápido pode executar um pouco além do nível.',
   'Trading involves risk — you may lose your funds. Trade carefully.': 'Negociar envolve risco: você pode perder seus fundos. Negocie com cuidado.',
-  'Without the MEMO, your deposit cannot be credited to your account.': 'Sem o MEMO, seu depósito não pode ser creditado na sua conta.',
-  'Only send TRX or USDT (TRC-20) to this address. Include your MEMO to identify your deposit.': 'Envie apenas TRX ou USDT (TRC-20) para este endereço. Inclua seu MEMO para identificar seu depósito.',
   'Important': 'Importante',
   'Note:': 'Nota:',
   'Confirm Withdrawal': 'Confirmar saque',
@@ -211,7 +209,26 @@ export default {
   'Internal transfers are coming soon.': 'As transferências internas chegam em breve.',
   'Under review': 'Em análise',
   'Earn USDT + KEEP': 'Ganhe USDT + KEEP',
+  'Automatic review': 'Revisão automática',
   'Request review': 'Solicitar análise',
   'Share on Telegram': 'Compartilhar no Telegram',
   'Weekly bonus': 'Bônus semanal',
+
+  // Depósitos TON por código MEMO
+  'Only send GRAM (ex TON) to this address. Sending another asset or network can permanently lose your funds.': 'Envie apenas GRAM (ex TON) para este endereço. Enviar outro ativo ou rede pode causar a perda permanente dos seus fundos.',
+  'GRAM (ex TON) Treasury Address': 'Endereço da tesouraria GRAM (ex TON)',
+  'Your deposit code': 'Seu código de depósito',
+  'Send at least': 'Envie pelo menos',
+  'and enter this exact comment:': 'e informe exatamente este comentário:',
+  'The automatic scanner checks the GRAM (ex TON) treasury every two minutes. Deposits with a different comment are held for admin review.': 'O scanner automático verifica a tesouraria GRAM (ex TON) a cada dois minutos. Depósitos com outro comentário ficam aguardando análise administrativa.',
+
+  // Cola de depósitos TON para el administrador
+  'No pending deposits': 'Nenhum depósito pendente',
+  'Chain evidence': 'Evidência da rede',
+  'Credit deposit': 'Creditar depósito',
+  'Reject deposit': 'Rejeitar depósito',
+  'Deposit code for this user:': 'Código de depósito deste usuário:',
+
+  'Rejected deposit': 'Depósito rejeitado',
+
 };

@@ -90,8 +90,8 @@ TronKeeper es una crypto wallet / mini app para Telegram enfocada en engagement 
 ### Wallet Page
 - [x] Total balance hero
 - [x] Balance cards por asset (USDT, TRX)
-- [x] Deposit info con address + MEMO copiables
-- [x] Warning de red TRC-20
+- [x] Deposit info con treasury TON + código MEMO individual copiables
+- [x] Warning de red TON y comentario exacto
 - [x] Toggle para mostrar/ocultar deposit info
 
 ### Withdraw Flow (UI Ready - Backend Pending)
@@ -166,9 +166,9 @@ TronKeeper es una crypto wallet / mini app para Telegram enfocada en engagement 
 ## Technical Notes
 
 ### Deposit Flow
-- Address: `TNjqVzo47ndAvH241njkMLKbda3G6FPgVs` (central wallet)
-- MEMO: User's UID (único por usuario)
-- Network: TRON TRC-20 only
+- Address: `UQCydneDGeAcamdCFS6e13Z2xoxwA5DsLkFONRdp-cavw-Th` (`CONFIG.TREASURY_WALLET`)
+- MEMO: código individual `DEP:` + seis caracteres, asignado durante signup
+- Network: TON only; el comentario debe coincidir exactamente
 
 ### Hold to Earn Mechanics
 - Duration: 3 seconds
@@ -181,3 +181,13 @@ El archivo `/app/frontend/src/services/api.js` actúa como adapter entre el fron
 - Cambiar endpoints sin tocar componentes
 - Mock data para desarrollo
 - Fallback cuando backend no responde
+
+---
+
+## Handoff — v3.7 (depósitos TON por código MEMO)
+
+- El flujo de depósitos es exclusivamente TON: no hay verificador manual ni depósitos TRX/USDT-TRC20.
+- Signup asigna un código único `DEP:` + seis caracteres, que se muestra junto a la treasury TON.
+- El cron del Worker consulta TonCenter cada dos minutos, ignora `CLAIM:` y acredita los comentarios exactos mediante `credit_ton_deposit`.
+- `ton_deposit_txs` usa el hash como PK; `unmatched_deposits` conserva evidencia para la cola administrativa.
+- La acreditación TON es atómica y autoaprueba First Deposit. El health conserva `version: "3.9"` y el logo `$KEEP` se mantiene.

@@ -127,19 +127,14 @@ check('sin pendiente tras reject',
   Number((await one(`SELECT count(*) c FROM user_social_missions
     WHERE user_id=$1 AND mission_id='tg_share' AND status='pending'`, [u3])).c) === 0);
 
-// ---- Retrocompatibilidad: First Deposit (once) sigue igual ----
+// ---- First Deposit: automatico y sin solicitud manual --------------------
 const u2 = '99502';
 await c.query(`INSERT INTO users (telegram_id, uid) VALUES ($1,$1)`, [u2]);
 await c.query(`INSERT INTO internal_wallets (user_id, usdt_balance, keep_balance) VALUES ($1, 0, 0)`, [u2]);
 r = (await one(`SELECT request_manual_mission($1,'first_deposit') AS r`, [u2])).r;
-check('First Deposit request -> pending', r.ok===true && r.pending===true, JSON.stringify(r));
-const fdrow = await one(`SELECT period FROM user_social_missions WHERE user_id=$1 AND mission_id='first_deposit'`, [u2]);
-check('First Deposit usa periodo vacio (once)', fdrow.period==='', JSON.stringify(fdrow));
-const ap2 = (await one(`SELECT approve_mission_request($1,'first_deposit') AS r`, [u2])).r;
-check('First Deposit paga 1 USDT + 3000 KEEP',
-  ap2.ok===true && Number(ap2.reward)===1 && Number(ap2.keep_reward)===3000, JSON.stringify(ap2));
-r = (await one(`SELECT request_manual_mission($1,'first_deposit') AS r`, [u2])).r;
-check('First Deposit tras cobrar -> already (una sola vez)', r.ok===false && r.error==='already', JSON.stringify(r));
+check('First Deposit no crea request manual', r.ok===false && r.error==='Unknown mission', JSON.stringify(r));
+r = (await one(`SELECT complete_social_mission($1,'first_deposit') AS r`, [u2])).r;
+check('First Deposit no se cobra por complete directo', r.ok===false && r.error==='automatic_review', JSON.stringify(r));
 
 // ---- Permisos: CREATE OR REPLACE conserva el REVOKE de v3.3 ----
 const acl = await one(`SELECT count(*) c FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace

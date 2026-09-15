@@ -8,7 +8,8 @@
 -- Que hace:
 --   1. social_missions.share_text: texto para el boton "Share on Telegram".
 --   2. request/approve/reject manuales ahora respetan `repeat` (weekly/daily),
---      no solo 'once'. Retrocompatible con First Deposit.
+--      no solo 'once'. Las misiones automáticas quedan fuera de la cola
+--      manual y se acreditan desde la wallet.
 --   3. Mision tg_share: compartir en Telegram, 0.20 USDT + 500 KEEP, semanal,
 --      aprobacion manual.
 --
@@ -21,8 +22,8 @@ ALTER TABLE social_missions ADD COLUMN IF NOT EXISTS share_text TEXT;
 
 -- 2) MISIONES MANUALES POR PERIODO. Hasta v3.3 request/approve/reject
 --    hardcodeaban period='', asi que una mision manual solo podia ser
---    'once' (First Deposit): tras el primer pago, request devolvia
---    'already' para siempre. Ahora el periodo se calcula desde `repeat`
+--    las misiones 'once' podían quedar bloqueadas tras el primer pago.
+--    Ahora el periodo se calcula desde `repeat`
 --    (daily=hoy UTC, weekly=semana ISO, igual que complete_social_mission)
 --    y approve/reject operan sobre la solicitud 'pending' cualquiera sea
 --    su periodo. Retrocompatible: las 'once' siguen usando period=''.
@@ -98,6 +99,9 @@ BEGIN
   END IF;
 
   SELECT * INTO v_mission FROM social_missions WHERE id = p_mission_id;
+  IF v_mission.verify <> 'manual' THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Mission is automatic');
+  END IF;
 
   v_keep := CASE WHEN v_row.reward_keep > 0 THEN v_row.reward_keep
                  ELSE 500 + floor(random() * 701)::int END;

@@ -53,6 +53,16 @@ describe('economía: constantes espejadas con el Worker', () => {
   });
 });
 
+describe('BalanceCard: balances nativos', () => {
+  it('GRAM conserva la unidad nativa y no se presenta como USDT', () => {
+    render(<BalanceCard asset="GRAM" amount={0.15} label="GRAM (ex TON)" />);
+    const card = screen.getByTestId('balance-card-gram');
+    expect(card).toHaveTextContent('GRAM (ex TON)');
+    expect(card).toHaveTextContent('0.15GRAM');
+    expect(card).not.toHaveTextContent('$GRAM');
+  });
+});
+
 describe('BalanceCard: botón de envío interno', () => {
   it('no aparece si no se pasa onSend', () => {
     render(<BalanceCard asset="TRX" amount={1} />);
@@ -120,6 +130,24 @@ describe('BalanceCard: botón de envío interno', () => {
     );
     expect(screen.getByTestId('withdraw-trx-btn')).toBeTruthy();
   });
+
+  it('GRAM muestra Withdraw en estado Soon y conserva Send pronto', () => {
+    render(
+      <BalanceCard
+        asset="GRAM"
+        amount={0.15}
+        label="GRAM (ex TON)"
+        onWithdraw={() => {}}
+        withdrawDisabled
+        withdrawSoon
+        onSend={() => {}}
+        sendDisabled
+      />,
+    );
+    expect(screen.getByTestId('withdraw-gram-btn')).toBeDisabled();
+    expect(screen.getByTestId('withdraw-gram-btn')).toHaveTextContent('Soon');
+    expect(screen.getByTestId('send-gram-btn')).toHaveAttribute('aria-disabled', 'true');
+  });
 });
 
 // ==========================================================================
@@ -151,6 +179,13 @@ describe('TransactionItem: signos del historial', () => {
   it('un depósito va en más', () => {
     const t = text({ ...base, type: 'deposit', asset: 'USDT', amount: 2622.58 });
     expect(t).toBe('+$2622.58');
+  });
+
+  it('el ledger TON se muestra como GRAM en Activity', () => {
+    render(<TransactionItem transaction={{ ...base, id: 'gram-deposit', type: 'deposit', asset: 'TON', amount: 0.15 }} />);
+    expect(screen.getByTestId('transaction-gram-deposit-amount')).toHaveTextContent('+0.15');
+    expect(screen.getByText('GRAM')).toBeTruthy();
+    expect(screen.queryByText('TON')).toBeNull();
   });
 
   it('ningún monto sale con doble signo', () => {

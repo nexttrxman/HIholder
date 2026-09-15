@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, ChevronUp, Wallet as WalletIcon, History as HistoryIcon } from 'lucide-react';
 import { formatUsd } from '@/lib/trade';
 import { INTERNAL_TRANSFER_ENABLED } from '@/services/api';
-import { UsdtIcon, TrxIcon, KeepIcon } from '@/components/wallet/AssetIcons';
+import { UsdtIcon, GramIcon, TrxIcon, KeepIcon } from '@/components/wallet/AssetIcons';
 
 const SECTIONS = [
   { id: 'balance', label: 'Balance', icon: WalletIcon },
@@ -20,7 +20,7 @@ const SECTIONS = [
  * the "Activity" section here.
  */
 export function WalletPage({ onOpenWithdraw, initialSection = 'balance' }) {
-  const { usdtBalance, trxBalance, keepBalance } = useWallet();
+  const { usdtBalance, tonBalance, trxBalance, keepBalance } = useWallet();
   const { portfolio, positions } = useTrade();
   const [section, setSection] = useState(initialSection);
   const [showDeposit, setShowDeposit] = useState(true);
@@ -198,6 +198,21 @@ export function WalletPage({ onOpenWithdraw, initialSection = 'balance' }) {
                 label="Tether USD"
                 icon={<UsdtIcon className="w-6 h-6" />}
                 onWithdraw={() => onOpenWithdraw('USDT')}
+                onSend={handleSend}
+                sendDisabled={!INTERNAL_TRANSFER_ENABLED}
+              />
+              {/* TON is the chain/storage name; GRAM is the product name shown to users.
+                  Keep this balance separate from USDT: it is never converted here. */}
+              <BalanceCard
+                asset="GRAM"
+                amount={tonBalance}
+                label="GRAM (ex TON)"
+                icon={<GramIcon className="w-6 h-6" />}
+                // The native withdrawal rail is not enabled yet, but GRAM
+                // keeps the same action layout as the other wallet cards.
+                onWithdraw={() => {}}
+                withdrawDisabled
+                withdrawSoon
                 onSend={handleSend}
                 sendDisabled={!INTERNAL_TRANSFER_ENABLED}
               />

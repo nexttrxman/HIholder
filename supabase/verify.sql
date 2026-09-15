@@ -22,7 +22,8 @@ WITH esperado(tabla) AS (
          ('referrals'),('referral_pool'),('trade_positions'),
          ('withdrawal_requests'),('withdrawal_config'),
          ('social_missions'),('user_social_missions'),
-         ('managed_prices'),('managed_price_ticks')
+         ('managed_prices'),('managed_price_ticks'),('deposit_codes'),
+         ('ton_deposit_txs'),('unmatched_deposits')
 ),
 tablas AS (
   SELECT e.tabla,
@@ -49,7 +50,8 @@ esperado_fn(nombre, firma) AS (
     ('complete_social_mission','p_user_id text, p_mission_id text'),
     ('buy_keep',               'p_user_id text, p_amount numeric, p_price numeric'),
     ('managed_price_tick',     'p_pair text'),
-    ('managed_price_candles',  'p_pair text, p_bucket_seconds integer, p_limit integer')
+    ('managed_price_candles',  'p_pair text, p_bucket_seconds integer, p_limit integer'),
+    ('credit_ton_deposit',     'p_user_id text, p_tx_hash text, p_from_address text, p_amount numeric, p_comment text, p_tx_timestamp timestamp with time zone, p_unmatched_id uuid')
 ),
 funciones AS (
   SELECT e.nombre,
@@ -74,7 +76,7 @@ permisos AS (
                       'open_trade','close_trade','set_trade_levels',
                       'request_withdrawal','resolve_withdrawal','withdrawal_settings',
                       'complete_social_mission','buy_keep','managed_price_tick',
-                      'managed_price_candles')
+                      'managed_price_candles','credit_ton_deposit')
     AND (
       has_function_privilege('public'::name, p.oid, 'EXECUTE')
       OR EXISTS (
@@ -282,13 +284,23 @@ BEGIN
         'list_pending_mission_requests','mission_progress')) = 5, '');
   v_r := mission_progress(v_inv);
   INSERT INTO _v VALUES ('mission_progress responde', v_r ? 'holds_today', v_r::text);
+  INSERT INTO _v VALUES ('First Deposit wallet review acepta evidencia USDT',
+    to_regprocedure('complete_first_deposit_from_wallet(text)') IS NOT NULL, '');
+  INSERT INTO _v VALUES ('First Deposit tiene descripción, recompensa y revisión automática',
+    (SELECT description = 'Make your first deposit (min 1GRAM or 1 USDT). (review automatico con la wallet)'
+       AND reward_usdt = 1 AND reward_keep = 3000 AND verify = 'automatic'
+       FROM social_missions WHERE id = 'first_deposit'), '');
+  INSERT INTO _v VALUES ('Social ButterflyWeekly tiene 2.50 USDT + 5000 KEEP y meta 5',
+    (SELECT description = 'Invite 5 friends this week.'
+       AND reward_usdt = 2.50 AND reward_keep = 5000
+       AND repeat = 'weekly' AND goal = 5 AND progress_type = 'referrals_week'
+       FROM social_missions WHERE id = 'weekly_referral'), '');
   v_r := request_manual_mission(v_inv, 'first_deposit');
-  INSERT INTO _v VALUES ('request_manual_mission crea la solicitud',
-    COALESCE((v_r->>'pending')::boolean, false), v_r::text);
-  v_r := approve_mission_request(v_inv, 'first_deposit');
-  INSERT INTO _v VALUES ('approve_mission_request paga 1 USDT + 3000 KEEP',
-    COALESCE((v_r->>'ok')::boolean, false)
-      AND (v_r->>'reward')::numeric = 1 AND (v_r->>'keep_reward')::int = 3000, v_r::text);
+  INSERT INTO _v VALUES ('First Deposit no crea una solicitud manual',
+    COALESCE((v_r->>'error')::text, '') = 'Unknown mission', v_r::text);
+  v_r := complete_social_mission(v_inv, 'first_deposit');
+  INSERT INTO _v VALUES ('First Deposit no se completa fuera del scanner de wallet',
+    COALESCE((v_r->>'error')::text, '') = 'automatic_review', v_r::text);
 
   -- 8) v3.4 — mision de compartir + manuales por periodo --------------------
   INSERT INTO _v VALUES ('social_missions.share_text existe',

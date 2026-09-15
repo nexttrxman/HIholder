@@ -65,7 +65,6 @@ Actualiza `/app/frontend/.env`:
 ```env
 VITE_WORKER_URL=https://tu-worker.tu-subdomain.workers.dev
 VITE_TELEGRAM_BOT_URL=https://t.me/TU_BOT
-VITE_DEPOSIT_ADDRESS=TU_WALLET_ADDRESS
 ```
 
 Deploy a Cloudflare Pages:
@@ -120,11 +119,13 @@ contra alguno de los tokens configurados, y la ventana anti-replay de
 
 ### Frontend (.env)
 
+La dirección de tesorería TON y el código `DEP:XXXXXX` se muestran desde la configuración del Worker; no se configura una wallet de depósito TRON en Pages.
+
+
 | Variable | Descripción |
 |----------|-------------|
 | `VITE_WORKER_URL` | URL del Cloudflare Worker (sin `/` final) |
 | `VITE_TELEGRAM_BOT_URL` | URL del bot (https://t.me/TU_BOT) |
-| `VITE_DEPOSIT_ADDRESS` | Wallet TRON para depósitos |
 | `VITE_TELEGRAM_APP_NAME` | Nombre del Web App creado con `/newapp` en BotFather. **Necesario para que los referidos funcionen** |
 
 ### Referidos (v2.7.0)
@@ -481,7 +482,6 @@ Pages van en Settings → Environment variables.
 | `VITE_WORKER_URL` | URL del Worker (`api.js`) | **obligatoria**: sin ella la app no arranca y lo dice en pantalla |
 | `VITE_APP_URL` | Origen de la app, usado como `url` e `iconUrl` del manifiesto de TonConnect | el manifiesto queda en `http://localhost:3000` y las wallets móviles no pueden volver a la app |
 | `VITE_TELEGRAM_BOT_URL` | Link al bot | cae a `https://t.me/TKcex_bot` |
-| `VITE_DEPOSIT_ADDRESS` | Dirección de depósito mostrada | cae a la hardcodeada en `api.js` |
 
 El manifiesto de TonConnect lo genera `vite.config.js` (plugin
 `tonconnectManifest`) en `/tonconnect-manifest.json`, servido desde el propio

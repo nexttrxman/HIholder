@@ -12,6 +12,8 @@ vi.mock('@/services/api', () => ({
   adminRejectMission: vi.fn(),
   adminListWithdrawals: vi.fn(),
   adminResolveWithdrawal: vi.fn(),
+  adminListDeposits: vi.fn(),
+  adminResolveDeposit: vi.fn(),
 }));
 
 beforeEach(() => {
@@ -29,6 +31,7 @@ describe('AdminPage', () => {
   it('al guardar el token carga las dos colas', async () => {
     api.adminListMissionRequests.mockResolvedValue({ ok: true, requests: [] });
     api.adminListWithdrawals.mockResolvedValue({ ok: true, requests: [] });
+    api.adminListDeposits.mockResolvedValue({ ok: true, deposits: [] });
     render(<AdminPage />);
 
     fireEvent.change(screen.getByTestId('admin-token-input'), { target: { value: 'tok' } });
@@ -49,6 +52,7 @@ describe('AdminPage', () => {
       }],
     });
     api.adminListWithdrawals.mockResolvedValue({ ok: true, requests: [] });
+    api.adminListDeposits.mockResolvedValue({ ok: true, deposits: [] });
     api.adminApproveMission.mockResolvedValue({ ok: true, reward: 1, keep_reward: 3000 });
 
     render(<AdminPage />);
@@ -66,6 +70,7 @@ describe('AdminPage', () => {
   it('un 401 limpia el token y vuelve al login', async () => {
     api.adminListMissionRequests.mockRejectedValue(new Error('Unauthorized'));
     api.adminListWithdrawals.mockRejectedValue(new Error('Unauthorized'));
+    api.adminListDeposits.mockRejectedValue(new Error('Unauthorized'));
 
     render(<AdminPage />);
     fireEvent.change(screen.getByTestId('admin-token-input'), { target: { value: 'malo' } });
@@ -77,6 +82,7 @@ describe('AdminPage', () => {
 
   it('la cola de retiros marca pagado con tx hash', async () => {
     api.adminListMissionRequests.mockResolvedValue({ ok: true, requests: [] });
+    api.adminListDeposits.mockResolvedValue({ ok: true, deposits: [] });
     api.adminListWithdrawals.mockResolvedValue({
       ok: true,
       requests: [{

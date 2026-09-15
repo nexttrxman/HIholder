@@ -59,6 +59,10 @@ const statusConfig = {
 
 export function TransactionItem({ transaction, index = 0 }) {
   const { type, asset, amount, status, timestamp, description, txHash, toAddress } = transaction;
+  // TON is the storage/API name; GRAM is how the native balance is branded in
+  // the product. Keep the server contract stable while presenting the renamed
+  // asset consistently in Activity.
+  const displayAsset = asset === 'TON' ? 'GRAM' : asset;
 
   const typeInfo = typeConfig[type] || typeConfig.deposit;
   const statusInfo = statusConfig[status] || statusConfig.pending;
@@ -112,10 +116,10 @@ export function TransactionItem({ transaction, index = 0 }) {
           data-testid={`transaction-${transaction.id}-amount`}
         >
           {isOutgoing ? '-' : '+'}
-          {asset === 'USDT' ? '$' : ''}
+          {displayAsset === 'USDT' ? '$' : ''}
           {Math.abs(value).toFixed(2)}
         </p>
-        <p className="font-mono text-[10px] uppercase tracking-wider text-ink-dim/70">{asset}</p>
+        <p className="font-mono text-[10px] uppercase tracking-wider text-ink-dim/70">{displayAsset}</p>
       </div>
     </motion.div>
   );

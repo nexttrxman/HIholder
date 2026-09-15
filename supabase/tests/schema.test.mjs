@@ -108,7 +108,90 @@ async function seedUser(balance = 0) {
   return id;
 }
 
-// ---- 2) EL BUG DEL CRON: claim expirado sin reclamar ---------------------
+// ---- 2) depósitos GRAM (TON) por código MEMO -----------------------------
+{
+  const u = await seedUser(0);
+  await q(`INSERT INTO deposit_codes (user_id, code) VALUES ($1, 'DEP:ABC123')`, [u]);
+
+  // Un depósito menor que el umbral de la misión sigue acreditándose en GRAM;
+  // la condición de First Deposit es independiente del mínimo general.
+  const small = (await one(`SELECT credit_ton_deposit($1,$2,$3,$4,$5,NOW(),NULL) AS r`,
+    [u, 'GRAM_HASH_SMALL', '0:sender', 0.25, 'DEP:ABC123'])).r;
+  eq('GRAM deposit: acredita 0.25', small.ok, true);
+  near('GRAM deposit: ton_balance conserva el valor nativo',
+    (await one(`SELECT ton_balance FROM internal_wallets WHERE user_id=$1`, [u])).ton_balance,
+    0.25, 0.000001);
+  eq('GRAM deposit: 0.25 no completa First Deposit',
+    (await one(`SELECT count(*)::int n FROM user_social_missions
+      WHERE user_id=$1 AND mission_id='first_deposit'`, [u])).n,
+    0);
+
+  const first = (await one(`SELECT credit_ton_deposit($1,$2,$3,$4,$5,NOW(),NULL) AS r`,
+    [u, 'GRAM_HASH_1', '0:sender', 1, 'DEP:ABC123'])).r;
+  eq('GRAM deposit: 1 completa First Deposit automáticamente', first.first_deposit_credited, true);
+  near('GRAM deposit: balance acumulado sin convertir a USDT',
+    (await one(`SELECT ton_balance FROM internal_wallets WHERE user_id=$1`, [u])).ton_balance,
+    1.25, 0.000001);
+  eq('First Deposit automático queda paid',
+    (await one(`SELECT status FROM user_social_missions WHERE user_id=$1 AND mission_id='first_deposit'`, [u])).status,
+    'paid');
+  near('First Deposit automático acredita 1 USDT',
+    (await one(`SELECT usdt_balance FROM internal_wallets WHERE user_id=$1`, [u])).usdt_balance,
+    1, 0.000001);
+  near('First Deposit automático acredita 3000 KEEP',
+    (await one(`SELECT keep_balance FROM internal_wallets WHERE user_id=$1`, [u])).keep_balance,
+    3000, 0.000001);
+
+  const second = (await one(`SELECT credit_ton_deposit($1,$2,$3,$4,$5,NOW(),NULL) AS r`,
+    [u, 'GRAM_HASH_1', '0:sender', 1, 'DEP:ABC123'])).r;
+  eq('GRAM deposit: mismo hash es idempotente', second.already_credited, true);
+  eq('GRAM deposit: un solo ledger de depósito',
+    (await one(`SELECT count(*)::int n FROM wallet_ledger WHERE user_id=$1 AND reference_id='GRAM_HASH_1' AND asset='TON'`, [u])).n,
+    1);
+}
+
+// ---- 2a) First Deposit por USDT: evidencia, no balance arbitrario ---------
+{
+  const balanceOnly = await seedUser(5);
+  const noEvidence = (await one(
+    `SELECT complete_first_deposit_from_wallet($1) AS r`, [balanceOnly])).r;
+  eq('First Deposit USDT: saldo actual sin evidencia no alcanza', noEvidence.eligible, false);
+  eq('First Deposit USDT: saldo actual no crea la misión',
+    (await one(`SELECT count(*)::int n FROM user_social_missions
+      WHERE user_id=$1 AND mission_id='first_deposit'`, [balanceOnly])).n, 0);
+
+  const u = await seedUser(0);
+  // Este renglón representa la salida de un adaptador USDT verificado: el
+  // hash/referencia es obligatorio y el tipo no puede confundirse con un
+  // refund de retiro (reference_type='withdrawal').
+  await q(`UPDATE internal_wallets SET usdt_balance = 1.25 WHERE user_id=$1`, [u]);
+  await q(`INSERT INTO wallet_ledger
+    (user_id, operation, reference_type, reference_id, asset, amount,
+     balance_before, balance_after, description)
+    VALUES ($1, 'deposit', 'usdt_deposit', 'USDT_HASH_1', 'USDT',
+      1.25, 0, 1.25, 'USDT deposit verified by chain adapter')`, [u]);
+
+  const first = (await one(
+    `SELECT complete_first_deposit_from_wallet($1) AS r`, [u])).r;
+  eq('First Deposit USDT: evidencia de 1 USDT completa automáticamente',
+    first.first_deposit_credited, true);
+  near('First Deposit USDT: acredita 1 USDT',
+    (await one(`SELECT usdt_balance FROM internal_wallets WHERE user_id=$1`, [u])).usdt_balance,
+    2.25, 0.000001);
+  near('First Deposit USDT: acredita 3000 KEEP',
+    (await one(`SELECT keep_balance FROM internal_wallets WHERE user_id=$1`, [u])).keep_balance,
+    3000, 0.000001);
+
+  const again = (await one(
+    `SELECT complete_first_deposit_from_wallet($1) AS r`, [u])).r;
+  eq('First Deposit USDT: evidencia repetida es idempotente', again.already_credited, true);
+  eq('First Deposit USDT: un solo premio USDT en ledger',
+    (await one(`SELECT count(*)::int n FROM wallet_ledger
+      WHERE user_id=$1 AND reference_id='USDT_HASH_1' AND asset='USDT'
+        AND operation='mission_reward'`, [u])).n, 1);
+}
+
+// ---- 3) EL BUG DEL CRON: claim expirado sin reclamar ---------------------
 {
   const u = await seedUser(0);
   const cyc = await one(
@@ -502,9 +585,10 @@ async function seedUser(balance = 0) {
     SELECT relname FROM pg_class
     WHERE relname IN ('users','hold_cycles','holds','claims','claim_payments',
                       'internal_wallets','wallet_ledger','referral_pool','referrals',
-                      'transactions','trade_positions','checkins')
+                      'transactions','trade_positions','checkins','deposit_codes',
+                      'ton_deposit_txs','unmatched_deposits')
       AND relrowsecurity = false`)).rows;
-  eq('RLS: habilitado en las 12 tablas', rlsOff.length, 0);
+  eq('RLS: habilitado en las 15 tablas', rlsOff.length, 0);
 
   // Ninguna función sensible puede ser ejecutada por PUBLIC
   const perms = (await q(`
@@ -513,8 +597,8 @@ async function seedUser(balance = 0) {
     FROM pg_proc p
     WHERE p.proname IN ('credit_claim','open_trade','close_trade',
                         'set_trade_levels','daily_checkin','expire_claims_and_cycles',
-                        'register_referral','confirm_pending_referral')`)).rows;
-  eq('RPC: las 8 funciones sensibles existen', perms.length, 8);
+                        'register_referral','confirm_pending_referral','credit_ton_deposit')`)).rows;
+  eq('RPC: las 9 funciones sensibles existen', perms.length, 9);
   eq('RPC: ninguna queda ejecutable por PUBLIC', perms.filter((r) => r.pub).length, 0);
   eq('RPC: ninguna es SECURITY DEFINER', perms.filter((r) => r.prosecdef).length, 0);
 

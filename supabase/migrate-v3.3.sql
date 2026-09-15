@@ -11,9 +11,10 @@
 --     cobra pagando 0.15 TON via TonConnect; vence al fin de la semana ISO
 --   * claims acepta claim_type='weekly' (cycle_id pasa a ser nullable)
 --   * credit_claim: el semanal paga 2000 KEEP fijos
---   * misiones reales: First Deposit (1 USDT + 3000 KEEP, aprobacion manual),
---     Daily Holder (0.10 USDT, diaria), Social Butterfly (0.50 USDT, semanal),
---     Big Earner (2.00 USDT, unica) — progreso verificado en el servidor
+--   * misiones reales: First Deposit (1 USDT + 3000 KEEP, revisión automática
+--     desde la wallet), Daily Holder (0.10 USDT, diaria), Social Butterfly
+--     (2.50 USDT + 5000 KEEP, semanal), Big Earner (2.00 USDT, unica) —
+--     progreso verificado en el servidor
 --   * user_social_missions: PK (user, mision, periodo) + estado pending/paid
 --   * bonus de referido pasa de 2 TRX a 2 USDT (premios no pagan TRX)
 --   * permisos: solo service_role ejecuta las funciones nuevas
@@ -30,12 +31,12 @@
 --                          abre un claim semanal (claims.claim_type='weekly'),
 --                          el usuario paga 0.15 TON por TonConnect para cobrarlo
 --                          y vence al FIN de la semana ISO (lunes 00:00 UTC).
---   mision First Deposit   1 USDT + 3000 KEEP fijos, verify='manual': el
---                          usuario la solicita y el admin la aprueba cuando
---                          ve el deposito (min 5 TRX o 1 USDT, solo exhibido).
+--   mision First Deposit   1 USDT + 3000 KEEP fijos, verify='automatic': el
+--                          cron la acredita desde la wallet al detectar al
+--                          menos 1 GRAM (o un depósito USDT de al menos 1).
 --   mision Daily Holder    0.10 USDT + 500–1200 KEEP, repetible diaria
 --                          (3 holds iniciados hoy — tabla holds).
---   mision Social Butterfly 0.50 USDT + 500–1200 KEEP, repetible semanal
+--   mision Social Butterfly 2.50 USDT + 5000 KEEP, repetible semanal
 --                          (5 amigos referidos en la semana ISO).
 --   mision Big Earner      2.00 USDT + 500–1200 KEEP, unica
 --                          (10 USDT ganados en claims de holds).
@@ -325,22 +326,23 @@ ALTER TABLE social_missions ADD CONSTRAINT social_missions_progress_type_check
   CHECK (progress_type IN ('holds_today', 'referrals_week', 'hold_earnings'));
 ALTER TABLE social_missions DROP CONSTRAINT IF EXISTS social_missions_verify_check;
 ALTER TABLE social_missions ADD CONSTRAINT social_missions_verify_check
-  CHECK (verify IN ('telegram_member', 'honor', 'manual', 'progress'));
+  CHECK (verify IN ('telegram_member', 'honor', 'manual', 'automatic', 'progress'));
 
 -- Las 4 misiones nuevas (upsert: re-correr la migracion las deja canonicas).
+-- First Deposit se revisa desde la wallet; no abre solicitudes manuales.
 INSERT INTO social_missions
   (id, platform, title, description, url, reward_usdt, verify, chat_id,
    enabled, sort, reward_keep, repeat, goal, progress_type)
 VALUES
   ('first_deposit', 'app', 'First Deposit',
-   'Make your first deposit (min 5 TRX or 1 USDT). We review it manually.',
-   '', 1.00, 'manual', NULL, true, 10, 3000, 'once', NULL, NULL),
+   'Make your first deposit (min 1GRAM or 1 USDT). (review automatico con la wallet)',
+   '', 1.00, 'automatic', NULL, true, 10, 3000, 'once', NULL, NULL),
   ('daily_hold', 'app', 'Daily Holder',
    'Start 3 holds today.',
    '', 0.10, 'progress', NULL, true, 11, NULL, 'daily', 3, 'holds_today'),
   ('weekly_referral', 'app', 'Social Butterfly',
    'Invite 5 friends this week.',
-   '', 0.50, 'progress', NULL, true, 12, NULL, 'weekly', 5, 'referrals_week'),
+   '', 2.50, 'progress', NULL, true, 12, 5000, 'weekly', 5, 'referrals_week'),
   ('big_earner', 'app', 'Big Earner',
    'Earn $10 total from holds.',
    '', 2.00, 'progress', NULL, true, 13, NULL, 'once', 10, 'hold_earnings')
@@ -391,10 +393,15 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'error', 'Unknown or disabled mission');
   END IF;
 
-  -- Las manuales solo se pagan via approve_mission_request (defensa doble:
-  -- el Worker tampoco llama aca con verify='manual').
-  IF v_mission.verify = 'manual' THEN
-    RETURN jsonb_build_object('ok', false, 'error', 'manual_review');
+  -- Las misiones manuales solo se pagan via approve_mission_request. First
+  -- Deposit es automática: la paga credit_ton_deposit dentro del mismo RPC
+  -- atómico que acredita la wallet, nunca una solicitud del usuario.
+  IF v_mission.verify IN ('manual', 'automatic') THEN
+    RETURN jsonb_build_object(
+      'ok', false,
+      'error', CASE WHEN v_mission.verify = 'automatic'
+        THEN 'automatic_review' ELSE 'manual_review' END
+    );
   END IF;
 
   v_period := CASE v_mission.repeat
@@ -455,8 +462,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- 7) MISION MANUAL (First Deposit): el usuario solicita, el admin aprueba o
---    rechaza. La solicitud vive como fila 'pending' en user_social_missions.
+-- 7) MISIONES MANUALES: las acciones que no se pueden verificar en cadena
+--    crean una fila 'pending' en user_social_missions; First Deposit queda
+--    fuera de esta cola porque lo acredita la wallet automáticamente.
 CREATE OR REPLACE FUNCTION request_manual_mission(
   p_user_id TEXT,
   p_mission_id TEXT
@@ -514,6 +522,9 @@ BEGIN
   END IF;
 
   SELECT * INTO v_mission FROM social_missions WHERE id = p_mission_id;
+  IF v_mission.verify <> 'manual' THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Mission is automatic');
+  END IF;
 
   v_keep := CASE WHEN v_row.reward_keep > 0 THEN v_row.reward_keep
                  ELSE 500 + floor(random() * 701)::int END;
@@ -606,7 +617,9 @@ BEGIN
    WHERE user_id = p_user_id AND (created_at AT TIME ZONE 'UTC')::date = v_today;
 
   SELECT count(*)::int INTO v_refs FROM referrals
-   WHERE referrer_id = p_user_id AND created_at >= v_week_start;
+   WHERE referrer_id = p_user_id
+     AND status = 'confirmed'
+     AND created_at >= v_week_start;
 
   SELECT COALESCE(SUM(total_prize), 0) INTO v_earn FROM claims
    WHERE user_id = p_user_id AND status = 'credited' AND claim_type = 'hold';

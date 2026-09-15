@@ -168,8 +168,6 @@ export default {
   'Confirm close': 'Подтвердить закрытие',
   'The position closes automatically when the price reaches either level. Prices are checked every few seconds, so a fast move can fill slightly past the level.': 'Позиция закрывается автоматически при достижении любого из уровней. Цены проверяются раз в несколько секунд, поэтому резкое движение может исполниться чуть за уровнем.',
   'Trading involves risk — you may lose your funds. Trade carefully.': 'Торговля связана с риском: вы можете потерять средства. Действуйте осторожно.',
-  'Without the MEMO, your deposit cannot be credited to your account.': 'Без MEMO депозит нельзя зачислить на ваш аккаунт.',
-  'Only send TRX or USDT (TRC-20) to this address. Include your MEMO to identify your deposit.': 'Отправляйте на этот адрес только TRX или USDT (TRC-20). Укажите MEMO, чтобы определить депозит.',
   'Important': 'Важно',
   'Note:': 'Примечание:',
   'Confirm Withdrawal': 'Подтвердить вывод',
@@ -211,7 +209,26 @@ export default {
   'Internal transfers are coming soon.': 'Внутренние переводы скоро появятся.',
   'Under review': 'На проверке',
   'Earn USDT + KEEP': 'Зарабатывайте USDT + KEEP',
+  'Automatic review': 'Автоматическая проверка',
   'Request review': 'Запросить проверку',
   'Share on Telegram': 'Поделиться в Telegram',
   'Weekly bonus': 'Недельный бонус',
+
+  // Depósitos TON por código MEMO
+  'Only send GRAM (ex TON) to this address. Sending another asset or network can permanently lose your funds.': 'Отправляйте на этот адрес только GRAM (ex TON). Отправка другого актива или через другую сеть может привести к безвозвратной потере средств.',
+  'GRAM (ex TON) Treasury Address': 'Адрес GRAM (ex TON)-казначейства',
+  'Your deposit code': 'Ваш код депозита',
+  'Send at least': 'Отправьте не менее',
+  'and enter this exact comment:': 'и укажите этот комментарий точно:',
+  'The automatic scanner checks the GRAM (ex TON) treasury every two minutes. Deposits with a different comment are held for admin review.': 'Автоматический сканер проверяет TON-казначейство каждые две минуты. Депозиты с другим комментарием отправляются на проверку администратору.',
+
+  // Cola de depósitos TON para el administrador
+  'No pending deposits': 'Нет ожидающих депозитов',
+  'Chain evidence': 'Доказательство в сети',
+  'Credit deposit': 'Зачислить депозит',
+  'Reject deposit': 'Отклонить депозит',
+  'Deposit code for this user:': 'Код депозита пользователя:',
+
+  'Rejected deposit': 'Депозит отклонён',
+
 };

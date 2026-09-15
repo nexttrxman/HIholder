@@ -14,7 +14,6 @@
 ```
 VITE_WORKER_URL=https://tu-worker.workers.dev
 VITE_TELEGRAM_BOT_URL=https://t.me/TU_BOT
-VITE_DEPOSIT_ADDRESS=TU_WALLET_TRON
 ```
 
 ## Notas

@@ -52,6 +52,8 @@ export function WalletProvider({ children }) {
   // Balances (internal wallet)
   const [usdtBalance, setUsdtBalance] = useState(0);
   const [trxBalance, setTrxBalance] = useState(0);
+  // Internal storage/API name remains ton_balance; the Wallet renders this
+  // native balance as GRAM (the product name for TON), without conversion.
   const [tonBalance, setTonBalance] = useState(0);
   // $KEEP (v3.2): token propio, entra por misiones/check-in/claim y por compra.
   const [keepBalance, setKeepBalance] = useState(0);
@@ -86,8 +88,9 @@ export function WalletProvider({ children }) {
     [localTransactions, serverTransactions]
   );
 
-  // User identification
+  // User identification and the per-account GRAM/TON MEMO code.
   const [uid, setUid] = useState(null);
+  const [depositCode, setDepositCode] = useState(null);
 
   /**
    * Load user data and cycle info
@@ -107,6 +110,7 @@ export function WalletProvider({ children }) {
 
       if (result.ok) {
         const { user: userData, cycle: cycleData, pending_claim } = result;
+        setDepositCode(result.deposit_code || userData.deposit_code || null);
         
         // Set balances
         setUsdtBalance(userData.usdt_balance || 0);
@@ -160,6 +164,7 @@ export function WalletProvider({ children }) {
       const result = await authUser();
       if (result.ok) {
         const { user: userData, cycle: cycleData, pending_claim } = result;
+        setDepositCode(result.deposit_code || userData.deposit_code || null);
         
         setUsdtBalance(userData.usdt_balance || 0);
         setTrxBalance(userData.trx_balance || 0);
@@ -343,11 +348,12 @@ export function WalletProvider({ children }) {
   const referralLink = `${telegramBotUrl}?start=${uid}`;
 
   /**
-   * Deposit info with memo
+   * TON deposit instructions. The code is issued by the Worker during signup;
+   * never derive it from uid in the browser.
    */
   const depositInfo = {
     ...DEPOSIT_INFO,
-    memo: uid || 'loading...',
+    code: depositCode || 'loading...',
   };
 
   // Initial load

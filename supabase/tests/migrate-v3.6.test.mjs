@@ -31,12 +31,17 @@ const check = (n, ok, d) => { if (!ok) failures++; console.log(`${ok?'PASS':'FAI
   const migLines = fs.readFileSync(path.resolve(HERE,'..','migrate-v3.6.sql'),'utf8').split('\n');
   const s36 = schemaLines.findIndex((l) => l.startsWith('-- v3.6 —'));
   const mi = migLines.findIndex((l) => l.startsWith('-- v3.6 —'));
-  // v3.6 es el ultimo bloque: llega al EOF de schema.sql.
-  const cuerpo = schemaLines.slice(s36);
+  // v3.7 se añadió después de este bloque: compara v3.6 hasta el separador
+  // que precede al siguiente bloque, no hasta el EOF de schema.sql.
+  const s37Title = schemaLines.findIndex((l, i) =>
+    i > s36 && l.startsWith('-- TronKeeper — MIGRACION v3.7')
+  );
+  const end36 = s37Title > s36 ? s37Title - 1 : schemaLines.length;
+  const cuerpo = schemaLines.slice(s36, end36);
   check('migrate-v3.6.sql no se desincronizo de schema.sql',
     s36 >= 0 && mi >= 0 && JSON.stringify(migLines.slice(mi, mi + cuerpo.length)) === JSON.stringify(cuerpo),
     `schema.sql:${s36 + 1}.. vs migrate-v3.6.sql:${mi + 1}`);
-  check('migrate-v3.6.sql termina donde termina schema.sql',
+  check('migrate-v3.6.sql termina donde termina su bloque en schema.sql',
     migLines.length - (mi + cuerpo.length) <= 1,
     `${migLines.length} vs ${mi + cuerpo.length}`);
 }

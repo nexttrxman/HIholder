@@ -44,6 +44,8 @@ import {
   isoWeekKey,
   safeEqualStrings,
   rollHoldPrize,
+  generateDepositCode,
+  fetchTreasuryTransactions,
 } from './lib.js';
 
 // ============================================
@@ -69,9 +71,14 @@ const supabase = (env) => ({
     }
     if (options.order) url += `${url.includes('?') ? '&' : '?'}order=${options.order}`;
     if (options.limit) url += `${url.includes('?') ? '&' : '?'}limit=${options.limit}`;
+    if (options.onConflict) {
+      url += `${url.includes('?') ? '&' : '?'}on_conflict=${encodeURIComponent(options.onConflict)}`;
+    }
 
     const res = await fetch(url, {
-      method: method === 'select' ? 'GET' : method === 'insert' ? 'POST' : 'PATCH',
+      method: method === 'select' ? 'GET'
+        : method === 'insert' || method === 'upsert' ? 'POST'
+        : 'PATCH',
       headers: method === 'upsert'
         ? { ...headers, 'Prefer': 'resolution=merge-duplicates,return=representation' }
         : headers,
@@ -94,6 +101,33 @@ const supabase = (env) => ({
     return res.json();
   },
 });
+
+/** Ensure every account has exactly one stable TON deposit code. */
+async function ensureDepositCode(db, userId) {
+  const existing = await db.query('deposit_codes', 'select', {
+    filters: { user_id: userId },
+    limit: 1,
+  });
+  if (Array.isArray(existing) && existing[0]?.code) return existing[0].code;
+
+  // A unique constraint handles the very small race between two first logins.
+  // If a random code itself collides, the next attempt simply tries another one.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const code = generateDepositCode();
+    const inserted = await db.query('deposit_codes', 'insert', {
+      body: { user_id: userId, code },
+    });
+    if (Array.isArray(inserted) && inserted[0]?.code) return inserted[0].code;
+
+    const afterRace = await db.query('deposit_codes', 'select', {
+      filters: { user_id: userId },
+      limit: 1,
+    });
+    if (Array.isArray(afterRace) && afterRace[0]?.code) return afterRace[0].code;
+  }
+
+  throw new Error('Could not assign TON deposit code');
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -143,6 +177,20 @@ async function handleAuth(request, env) {
         ton_balance: 0
       }
     });
+  }
+
+  // El código se asigna al alta y se recupera en cada login para que la UI
+  // nunca dependa de un valor generado en el navegador.
+  const depositCode = await ensureDepositCode(db, tgId);
+
+  // First Deposit también puede habilitarse por un depósito USDT real. El SQL
+  // no mira el saldo actual: exige evidencia de wallet_ledger con referencia
+  // de cadena, así que rewards/trading/refunds no activan la misión.
+  const firstDepositReview = await db.rpc('complete_first_deposit_from_wallet', {
+    p_user_id: tgId,
+  });
+  if (firstDepositReview?.ok === false) {
+    console.error('First Deposit automatic review failed:', firstDepositReview.error);
   }
 
   // Referidos: Telegram pone el valor de ?startapp=<uid> en start_param.
@@ -241,6 +289,7 @@ async function handleAuth(request, env) {
     ok: true,
     user: {
       uid: user.uid,
+      deposit_code: depositCode,
       usdt_balance: parseFloat(wallet.usdt_balance) || 0,
       trx_balance: parseFloat(wallet.trx_balance) || 0,
       ton_balance: parseFloat(wallet.ton_balance) || 0,
@@ -260,6 +309,7 @@ async function handleAuth(request, env) {
       ton_fee: parseFloat(pendingClaim.ton_fee),
       expires_at: pendingClaim.expires_at,
     } : null,
+    deposit_code: depositCode,
     treasury_wallet: CONFIG.TREASURY_WALLET,
   });
 }
@@ -556,6 +606,132 @@ async function handleVerifyPayment(request, env) {
     });
   }
   return jsonResponse({ ok: false, error: result.error || 'Credit failed' }, 400);
+}
+
+// ============================================
+// TON DEPOSITS — automatic MEMO sweep
+// ============================================
+const DEPOSIT_CODE_PATTERN = /^DEP:[A-Z0-9]{6}$/;
+
+function tonDepositEvidence(tx, treasury = CONFIG.TREASURY_WALLET) {
+  const inMsg = tx?.in_msg;
+  if (!inMsg) return null;
+
+  const txHash = String(tx.transaction_id?.hash || '').trim();
+  const fromAddress = String(inMsg.source || '').trim();
+  const destination = String(inMsg.destination || '').trim();
+  const treasuryAddress = normalizeTonAddress(treasury);
+  // TonCenter returns both inbound and outbound transactions for a wallet.
+  // Only an inbound message whose destination is the configured treasury is a
+  // deposit; otherwise an outgoing transfer with a DEP comment could mint
+  // balance in the app.
+  if (!destination || normalizeTonAddress(destination) !== treasuryAddress) return null;
+  if (!fromAddress || normalizeTonAddress(fromAddress) === treasuryAddress) return null;
+
+  const rawNano = String(inMsg.value ?? '').trim();
+  const amountNano = Number(rawNano);
+  const utime = Number(tx.utime);
+  if (!txHash || !Number.isSafeInteger(amountNano) || amountNano <= 0) return null;
+
+  const timestamp = Number.isFinite(utime) && utime > 0
+    ? new Date(utime * 1000).toISOString()
+    : new Date().toISOString();
+  return {
+    tx_hash: txHash,
+    from_address: fromAddress,
+    amount_nano: amountNano,
+    amount: amountNano / 1e9,
+    comment: String(decodeTonComment(inMsg) || '').trim(),
+    tx_timestamp: timestamp,
+  };
+}
+
+function rpcObject(value) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+async function saveUnmatchedDeposit(db, evidence) {
+  const existing = await db.query('unmatched_deposits', 'select', {
+    filters: { tx_hash: evidence.tx_hash },
+    limit: 1,
+  });
+  if (Array.isArray(existing) && existing.length > 0) return false;
+
+  const inserted = await db.query('unmatched_deposits', 'upsert', {
+    onConflict: 'tx_hash',
+    body: {
+      tx_hash: evidence.tx_hash,
+      from_address: evidence.from_address,
+      amount: evidence.amount,
+      comment: evidence.comment,
+      tx_timestamp: evidence.tx_timestamp,
+    },
+  });
+  return Array.isArray(inserted) && inserted.length > 0;
+}
+
+/**
+ * Read the treasury's recent TON transactions and credit only exact MEMO
+ * matches. This function is exported so the cron behavior can be tested with
+ * fake TonCenter/Supabase responses without requiring a Cloudflare runtime.
+ */
+export async function runTonDepositSweep(env, { fetchImpl = fetch } = {}) {
+  const db = supabase(env);
+  const txs = await fetchTreasuryTransactions({
+    treasury: CONFIG.TREASURY_WALLET,
+    tonApiKey: env.TON_API_KEY,
+    limit: 100,
+    fetchImpl,
+  });
+  const summary = { scanned: 0, credited: 0, unmatched: 0, skipped_claims: 0, errors: 0 };
+
+  for (const tx of txs) {
+    const evidence = tonDepositEvidence(tx, CONFIG.TREASURY_WALLET);
+    if (!evidence) continue;
+    summary.scanned += 1;
+
+    // CLAIM:<id> belongs exclusively to the existing claim verifier. It is not
+    // a deposit and must not appear in the unmatched admin queue.
+    if (evidence.comment.toUpperCase().startsWith('CLAIM:')) {
+      summary.skipped_claims += 1;
+      continue;
+    }
+
+    let codeRow = [];
+    if (DEPOSIT_CODE_PATTERN.test(evidence.comment)) {
+      codeRow = await db.query('deposit_codes', 'select', {
+        filters: { code: evidence.comment },
+        limit: 1,
+      });
+    }
+
+    const codeMatchesUser = Array.isArray(codeRow) && codeRow[0]?.user_id;
+    if (!codeMatchesUser || evidence.amount < CONFIG.TON_DEPOSIT_MIN) {
+      if (await saveUnmatchedDeposit(db, evidence)) summary.unmatched += 1;
+      continue;
+    }
+
+    const rawResult = await db.rpc('credit_ton_deposit', {
+      p_user_id: codeRow[0].user_id,
+      p_tx_hash: evidence.tx_hash,
+      p_from_address: evidence.from_address,
+      p_amount: evidence.amount,
+      p_comment: evidence.comment,
+      p_tx_timestamp: evidence.tx_timestamp,
+      p_unmatched_id: null,
+    });
+    const result = rpcObject(rawResult);
+    if (result?.ok === true) {
+      if (!result.already_credited) summary.credited += 1;
+    } else {
+      // A temporary RPC failure is retried on the next tick. Do not turn a
+      // valid, correctly coded deposit into a rejected admin item.
+      summary.errors += 1;
+      console.error('TON deposit credit error:', result?.error || rawResult);
+    }
+  }
+
+  return summary;
 }
 
 // ============================================
@@ -1157,7 +1333,7 @@ async function handleWithdrawSettings(request, env) {
 // ADMIN — cola de aprobaciones
 // ============================================
 // Dos colas manuales en una sola pantalla /admin:
-//   * misiones de revision humana (First Deposit)
+//   * misiones de revision humana (acciones no verificables en cadena)
 //   * retiros pendientes de pago on-chain
 // Autentica con el secreto ADMIN_TOKEN (header x-admin-token); no usa
 // initData porque el admin entra desde un navegador comun, fuera de Telegram.
@@ -1213,6 +1389,72 @@ async function handleAdmin(request, env, path) {
     return jsonResponse(r || { ok: false, error: 'failed' }, r?.ok ? 200 : 400);
   }
 
+  if (path === '/admin/deposits/list') {
+    const rows = await db.query('unmatched_deposits', 'select', {
+      filters: { status: 'pending' },
+      order: 'created_at.asc',
+      limit: 100,
+    });
+    return jsonResponse({ ok: true, deposits: Array.isArray(rows) ? rows : [] });
+  }
+
+  if (path === '/admin/deposits/resolve') {
+    const { deposit_id, tx_hash, status, user_id, code, note } = await request.json();
+    const resolution = String(status || '').toLowerCase();
+    if ((!deposit_id && !tx_hash) || !['credited', 'rejected'].includes(resolution)) {
+      return jsonResponse({ ok: false, error: 'Missing deposit evidence or invalid status' }, 400);
+    }
+
+    const rows = await db.query('unmatched_deposits', 'select', {
+      filters: deposit_id ? { id: deposit_id } : { tx_hash: String(tx_hash).trim() },
+      limit: 1,
+    });
+    const deposit = Array.isArray(rows) ? rows[0] : null;
+    if (!deposit) return jsonResponse({ ok: false, error: 'Unmatched deposit not found' }, 404);
+    if (deposit.status !== 'pending') {
+      return jsonResponse({ ok: false, error: 'Unmatched deposit already resolved' }, 409);
+    }
+
+    if (resolution === 'rejected') {
+      const updated = await db.query('unmatched_deposits', 'patch', {
+        filters: { id: deposit.id, status: 'pending' },
+        body: {
+          status: 'rejected',
+          resolution_note: note == null ? 'Rejected by admin' : String(note),
+          resolved_by: 'admin',
+          resolved_at: new Date().toISOString(),
+        },
+      });
+      return jsonResponse({ ok: true, status: 'rejected', deposit: Array.isArray(updated) ? updated[0] : deposit });
+    }
+
+    let resolvedUserId = user_id == null ? '' : String(user_id).trim();
+    if (code != null && String(code).trim()) {
+      const codeRows = await db.query('deposit_codes', 'select', {
+        filters: { code: String(code).trim() },
+        limit: 1,
+      });
+      resolvedUserId = Array.isArray(codeRows) ? String(codeRows[0]?.user_id || '') : '';
+    }
+    if (!resolvedUserId) {
+      return jsonResponse({ ok: false, error: 'A valid deposit code or user_id is required' }, 400);
+    }
+
+    // All amount, source, comment and hash values come from the stored chain
+    // evidence. credit_ton_deposit locks the queue row and checks them again.
+    const rawResult = await db.rpc('credit_ton_deposit', {
+      p_user_id: resolvedUserId,
+      p_tx_hash: deposit.tx_hash,
+      p_from_address: deposit.from_address,
+      p_amount: deposit.amount,
+      p_comment: deposit.comment,
+      p_tx_timestamp: deposit.tx_timestamp,
+      p_unmatched_id: deposit.id,
+    });
+    const result = rpcObject(rawResult);
+    return jsonResponse(result || { ok: false, error: 'Deposit credit failed' }, result?.ok ? 200 : 400);
+  }
+
   return jsonResponse({ ok: false, error: 'Not found' }, 404);
 }
 
@@ -1245,8 +1487,9 @@ async function handleMissions(request, env) {
   const completed = (Array.isArray(done) ? done : [])
     .filter((d) => (d.period || '') === currentPeriod(byId.get(d.mission_id)?.repeat || 'once'))
     .map((d) => d.mission_id);
-  // v3.3: misiones manuales en revision (First Deposit): se muestran como
-  // "Under review" en vez del boton de verify.
+  // Las misiones automáticas (First Deposit) no generan solicitudes: el cron
+  // las completa dentro del RPC de depósito. `pending` queda reservado para
+  // acciones realmente manuales, como compartir en una historia.
   const pendingRows = await db.query('user_social_missions', 'select', {
     filters: { user_id: tgId, status: 'pending' },
   });
@@ -1315,9 +1558,17 @@ async function handleVerifyMission(request, env) {
     if (current < goal) {
       return jsonResponse({ ok: false, error: 'Progress not complete', current, goal }, 400);
     }
+  } else if (mission.verify === 'automatic' || mission.verify === 'deposit') {
+    // First Deposit se revisa dentro de credit_ton_deposit: el hash, el
+    // comentario DEP y el monto quedan validados en la misma transacción que
+    // acredita GRAM. Nunca se crea una solicitud manual desde la UI.
+    return jsonResponse({
+      ok: false,
+      error: 'Automatic review is handled by the wallet deposit scanner',
+    }, 400);
   } else if (mission.verify === 'manual') {
-    // v3.3: mision de revision humana (First Deposit). Se crea la solicitud y
-    // el admin la aprueba cuando ve el deposito; aca no se paga nada todavia.
+    // Las acciones que no se pueden comprobar automáticamente (por ejemplo,
+    // compartir una historia) sí crean una solicitud para el admin.
     const req = await db.rpc('request_manual_mission', {
       p_user_id: tgId,
       p_mission_id: missionId,
@@ -1384,6 +1635,8 @@ export default {
           case '/admin/missions/reject':
           case '/admin/withdrawals/list':
           case '/admin/withdrawals/resolve':
+          case '/admin/deposits/list':
+          case '/admin/deposits/resolve':
             return await handleAdmin(request, env, path);
         }
       }
@@ -1403,7 +1656,7 @@ export default {
           // misiones reales (progress/manual) y cola admin. Sirve para
           // verificar EN VIVO que el Worker corre el codigo nuevo: si /health
           // devuelve una version menor, el deploy no se hizo.
-          version: '3.8',
+          version: '3.9',
           treasury: CONFIG.TREASURY_WALLET,
           env: {
             BOT_TOKEN: Boolean(env.BOT_TOKEN),
@@ -1442,5 +1695,19 @@ export default {
         }
       );
     }
+  },
+
+  async scheduled(controller, env, ctx) {
+    const sweep = runTonDepositSweep(env)
+      .then((summary) => {
+        console.log('TON deposit sweep completed', summary);
+        return summary;
+      })
+      .catch((error) => {
+        console.error('TON deposit sweep failed', error);
+        throw error;
+      });
+    if (ctx?.waitUntil) return ctx.waitUntil(sweep);
+    return sweep;
   },
 };

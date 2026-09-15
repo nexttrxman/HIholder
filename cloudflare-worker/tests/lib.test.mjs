@@ -15,6 +15,7 @@ import {
   decodeTonComment,
   normalizeTonAddress,
   findValidTonPayment,
+  fetchTreasuryTransactions,
   generateClaimId,
   resolvePendingClaim,
   resolveAuthCycle,
@@ -82,6 +83,24 @@ test('decodeTonComment: returns "" on bad base64', () => {
   // we don't throw.
   const out = decodeTonComment(inMsg);
   assert.equal(typeof out, 'string');
+});
+
+test('fetchTreasuryTransactions: sends the TonCenter API key header', async () => {
+  let request;
+  const txs = await fetchTreasuryTransactions({
+    treasury: CONFIG.TREASURY_WALLET,
+    tonApiKey: 'secret-key',
+    fetchImpl: async (url, init) => {
+      request = { url: String(url), init };
+      return new Response(JSON.stringify({ ok: true, result: [] }), {
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+
+  assert.deepEqual(txs, []);
+  assert.equal(request.init.headers['X-API-Key'], 'secret-key');
+  assert.equal(new URL(request.url).searchParams.has('api_key'), false);
 });
 
 // ============================================

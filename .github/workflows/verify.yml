@@ -46,5 +46,5 @@ jobs:
           node-version: 22
 
       # node --test on a directory does not work; list the files.
-      - name: Tests (51 — trade maths, levels, routes)
-        run: node --test tests/lib.test.mjs tests/trade.test.mjs
+      - name: Tests (trade maths, routes and TON MEMO deposits)
+        run: node --test tests/lib.test.mjs tests/trade.test.mjs tests/ton-deposit.test.mjs tests/health.test.mjs tests/auth-route.test.mjs

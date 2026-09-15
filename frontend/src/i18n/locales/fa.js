@@ -168,8 +168,6 @@ export default {
   'Confirm close': 'تأیید بستن',
   'The position closes automatically when the price reaches either level. Prices are checked every few seconds, so a fast move can fill slightly past the level.': 'پوزیشن به‌طور خودکار با رسیدن قیمت به هر یک از دو سطح بسته می‌شود. قیمت‌ها هر چند ثانیه بررسی می‌شوند، بنابراین حرکت سریع ممکن است کمی فراتر از سطح انجام شود.',
   'Trading involves risk — you may lose your funds. Trade carefully.': 'معامله‌گری ریسک دارد و ممکن است سرمایه‌تان را از دست بدهید. با احتیاط عمل کنید.',
-  'Without the MEMO, your deposit cannot be credited to your account.': 'بدون MEMO، واریز شما به حسابتان اضافه نمی‌شود.',
-  'Only send TRX or USDT (TRC-20) to this address. Include your MEMO to identify your deposit.': 'فقط TRX یا USDT (TRC-20) به این آدرس بفرستید. MEMO خود را برای شناسایی واریز درج کنید.',
   'Important': 'مهم',
   'Note:': 'توجه:',
   'Confirm Withdrawal': 'تأیید برداشت',
@@ -211,7 +209,26 @@ export default {
   'Internal transfers are coming soon.': 'انتقال‌های داخلی به‌زودی اضافه می‌شوند.',
   'Under review': 'در حال بررسی',
   'Earn USDT + KEEP': 'USDT + KEEP کسب کنید',
+  'Automatic review': 'بررسی خودکار',
   'Request review': 'درخواست بررسی',
   'Share on Telegram': 'اشتراک‌گذاری در تلگرام',
   'Weekly bonus': 'پاداش هفتگی',
+
+  // Depósitos TON por código MEMO
+  'Only send GRAM (ex TON) to this address. Sending another asset or network can permanently lose your funds.': 'فقط GRAM (ex TON) را به این آدرس ارسال کنید. ارسال دارایی دیگر یا از شبکه\u200cای دیگر ممکن است باعث از دست رفتن دائمی سرمایه شود.',
+  'GRAM (ex TON) Treasury Address': 'آدرس خزانه GRAM (ex TON)',
+  'Your deposit code': 'کد واریز شما',
+  'Send at least': 'حداقل ارسال کنید',
+  'and enter this exact comment:': 'و این توضیح را دقیق وارد کنید:',
+  'The automatic scanner checks the GRAM (ex TON) treasury every two minutes. Deposits with a different comment are held for admin review.': 'اسکنر خودکار خزانه GRAM (ex TON) را هر دو دقیقه بررسی می\u200cکند. واریزهایی با توضیح متفاوت برای بررسی مدیر نگه داشته می\u200cشوند.',
+
+  // Cola de depósitos TON para el administrador
+  'No pending deposits': 'واریز معلقی وجود ندارد',
+  'Chain evidence': 'مدرک زنجیره',
+  'Credit deposit': 'واریز کردن سپرده',
+  'Reject deposit': 'رد سپرده',
+  'Deposit code for this user:': 'کد واریز این کاربر:',
+
+  'Rejected deposit': 'واریز رد شد',
+
 };
