@@ -8,7 +8,8 @@
 -- Que hace:
 --   1. social_missions.share_text: texto para el boton "Share on Telegram".
 --   2. request/approve/reject manuales ahora respetan `repeat` (weekly/daily),
---      no solo 'once'. Retrocompatible con First Deposit.
+--      no solo 'once'. First Deposit queda fuera de la cola manual en la
+--      configuración canónica y se acredita desde la wallet.
 --   3. Mision tg_share: compartir en Telegram, 0.20 USDT + 500 KEEP, semanal,
 --      aprobacion manual.
 --
@@ -98,6 +99,9 @@ BEGIN
   END IF;
 
   SELECT * INTO v_mission FROM social_missions WHERE id = p_mission_id;
+  IF v_mission.verify <> 'manual' THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'Mission is automatic');
+  END IF;
 
   v_keep := CASE WHEN v_row.reward_keep > 0 THEN v_row.reward_keep
                  ELSE 500 + floor(random() * 701)::int END;

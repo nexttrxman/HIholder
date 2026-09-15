@@ -108,24 +108,45 @@ async function seedUser(balance = 0) {
   return id;
 }
 
-// ---- 2) depósitos TON por código MEMO -----------------------------------
+// ---- 2) depósitos GRAM (TON) por código MEMO -----------------------------
 {
   const u = await seedUser(0);
   await q(`INSERT INTO deposit_codes (user_id, code) VALUES ($1, 'DEP:ABC123')`, [u]);
-  const first = (await one(`SELECT credit_ton_deposit($1,$2,$3,$4,$5,NOW(),NULL) AS r`,
-    [u, 'TON_HASH_1', '0:sender', 0.25, 'DEP:ABC123'])).r;
-  eq('TON deposit: acredita', first.ok, true);
-  near('TON deposit: ton_balance',
+
+  // Un depósito menor que el umbral de la misión sigue acreditándose en GRAM;
+  // la condición de First Deposit es independiente del mínimo general.
+  const small = (await one(`SELECT credit_ton_deposit($1,$2,$3,$4,$5,NOW(),NULL) AS r`,
+    [u, 'GRAM_HASH_SMALL', '0:sender', 0.25, 'DEP:ABC123'])).r;
+  eq('GRAM deposit: acredita 0.25', small.ok, true);
+  near('GRAM deposit: ton_balance conserva el valor nativo',
     (await one(`SELECT ton_balance FROM internal_wallets WHERE user_id=$1`, [u])).ton_balance,
     0.25, 0.000001);
-  eq('TON deposit: First Deposit autoaprobado',
+  eq('GRAM deposit: 0.25 no completa First Deposit',
+    (await one(`SELECT count(*)::int n FROM user_social_missions
+      WHERE user_id=$1 AND mission_id='first_deposit'`, [u])).n,
+    0);
+
+  const first = (await one(`SELECT credit_ton_deposit($1,$2,$3,$4,$5,NOW(),NULL) AS r`,
+    [u, 'GRAM_HASH_1', '0:sender', 1, 'DEP:ABC123'])).r;
+  eq('GRAM deposit: 1 completa First Deposit automáticamente', first.first_deposit_credited, true);
+  near('GRAM deposit: balance acumulado sin convertir a USDT',
+    (await one(`SELECT ton_balance FROM internal_wallets WHERE user_id=$1`, [u])).ton_balance,
+    1.25, 0.000001);
+  eq('First Deposit automático queda paid',
     (await one(`SELECT status FROM user_social_missions WHERE user_id=$1 AND mission_id='first_deposit'`, [u])).status,
     'paid');
+  near('First Deposit automático acredita 1 USDT',
+    (await one(`SELECT usdt_balance FROM internal_wallets WHERE user_id=$1`, [u])).usdt_balance,
+    1, 0.000001);
+  near('First Deposit automático acredita 3000 KEEP',
+    (await one(`SELECT keep_balance FROM internal_wallets WHERE user_id=$1`, [u])).keep_balance,
+    3000, 0.000001);
+
   const second = (await one(`SELECT credit_ton_deposit($1,$2,$3,$4,$5,NOW(),NULL) AS r`,
-    [u, 'TON_HASH_1', '0:sender', 0.25, 'DEP:ABC123'])).r;
-  eq('TON deposit: mismo hash es idempotente', second.already_credited, true);
-  eq('TON deposit: un solo ledger de depósito',
-    (await one(`SELECT count(*)::int n FROM wallet_ledger WHERE user_id=$1 AND reference_id='TON_HASH_1' AND asset='TON'`, [u])).n,
+    [u, 'GRAM_HASH_1', '0:sender', 1, 'DEP:ABC123'])).r;
+  eq('GRAM deposit: mismo hash es idempotente', second.already_credited, true);
+  eq('GRAM deposit: un solo ledger de depósito',
+    (await one(`SELECT count(*)::int n FROM wallet_ledger WHERE user_id=$1 AND reference_id='GRAM_HASH_1' AND asset='TON'`, [u])).n,
     1);
 }
 

@@ -209,17 +209,18 @@ export default {
   'Internal transfers are coming soon.': 'As transferências internas chegam em breve.',
   'Under review': 'Em análise',
   'Earn USDT + KEEP': 'Ganhe USDT + KEEP',
+  'Automatic review': 'Revisão automática',
   'Request review': 'Solicitar análise',
   'Share on Telegram': 'Compartilhar no Telegram',
   'Weekly bonus': 'Bônus semanal',
 
   // Depósitos TON por código MEMO
-  'Only send TON to this address. Sending another asset or network can permanently lose your funds.': 'Envie apenas TON para este endereço. Enviar outro ativo ou rede pode causar a perda permanente dos seus fundos.',
-  'TON Treasury Address': 'Endereço da tesouraria TON',
+  'Only send GRAM (ex TON) to this address. Sending another asset or network can permanently lose your funds.': 'Envie apenas GRAM (ex TON) para este endereço. Enviar outro ativo ou rede pode causar a perda permanente dos seus fundos.',
+  'GRAM (ex TON) Treasury Address': 'Endereço da tesouraria GRAM (ex TON)',
   'Your deposit code': 'Seu código de depósito',
   'Send at least': 'Envie pelo menos',
   'and enter this exact comment:': 'e informe exatamente este comentário:',
-  'The automatic scanner checks the TON treasury every two minutes. Deposits with a different comment are held for admin review.': 'O scanner automático verifica a tesouraria TON a cada dois minutos. Depósitos com outro comentário ficam aguardando análise administrativa.',
+  'The automatic scanner checks the GRAM (ex TON) treasury every two minutes. Deposits with a different comment are held for admin review.': 'O scanner automático verifica a tesouraria GRAM (ex TON) a cada dois minutos. Depósitos com outro comentário ficam aguardando análise administrativa.',
 
   // Cola de depósitos TON para el administrador
   'No pending deposits': 'Nenhum depósito pendente',

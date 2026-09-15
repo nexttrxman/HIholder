@@ -19,12 +19,13 @@ export function BalanceCard({
   showActions = true
 }) {
   const isUSDT = asset === 'USDT';
-  const color = isUSDT ? 'brand-green' : 'brand-red';
   // El halo del icono por activo, con clases LITERALES: Tailwind no genera las
   // dinamicas (bg-${x}/10 no existe en el CSS si no aparece escrita en algun .jsx).
   const haloClass =
     asset === 'USDT' ? 'bg-brand-green/10' : asset === 'TRX' ? 'bg-brand-red/10' : 'bg-brand-gold/10';
   const low = asset.toLowerCase();
+  const numericAmount = Number(amount);
+  const displayAmount = Number.isFinite(numericAmount) ? numericAmount : 0;
   const [hintOpen, setHintOpen] = useState(false);
 
   // El circulito no puede ser un <button> adentro del Send: un botón anidado es
@@ -58,8 +59,8 @@ export function BalanceCard({
           <div>
             <p className="sys-label">{label || asset}</p>
             <p className="text-2xl font-bold text-white mt-1">
-              {isUSDT ? '$' : ''}{amount.toFixed(2)}
-              {!isUSDT && <span className="text-sm text-white/40 ml-1">{'$' + asset}</span>}
+              {isUSDT ? '$' : ''}{displayAmount.toFixed(2)}
+              {!isUSDT && <span className="text-sm text-white/40 ml-1">{asset}</span>}
             </p>
           </div>
         </div>

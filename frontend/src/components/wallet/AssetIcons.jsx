@@ -54,6 +54,25 @@ export function TrxIcon({ className = 'w-6 h-6', ...props }) {
   );
 }
 
+/** GRAM — nombre visual de TON dentro de la wallet. */
+export function GramIcon({ className = 'w-6 h-6', ...props }) {
+  return (
+    <svg
+      viewBox="0 0 64 64"
+      className={className}
+      role="img"
+      aria-label="GRAM"
+      {...props}
+    >
+      <circle cx="32" cy="32" r="32" fill="#0098EA" />
+      <path
+        fill="#fff"
+        d="M18 18h28v7H25v14h14v-4h-7v-6h14v17H18V18Z"
+      />
+    </svg>
+  );
+}
+
 /** $KEEP — token propio del proyecto. El asset oficial vive en Pages /keep-logo.jpg. */
 export function KeepIcon({ className = 'w-6 h-6', ...props }) {
   return (
@@ -70,6 +89,7 @@ export function KeepIcon({ className = 'w-6 h-6', ...props }) {
 
 export const ASSET_ICONS = {
   USDT: UsdtIcon,
+  GRAM: GramIcon,
   TRX: TrxIcon,
   KEEP: KeepIcon,
 };

@@ -7,9 +7,10 @@ import { useWallet } from '@/contexts/WalletContext';
 
 // Misiones (v3.1 Telegram, v3.3 reales). La verificacion la hace SIEMPRE el
 // Worker: Telegram (getChatMember), progreso (holds/referidos/ganancias en la
-// base) o revision manual (First Deposit: el usuario pide y el admin aprueba).
-// Los titulos, descripciones y premios vienen de social_missions: agregar una
-// mision de Telegram es un INSERT, no un deploy.
+// base), revisión automática desde la wallet (First Deposit) o revisión manual
+// solo para acciones que no se pueden comprobar en cadena. Los títulos,
+// descripciones y premios vienen de social_missions: agregar una misión de
+// Telegram es un INSERT, no un deploy.
 
 const REPEAT_LABEL = { daily: 'Daily', weekly: 'Weekly' };
 
@@ -24,7 +25,10 @@ function rewardLabel(mission, keepMin, keepMax) {
 function SocialMissionCard({ mission, done, pending, keepMin, keepMax, onVerified, index }) {
   const { vibrate } = useTelegram();
   const { uid } = useWallet();
-  const [state, setState] = useState(done ? 'done' : pending ? 'pending' : 'idle');
+  const isAutomatic = mission.verify === 'automatic' || mission.verify === 'deposit';
+  const [state, setState] = useState(
+    done ? 'done' : pending ? 'pending' : isAutomatic ? 'automatic' : 'idle'
+  );
   const [error, setError] = useState(null);
 
   const isProgress = mission.verify === 'progress';
@@ -33,7 +37,7 @@ function SocialMissionCard({ mission, done, pending, keepMin, keepMax, onVerifie
   const progressReady = !isProgress || current >= goal;
 
   const handleVerify = async () => {
-    if (state === 'done' || state === 'pending' || state === 'verifying') return;
+    if (isAutomatic || state === 'done' || state === 'pending' || state === 'verifying') return;
     if (isProgress && !progressReady) return;
     setState('verifying');
     setError(null);
@@ -69,9 +73,11 @@ function SocialMissionCard({ mission, done, pending, keepMin, keepMax, onVerifie
 
   const buttonLabel = mission.share_text
     ? 'Share on Telegram'
-    : mission.verify === 'manual'
-      ? 'Request review'
-      : 'Verify';
+    : isAutomatic
+      ? 'Automatic review'
+      : mission.verify === 'manual'
+        ? 'Request review'
+        : 'Verify';
 
   return (
     <motion.div
@@ -88,7 +94,7 @@ function SocialMissionCard({ mission, done, pending, keepMin, keepMax, onVerifie
           }`}>
             {state === 'done' ? (
               <Check className="w-5 h-5 text-brand-green" />
-            ) : state === 'pending' ? (
+            ) : state === 'pending' || state === 'automatic' ? (
               <Clock className="w-5 h-5 text-brand-gold" />
             ) : (
               <Megaphone className="w-5 h-5 text-white/40" />
@@ -131,16 +137,18 @@ function SocialMissionCard({ mission, done, pending, keepMin, keepMax, onVerifie
           <button
             type="button"
             onClick={handleVerify}
-            disabled={state === 'done' || state === 'pending' || state === 'verifying' || (isProgress && !progressReady)}
+            disabled={isAutomatic || state === 'done' || state === 'pending' || state === 'verifying' || (isProgress && !progressReady)}
             data-testid={`verify-${mission.id}`}
             className={`px-4 py-2 rounded-xl text-sm font-medium transition-all flex items-center gap-2 ${
               state === 'done'
                 ? 'bg-brand-green/20 text-brand-green cursor-default'
                 : state === 'pending'
                   ? 'bg-brand-gold/15 text-brand-gold cursor-default'
-                  : isProgress && !progressReady
-                    ? 'bg-white/5 text-ink-dim cursor-not-allowed'
-                    : 'bg-brand-teal text-black hover:bg-brand-teal/90 active:scale-95'
+                  : isAutomatic
+                    ? 'bg-white/5 text-brand-gold cursor-default'
+                    : isProgress && !progressReady
+                      ? 'bg-white/5 text-ink-dim cursor-not-allowed'
+                      : 'bg-brand-teal text-black hover:bg-brand-teal/90 active:scale-95'
             }`}
           >
             {state === 'verifying' ? (

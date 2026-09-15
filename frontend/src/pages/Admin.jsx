@@ -15,10 +15,11 @@ import {
 // secreto ADMIN_TOKEN del Worker (header x-admin-token). El token se guarda en
 // sessionStorage: al cerrar la pestana hay que volver a ponerlo.
 //
-// Dos colas manuales:
-//   1. Misiones de revision humana (First Deposit): el usuario pidio el premio
-//      y aca se aprueba (paga 1 USDT + 3000 KEEP) o se rechaza.
-//   2. Retiros pendientes: se pagan on-chain a mano y aca se marca paid/rejected.
+// Dos colas:
+//   1. Acciones que todavía requieren revisión humana (por ejemplo, compartir
+//      una historia). First Deposit ya no entra acá: el cron la revisa desde la
+//      wallet y acredita 1 USDT + 3000 KEEP automáticamente.
+//   2. Retiros pendientes: se pagan on-chain a mano y acá se marca paid/rejected.
 
 const TOKEN_KEY = 'tk_admin_token_v1';
 
@@ -259,7 +260,7 @@ export function AdminPage() {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 space-y-1">
                   <p className="text-sm font-semibold text-white">
-                    {Number(d.amount)} TON
+                    {Number(d.amount)} GRAM
                     <span className="text-white/40 font-normal text-xs"> · {d.status}</span>
                   </p>
                   <p className="text-[10px] text-white/35">Chain evidence</p>
@@ -278,7 +279,7 @@ export function AdminPage() {
                       if (!code) return;
                       act(
                         () => adminResolveDeposit(token, d.id, 'credited', { code: code.trim() }),
-                        `Credited ${d.amount} TON`
+                        `Credited ${d.amount} GRAM`
                       );
                     }}
                     data-testid={`deposit-credit-${d.id}`}

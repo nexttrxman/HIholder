@@ -209,17 +209,18 @@ export default {
   'Internal transfers are coming soon.': 'Внутренние переводы скоро появятся.',
   'Under review': 'На проверке',
   'Earn USDT + KEEP': 'Зарабатывайте USDT + KEEP',
+  'Automatic review': 'Автоматическая проверка',
   'Request review': 'Запросить проверку',
   'Share on Telegram': 'Поделиться в Telegram',
   'Weekly bonus': 'Недельный бонус',
 
   // Depósitos TON por código MEMO
-  'Only send TON to this address. Sending another asset or network can permanently lose your funds.': 'Отправляйте на этот адрес только TON. Отправка другого актива или через другую сеть может привести к безвозвратной потере средств.',
-  'TON Treasury Address': 'Адрес TON-казначейства',
+  'Only send GRAM (ex TON) to this address. Sending another asset or network can permanently lose your funds.': 'Отправляйте на этот адрес только GRAM (ex TON). Отправка другого актива или через другую сеть может привести к безвозвратной потере средств.',
+  'GRAM (ex TON) Treasury Address': 'Адрес GRAM (ex TON)-казначейства',
   'Your deposit code': 'Ваш код депозита',
   'Send at least': 'Отправьте не менее',
   'and enter this exact comment:': 'и укажите этот комментарий точно:',
-  'The automatic scanner checks the TON treasury every two minutes. Deposits with a different comment are held for admin review.': 'Автоматический сканер проверяет TON-казначейство каждые две минуты. Депозиты с другим комментарием отправляются на проверку администратору.',
+  'The automatic scanner checks the GRAM (ex TON) treasury every two minutes. Deposits with a different comment are held for admin review.': 'Автоматический сканер проверяет TON-казначейство каждые две минуты. Депозиты с другим комментарием отправляются на проверку администратору.',
 
   // Cola de depósitos TON para el administrador
   'No pending deposits': 'Нет ожидающих депозитов',

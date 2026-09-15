@@ -209,17 +209,18 @@ export default {
   'Internal transfers are coming soon.': '内部转账即将推出。',
   'Under review': '审核中',
   'Earn USDT + KEEP': '赚取 USDT + KEEP',
+  'Automatic review': '自动审核',
   'Request review': '申请审核',
   'Share on Telegram': '在 Telegram 上分享',
   'Weekly bonus': '每周奖金',
 
   // Depósitos TON por código MEMO
-  'Only send TON to this address. Sending another asset or network can permanently lose your funds.': '请仅向此地址发送 TON。发送其他资产或使用其他网络可能导致资金永久丢失。',
-  'TON Treasury Address': 'TON 财库地址',
+  'Only send GRAM (ex TON) to this address. Sending another asset or network can permanently lose your funds.': '请仅向此地址发送 TON。发送其他资产或使用其他网络可能导致资金永久丢失。',
+  'GRAM (ex TON) Treasury Address': 'GRAM (ex TON) 财库地址',
   'Your deposit code': '您的充值代码',
   'Send at least': '请至少发送',
   'and enter this exact comment:': '并准确填写此备注：',
-  'The automatic scanner checks the TON treasury every two minutes. Deposits with a different comment are held for admin review.': '自动扫描器每两分钟检查 TON 财库。备注不同的充值会交由管理员审核。',
+  'The automatic scanner checks the GRAM (ex TON) treasury every two minutes. Deposits with a different comment are held for admin review.': '自动扫描器每两分钟检查 GRAM (ex TON) 财库。备注不同的充值会交由管理员审核。',
 
   // Cola de depósitos TON para el administrador
   'No pending deposits': '没有待处理的充值',

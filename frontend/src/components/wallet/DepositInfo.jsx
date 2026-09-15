@@ -24,12 +24,12 @@ export function DepositInfo({ onClose }) {
         <AlertTriangle className="w-5 h-5 text-brand-red flex-shrink-0 mt-0.5" />
         <div className="text-xs text-white/70">
           <p className="font-semibold text-brand-red mb-1">Important</p>
-          <p>Only send TON to this address. Sending another asset or network can permanently lose your funds.</p>
+          <p>Only send GRAM (ex TON) to this address. Sending another asset or network can permanently lose your funds.</p>
         </div>
       </div>
 
       <div className="mb-4" data-testid="deposit-address">
-        <label className="sys-label mb-2 block">TON Treasury Address</label>
+        <label className="sys-label mb-2 block">GRAM (ex TON) Treasury Address</label>
         <div className="flex items-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10">
           <code className="text-xs text-brand-green flex-1 break-all font-mono">
             {depositInfo.address}
@@ -58,7 +58,7 @@ export function DepositInfo({ onClose }) {
           Send at least {depositInfo.minimum} and enter this exact comment: <strong className="text-white">{depositInfo.code}</strong>
         </p>
         <p className="text-xs text-white/45 mt-2 leading-relaxed">
-          The automatic scanner checks the TON treasury every two minutes. Deposits with a different comment are held for admin review.
+          The automatic scanner checks the GRAM (ex TON) treasury every two minutes. Deposits with a different comment are held for admin review.
         </p>
       </div>
 

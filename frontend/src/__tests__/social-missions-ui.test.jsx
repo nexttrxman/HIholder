@@ -98,8 +98,8 @@ describe('Misiones sociales (UI)', () => {
 describe('Misiones v3.3 (UI)', () => {
   const FIRST_DEPOSIT = {
     id: 'first_deposit', platform: 'app', title: 'First Deposit',
-    description: 'Make your first TON deposit (minimum 0.1 TON).', url: '',
-    reward: 1, verify: 'manual',
+    description: 'Make your first deposit (min 1GRAM or 1 USDT). (review automatico con la wallet)', url: '',
+    reward: 1, verify: 'automatic',
     reward_keep: 3000, repeat: 'once', goal: null, progress_type: null, current: null,
   };
   const DAILY_HOLD = {
@@ -109,34 +109,18 @@ describe('Misiones v3.3 (UI)', () => {
     reward_keep: null, repeat: 'daily', goal: 3, progress_type: 'holds_today', current: 1,
   };
 
-  it('KEEP fijo por mision: First Deposit muestra +3,000 KEEP y sin link', async () => {
+  it('First Deposit muestra descripcion exacta, premio fijo y revision automatica', async () => {
     api.getSocialMissions.mockResolvedValue({ ...MISSIONS, missions: [FIRST_DEPOSIT] });
     render(<SocialMissions />);
     await waitFor(() => expect(screen.getByTestId('social-mission-first_deposit')).toBeTruthy());
+    expect(screen.getByText(FIRST_DEPOSIT.description)).toBeTruthy();
     expect(screen.getByTestId('reward-first_deposit').textContent)
       .toBe('+$1.00 USDT · +3,000 KEEP');
-    // Sin url no hay boton de abrir.
+    // Sin url no hay boton de abrir y la wallet controla la revision.
     expect(screen.queryByTestId('open-first_deposit')).toBeNull();
-    expect(screen.getByTestId('verify-first_deposit').textContent).toContain('Request review');
-  });
-
-  it('mision manual: al pedir queda Under review', async () => {
-    api.getSocialMissions.mockResolvedValue({ ...MISSIONS, missions: [FIRST_DEPOSIT] });
-    api.verifySocialMission.mockResolvedValue({ ok: true, pending: true });
-    render(<SocialMissions />);
-    await waitFor(() => expect(screen.getByTestId('verify-first_deposit')).toBeTruthy());
-
-    fireEvent.click(screen.getByTestId('verify-first_deposit'));
-    await waitFor(() => expect(screen.getByTestId('verify-first_deposit')).toHaveTextContent('Under review'));
+    expect(screen.getByTestId('verify-first_deposit').textContent).toContain('Automatic review');
     expect(screen.getByTestId('verify-first_deposit')).toBeDisabled();
-  });
-
-  it('mision manual ya pedida arranca en Under review', async () => {
-    api.getSocialMissions.mockResolvedValue({
-      ...MISSIONS, missions: [FIRST_DEPOSIT], pending: ['first_deposit'],
-    });
-    render(<SocialMissions />);
-    await waitFor(() => expect(screen.getByTestId('verify-first_deposit')).toHaveTextContent('Under review'));
+    expect(api.verifySocialMission).not.toHaveBeenCalled();
   });
 
   it('mision de progreso: barra 1/3 y boton deshabilitado hasta la meta', async () => {

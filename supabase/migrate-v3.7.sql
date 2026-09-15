@@ -213,10 +213,11 @@ BEGIN
     'TON deposit matched by MEMO'
   );
 
-  -- El primer ingreso valida y paga First Deposit automáticamente. Si el
-  -- usuario ya había creado una solicitud manual, se transforma en paid sin
-  -- volver a pagarla.
-  SELECT * INTO v_mission
+  -- El depósito siempre conserva su valor en GRAM (ton_balance). Solo un
+  -- primer ingreso de al menos 1 GRAM puede completar First Deposit; un
+  -- ingreso menor sigue siendo válido para la wallet, pero no cobra la misión.
+  IF p_amount >= 1 THEN
+    SELECT * INTO v_mission
   FROM social_missions
   WHERE id = 'first_deposit' AND enabled
   FOR SHARE;
@@ -279,6 +280,7 @@ BEGIN
       END IF;
       v_first_deposit := TRUE;
     END IF;
+    END IF;
   END IF;
 
   IF p_unmatched_id IS NOT NULL THEN
@@ -329,3 +331,32 @@ BEGIN
     ) TO service_role;
   END IF;
 END $$;
+
+-- =====================================================================
+-- v3.7 canonical mission sync: GRAM wallet review and weekly referrals
+-- =====================================================================
+-- v3.3 is the source seed for new databases; this idempotent sync also fixes
+-- installations that already ran v3.3 before the GRAM rename.
+ALTER TABLE social_missions DROP CONSTRAINT IF EXISTS social_missions_verify_check;
+ALTER TABLE social_missions ADD CONSTRAINT social_missions_verify_check
+  CHECK (verify IN ('telegram_member', 'honor', 'manual', 'automatic', 'progress'));
+
+UPDATE social_missions
+SET description = 'Make your first deposit (min 1GRAM or 1 USDT). (review automatico con la wallet)',
+    reward_usdt = 1.00,
+    verify = 'automatic',
+    reward_keep = 3000,
+    repeat = 'once',
+    goal = NULL,
+    progress_type = NULL
+WHERE id = 'first_deposit';
+
+UPDATE social_missions
+SET description = 'Invite 5 friends this week.',
+    reward_usdt = 2.50,
+    reward_keep = 5000,
+    verify = 'progress',
+    repeat = 'weekly',
+    goal = 5,
+    progress_type = 'referrals_week'
+WHERE id = 'weekly_referral';

@@ -691,9 +691,11 @@ export const getReferralPool = async () => {
 // CONSTANTS
 // ============================================
 export const DEPOSIT_INFO = {
-  network: 'TON',
+  // GRAM is the product name for the native TON balance. API/table names stay
+  // TON because the chain and existing records use that technical name.
+  network: 'GRAM (ex TON)',
   address: TREASURY_WALLET,
-  minimum: '0.1 TON',
+  minimum: '0.1 GRAM',
   comment_prefix: 'DEP:',
 };
 

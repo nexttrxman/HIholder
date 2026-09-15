@@ -82,9 +82,10 @@ check('social_missions: reward_keep/repeat/goal/progress_type',
   Number((await one(`SELECT count(*) c FROM information_schema.columns
     WHERE table_name='social_missions'
       AND column_name IN ('reward_keep','repeat','goal','progress_type')`)).c) === 4);
-check('verify acepta progress',
-  (await one(`SELECT pg_get_constraintdef(oid) d FROM pg_constraint
-    WHERE conname='social_missions_verify_check'`)).d.includes('progress'));
+const verifyDef = await one(`SELECT pg_get_constraintdef(oid) d FROM pg_constraint
+  WHERE conname='social_missions_verify_check'`);
+check('verify acepta automatic y progress',
+  verifyDef.d.includes('automatic') && verifyDef.d.includes('progress'), verifyDef.d);
 check('user_social_missions: period + status',
   Number((await one(`SELECT count(*) c FROM information_schema.columns
     WHERE table_name='user_social_missions' AND column_name IN ('period','status')`)).c) === 2);
@@ -98,19 +99,22 @@ check('funciones v3.3 presentes',
       'reject_mission_request','list_pending_mission_requests','mission_progress')`)).c) === 5);
 
 // Las 4 misiones nuevas, canonicas
-const m = (id) => one(`SELECT reward_usdt, reward_keep, verify, repeat, goal, progress_type, enabled
+const m = (id) => one(`SELECT description, reward_usdt, reward_keep, verify, repeat, goal, progress_type, enabled
   FROM social_missions WHERE id=$1`, [id]);
 const fd = await m('first_deposit');
-check('First Deposit: 1 USDT + 3000 KEEP, manual',
-  Number(fd.reward_usdt)===1 && fd.reward_keep===3000 && fd.verify==='manual' && fd.enabled===true,
+check('First Deposit: description exacta, 1 USDT + 3000 KEEP, automatic',
+  fd.description === 'Make your first deposit (min 1GRAM or 1 USDT). (review automatico con la wallet)'
+  && Number(fd.reward_usdt)===1 && fd.reward_keep===3000 && fd.verify==='automatic' && fd.enabled===true,
   JSON.stringify(fd));
 const dh = await m('daily_hold');
 check('Daily Holder: 0.10 USDT, diaria, 3 holds',
   Number(dh.reward_usdt)===0.1 && dh.repeat==='daily' && dh.goal===3 && dh.progress_type==='holds_today',
   JSON.stringify(dh));
 const wr = await m('weekly_referral');
-check('Social Butterfly: 0.50 USDT, semanal, 5 amigos',
-  Number(wr.reward_usdt)===0.5 && wr.repeat==='weekly' && wr.goal===5 && wr.progress_type==='referrals_week',
+check('Social ButterflyWeekly: description, 2.50 USDT + 5000 KEEP, semanal',
+  wr.description === 'Invite 5 friends this week.'
+  && Number(wr.reward_usdt)===2.5 && wr.reward_keep===5000
+  && wr.repeat==='weekly' && wr.goal===5 && wr.progress_type==='referrals_week',
   JSON.stringify(wr));
 const be = await m('big_earner');
 check('Big Earner: 2 USDT, unica, $10',
@@ -215,40 +219,18 @@ for (let i = 0; i < 12; i++) {
 check('claim de holds sigue con KEEP aleatorio (500-2500)',
   sorteos.size >= 2 && [...sorteos].every((k) => k >= 500 && k <= 2500), JSON.stringify([...sorteos]));
 
-// ---- Misiones: manual (First Deposit) ----
-const saldoFd0 = await one(`SELECT usdt_balance, keep_balance FROM internal_wallets WHERE user_id=$1`, [u]);
+// ---- First Deposit: no hay solicitud manual ------------------------------
 r = (await one(`SELECT complete_social_mission($1,'first_deposit') AS r`, [u])).r;
-check('complete directo de mision manual se rechaza', r.ok===false && r.error==='manual_review', JSON.stringify(r));
+check('complete directo de First Deposit automático se rechaza',
+  r.ok===false && r.error==='automatic_review', JSON.stringify(r));
 r = (await one(`SELECT request_manual_mission($1,'first_deposit') AS r`, [u])).r;
-check('solicitud manual creada', r.ok===true && r.pending===true, JSON.stringify(r));
-r = (await one(`SELECT complete_social_mission($1,'first_deposit') AS r`, [u])).r;
-check('complete jamas procesa misiones manuales (aun con solicitud)',
-  r.ok===false && r.error==='manual_review', JSON.stringify(r));
-const pend = await one(`SELECT count(*) c FROM list_pending_mission_requests() WHERE user_id=$1`, [u]);
-check('aparece en list_pending_mission_requests', Number(pend.c)===1);
-r = (await one(`SELECT approve_mission_request($1,'first_deposit') AS r`, [u])).r;
-check('aprobacion manual ok', r.ok===true && Number(r.reward)===1 && Number(r.keep_reward)===3000, JSON.stringify(r));
-const saldoFd1 = await one(`SELECT usdt_balance, keep_balance FROM internal_wallets WHERE user_id=$1`, [u]);
-check('First Deposit pago 1 USDT + 3000 KEEP',
-  Number(saldoFd1.usdt_balance) === Number(saldoFd0.usdt_balance) + 1
-  && Number(saldoFd1.keep_balance) === Number(saldoFd0.keep_balance) + 3000,
-  JSON.stringify(saldoFd1));
-r = (await one(`SELECT approve_mission_request($1,'first_deposit') AS r`, [u])).r;
-check('doble aprobacion se rechaza', r.ok===false);
-r = (await one(`SELECT request_manual_mission($1,'first_deposit') AS r`, [u])).r;
-check('ya cobrada: no se puede volver a pedir', r.ok===false && r.error==='already');
+check('First Deposit no crea solicitud manual',
+  r.ok===false && r.error==='Unknown mission', JSON.stringify(r));
 
-// Rechazo: otro usuario pide, se rechaza y puede volver a pedir
+// ---- Misiones de progreso ----
 const u2 = '99201';
 await c.query(`INSERT INTO users (telegram_id, uid) VALUES ($1,$1)`, [u2]);
 await c.query(`INSERT INTO internal_wallets (user_id, usdt_balance) VALUES ($1, 0)`, [u2]);
-await one(`SELECT request_manual_mission($1,'first_deposit') AS r`, [u2]);
-r = (await one(`SELECT reject_mission_request($1,'first_deposit') AS r`, [u2])).r;
-check('rechazo manual ok', r.ok===true);
-r = (await one(`SELECT request_manual_mission($1,'first_deposit') AS r`, [u2])).r;
-check('tras el rechazo puede volver a pedir', r.ok===true && r.pending===true);
-
-// ---- Misiones de progreso ----
 // 3 holds hoy para u2
 const cyc = await one(`INSERT INTO hold_cycles (user_id, ends_at) VALUES ($1, now() + interval '8 h') RETURNING id`, [u2]);
 for (let i = 1; i <= 3; i++) {
@@ -275,8 +257,9 @@ prog = (await one(`SELECT mission_progress($1) AS r`, [u2])).r;
 check('mission_progress: referrals_week = 2', Number(prog.referrals_week)===2, JSON.stringify(prog));
 check('mission_progress: hold_earnings = 6', Number(prog.hold_earnings)===6, JSON.stringify(prog));
 r = (await one(`SELECT complete_social_mission($1,'weekly_referral') AS r`, [u2])).r;
-check('Social Butterfly: periodo = semana ISO',
-  r.ok===true && /^\d{4}-W\d{2}$/.test(r.period), JSON.stringify(r));
+check('Social ButterflyWeekly: 2.50 USDT + 5000 KEEP y periodo ISO',
+  r.ok===true && Number(r.reward)===2.5 && Number(r.keep_reward)===5000
+  && /^\d{4}-W\d{2}$/.test(r.period), JSON.stringify(r));
 r = (await one(`SELECT complete_social_mission($1,'big_earner') AS r`, [u2])).r;
 check('Big Earner cobra (el Worker valida el progreso)', r.ok===true && Number(r.reward)===2, JSON.stringify(r));
 r = (await one(`SELECT complete_social_mission($1,'big_earner') AS r`, [u2])).r;

@@ -209,17 +209,18 @@ export default {
   'Internal transfers are coming soon.': 'التحويلات الداخلية قادمة قريبًا.',
   'Under review': 'قيد المراجعة',
   'Earn USDT + KEEP': 'اكسب USDT + KEEP',
+  'Automatic review': 'مراجعة تلقائية',
   'Request review': 'طلب مراجعة',
   'Share on Telegram': 'شارك على تيليجرام',
   'Weekly bonus': 'مكافأة الأسبوع',
 
   // Depósitos TON por código MEMO
-  'Only send TON to this address. Sending another asset or network can permanently lose your funds.': 'أرسل TON فقط إلى هذا العنوان. قد يؤدي إرسال أصل آخر أو استخدام شبكة أخرى إلى فقدان أموالك نهائيًا.',
-  'TON Treasury Address': 'عنوان خزينة TON',
+  'Only send GRAM (ex TON) to this address. Sending another asset or network can permanently lose your funds.': 'أرسل TON فقط إلى هذا العنوان. قد يؤدي إرسال أصل آخر أو استخدام شبكة أخرى إلى فقدان أموالك نهائيًا.',
+  'GRAM (ex TON) Treasury Address': 'عنوان خزينة TON',
   'Your deposit code': 'رمز إيداعك',
   'Send at least': 'أرسل ما لا يقل عن',
   'and enter this exact comment:': 'وأدخل هذا التعليق حرفيًا:',
-  'The automatic scanner checks the TON treasury every two minutes. Deposits with a different comment are held for admin review.': 'يفحص الماسح التلقائي خزينة TON كل دقيقتين. تُحتجز الإيداعات ذات التعليق المختلف لمراجعة المسؤول.',
+  'The automatic scanner checks the GRAM (ex TON) treasury every two minutes. Deposits with a different comment are held for admin review.': 'يفحص الماسح التلقائي خزينة TON كل دقيقتين. تُحتجز الإيداعات ذات التعليق المختلف لمراجعة المسؤول.',
 
   // Cola de depósitos TON para el administrador
   'No pending deposits': 'لا توجد إيداعات معلقة',

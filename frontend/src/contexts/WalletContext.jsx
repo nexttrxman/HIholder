@@ -52,6 +52,8 @@ export function WalletProvider({ children }) {
   // Balances (internal wallet)
   const [usdtBalance, setUsdtBalance] = useState(0);
   const [trxBalance, setTrxBalance] = useState(0);
+  // Internal storage/API name remains ton_balance; the Wallet renders this
+  // native balance as GRAM (the product name for TON), without conversion.
   const [tonBalance, setTonBalance] = useState(0);
   // $KEEP (v3.2): token propio, entra por misiones/check-in/claim y por compra.
   const [keepBalance, setKeepBalance] = useState(0);
@@ -86,7 +88,7 @@ export function WalletProvider({ children }) {
     [localTransactions, serverTransactions]
   );
 
-  // User identification and the per-account TON MEMO code.
+  // User identification and the per-account GRAM/TON MEMO code.
   const [uid, setUid] = useState(null);
   const [depositCode, setDepositCode] = useState(null);
 

@@ -209,17 +209,18 @@ export default {
   'Internal transfers are coming soon.': 'انتقال‌های داخلی به‌زودی اضافه می‌شوند.',
   'Under review': 'در حال بررسی',
   'Earn USDT + KEEP': 'USDT + KEEP کسب کنید',
+  'Automatic review': 'بررسی خودکار',
   'Request review': 'درخواست بررسی',
   'Share on Telegram': 'اشتراک‌گذاری در تلگرام',
   'Weekly bonus': 'پاداش هفتگی',
 
   // Depósitos TON por código MEMO
-  'Only send TON to this address. Sending another asset or network can permanently lose your funds.': 'فقط TON را به این آدرس ارسال کنید. ارسال دارایی دیگر یا از شبکه\u200cای دیگر ممکن است باعث از دست رفتن دائمی سرمایه شود.',
-  'TON Treasury Address': 'آدرس خزانه TON',
+  'Only send GRAM (ex TON) to this address. Sending another asset or network can permanently lose your funds.': 'فقط GRAM (ex TON) را به این آدرس ارسال کنید. ارسال دارایی دیگر یا از شبکه\u200cای دیگر ممکن است باعث از دست رفتن دائمی سرمایه شود.',
+  'GRAM (ex TON) Treasury Address': 'آدرس خزانه GRAM (ex TON)',
   'Your deposit code': 'کد واریز شما',
   'Send at least': 'حداقل ارسال کنید',
   'and enter this exact comment:': 'و این توضیح را دقیق وارد کنید:',
-  'The automatic scanner checks the TON treasury every two minutes. Deposits with a different comment are held for admin review.': 'اسکنر خودکار خزانه TON را هر دو دقیقه بررسی می\u200cکند. واریزهایی با توضیح متفاوت برای بررسی مدیر نگه داشته می\u200cشوند.',
+  'The automatic scanner checks the GRAM (ex TON) treasury every two minutes. Deposits with a different comment are held for admin review.': 'اسکنر خودکار خزانه GRAM (ex TON) را هر دو دقیقه بررسی می\u200cکند. واریزهایی با توضیح متفاوت برای بررسی مدیر نگه داشته می\u200cشوند.',
 
   // Cola de depósitos TON para el administrador
   'No pending deposits': 'واریز معلقی وجود ندارد',

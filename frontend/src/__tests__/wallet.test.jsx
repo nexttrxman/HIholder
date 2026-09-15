@@ -81,7 +81,7 @@ describe('Wallet — layout', () => {
     expect(screen.getByTestId('deposit-info')).toBeInTheDocument();
   });
 
-  it('muestra la treasury TON y el código individual copiable', async () => {
+  it('muestra la treasury GRAM (ex TON) y el código individual copiable', async () => {
     renderWallet();
     expect(await screen.findByTestId('deposit-code')).toBeInTheDocument();
     expect(screen.getByTestId('deposit-address')).toHaveTextContent(
@@ -103,6 +103,7 @@ describe('Wallet — layout', () => {
   it('tiene una sola tarjeta por activo — sin una segunda versión duplicada', () => {
     renderWallet();
     expect(screen.getByTestId('balance-card-usdt')).toBeInTheDocument();
+    expect(screen.getByTestId('balance-card-gram')).toBeInTheDocument();
     expect(screen.getByTestId('balance-card-trx')).toBeInTheDocument();
 
     // Los paneles de withdrawal del pie repetían las mismas tarjetas en otro

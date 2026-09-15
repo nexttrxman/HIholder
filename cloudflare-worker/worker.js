@@ -1477,8 +1477,9 @@ async function handleMissions(request, env) {
   const completed = (Array.isArray(done) ? done : [])
     .filter((d) => (d.period || '') === currentPeriod(byId.get(d.mission_id)?.repeat || 'once'))
     .map((d) => d.mission_id);
-  // v3.3: misiones manuales en revision (First Deposit): se muestran como
-  // "Under review" en vez del boton de verify.
+  // Las misiones automáticas (First Deposit) no generan solicitudes: el cron
+  // las completa dentro del RPC de depósito. `pending` queda reservado para
+  // acciones realmente manuales, como compartir en una historia.
   const pendingRows = await db.query('user_social_missions', 'select', {
     filters: { user_id: tgId, status: 'pending' },
   });
@@ -1547,9 +1548,17 @@ async function handleVerifyMission(request, env) {
     if (current < goal) {
       return jsonResponse({ ok: false, error: 'Progress not complete', current, goal }, 400);
     }
+  } else if (mission.verify === 'automatic' || mission.verify === 'deposit') {
+    // First Deposit se revisa dentro de credit_ton_deposit: el hash, el
+    // comentario DEP y el monto quedan validados en la misma transacción que
+    // acredita GRAM. Nunca se crea una solicitud manual desde la UI.
+    return jsonResponse({
+      ok: false,
+      error: 'Automatic review is handled by the wallet deposit scanner',
+    }, 400);
   } else if (mission.verify === 'manual') {
-    // v3.3: mision de revision humana (First Deposit). Se crea la solicitud y
-    // el admin la aprueba cuando ve el deposito; aca no se paga nada todavia.
+    // Las acciones que no se pueden comprobar automáticamente (por ejemplo,
+    // compartir una historia) sí crean una solicitud para el admin.
     const req = await db.rpc('request_manual_mission', {
       p_user_id: tgId,
       p_mission_id: missionId,
