@@ -2,20 +2,30 @@ import { Header } from '@/components/layout/Header';
 import { HoldButton } from '@/components/earn/HoldButton';
 import { HoldSection } from '@/components/earn/HoldSection';
 import { useWallet } from '@/contexts/WalletContext';
-import { ArrowDownLeft, ArrowUpRight, Gift, Clock, Wallet } from 'lucide-react';
+import { useTrade } from '@/contexts/TradeContext';
+import { formatUsd } from '@/lib/trade';
+import { ArrowDownLeft, ArrowUpRight, Gift, Clock, Wallet, TrendingUp, TrendingDown } from 'lucide-react';
 import { motion } from 'framer-motion';
 
-export function HomePage({ onNavigate, onOpenWithdraw, onClaimReady, onOpenClaim }) {
+const ACTIVITY_STYLE = {
+  deposit: { icon: ArrowDownLeft, tone: 'text-brand-green', bg: 'bg-brand-green/10', sign: '+' },
+  reward: { icon: Gift, tone: 'text-brand-green', bg: 'bg-brand-green/10', sign: '+' },
+  referral: { icon: Gift, tone: 'text-brand-green', bg: 'bg-brand-green/10', sign: '+' },
+  buy: { icon: TrendingUp, tone: 'text-brand-green', bg: 'bg-brand-green/10', sign: '-' },
+  sell: { icon: TrendingDown, tone: 'text-brand-red', bg: 'bg-brand-red/10', sign: '+' },
+  withdraw: { icon: ArrowUpRight, tone: 'text-brand-red', bg: 'bg-brand-red/10', sign: '-' },
+};
+
+export function HomePage({ onNavigate, onClaimReady, onOpenClaim }) {
   const { 
-    transactions, 
-    usdtBalance, 
-    trxBalance,
+    transactions,
     pendingClaim,
     getClaimSecondsRemaining,
     holdsCompleted,
     remainingHolds,
     totalRefs,
   } = useWallet();
+  const { portfolio } = useTrade();
 
   const recentTx = transactions.slice(0, 3);
   const claimSeconds = getClaimSecondsRemaining();
@@ -30,30 +40,6 @@ export function HomePage({ onNavigate, onOpenWithdraw, onClaimReady, onOpenClaim
     <div className="pb-4" data-testid="home-page">
       <Header />
 
-      {/* Quick Actions */}
-      <div className="px-4 py-3">
-        <div className="flex gap-3">
-          <motion.button
-            onClick={() => onNavigate('wallet')}
-            data-testid="quick-deposit"
-            className="flex-1 py-3 rounded-2xl bg-brand-green/10 border border-brand-green/20 flex items-center justify-center gap-2 text-brand-green font-semibold active:scale-95 transition-all"
-            whileTap={{ scale: 0.95 }}
-          >
-            <ArrowDownLeft className="w-4 h-4" />
-            Deposit
-          </motion.button>
-          <motion.button
-            onClick={onOpenWithdraw}
-            data-testid="quick-withdraw"
-            className="flex-1 py-3 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center gap-2 text-white/80 font-semibold active:scale-95 transition-all"
-            whileTap={{ scale: 0.95 }}
-          >
-            <ArrowUpRight className="w-4 h-4" />
-            Withdraw
-          </motion.button>
-        </div>
-      </div>
-
       {/* Pending Claim Banner */}
       {pendingClaim && claimSeconds > 0 && (
         <motion.div
@@ -63,7 +49,7 @@ export function HomePage({ onNavigate, onOpenWithdraw, onClaimReady, onOpenClaim
         >
           <button
             onClick={onOpenClaim}
-            className="w-full p-4 rounded-2xl bg-gradient-to-r from-brand-green/20 to-yellow-500/20 border border-brand-green/30 flex items-center justify-between"
+            className="w-full p-4 rounded-2xl glass-card !border-brand-gold/25 flex items-center justify-between shadow-glow-gold"
           >
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-full bg-brand-green/20 flex items-center justify-center">
@@ -75,7 +61,7 @@ export function HomePage({ onNavigate, onOpenWithdraw, onClaimReady, onOpenClaim
               </div>
             </div>
             <div className="text-right">
-              <div className="flex items-center gap-1 text-yellow-500">
+              <div className="flex items-center gap-1 text-brand-gold">
                 <Clock className="w-4 h-4" />
                 <span className="font-mono font-bold">{formatClaimTime(claimSeconds)}</span>
               </div>
@@ -98,8 +84,10 @@ export function HomePage({ onNavigate, onOpenWithdraw, onClaimReady, onOpenClaim
               <Wallet className="w-4 h-4 text-brand-green" />
             </div>
             <div>
-              <p className="text-xs text-white/40">Balance</p>
-              <p className="text-sm font-semibold text-white">${usdtBalance.toFixed(2)}</p>
+              <p className="text-xs text-white/40">Total Balance</p>
+              <p className="text-sm font-semibold text-white" data-testid="home-total-balance">
+                {formatUsd(portfolio.total)}
+              </p>
             </div>
           </div>
           
@@ -123,48 +111,45 @@ export function HomePage({ onNavigate, onOpenWithdraw, onClaimReady, onOpenClaim
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-white/70">Recent Activity</h3>
             <button 
-              onClick={() => onNavigate('history')}
+              onClick={() => onNavigate('wallet', 'activity')}
               className="text-xs text-brand-green hover:underline"
             >
               View all
             </button>
           </div>
           <div className="space-y-2">
-            {recentTx.map((tx) => (
-              <motion.div
-                key={tx.id}
-                className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.02] border border-white/5"
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-              >
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                  tx.type === 'withdraw' ? 'bg-brand-red/10' : 'bg-brand-green/10'
-                }`}>
-                  {tx.type === 'withdraw' ? (
-                    <ArrowUpRight className="w-4 h-4 text-brand-red" />
-                  ) : (
-                    <ArrowDownLeft className="w-4 h-4 text-brand-green" />
-                  )}
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm text-white capitalize">{tx.type}</p>
-                  <p className="text-xs text-white/40">
-                    {new Date(tx.timestamp).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
+            {recentTx.map((tx) => {
+              const style = ACTIVITY_STYLE[tx.type] || ACTIVITY_STYLE.deposit;
+              const Icon = style.icon;
+              return (
+                <motion.div
+                  key={tx.id}
+                  className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.02] border border-white/5"
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                >
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${style.bg}`}>
+                    <Icon className={`w-4 h-4 ${style.tone}`} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-white capitalize">{tx.type}</p>
+                    <p className="text-xs text-white/40 truncate">
+                      {tx.description
+                        || new Date(tx.timestamp).toLocaleDateString('en-US', {
+                             month: 'short',
+                             day: 'numeric',
+                             hour: '2-digit',
+                             minute: '2-digit',
+                           })}
+                    </p>
+                  </div>
+                  <p className={`text-sm font-semibold ${style.tone}`}>
+                    {style.sign}
+                    {tx.asset === 'USDT' ? '$' : ''}{tx.amount.toFixed(2)}
                   </p>
-                </div>
-                <p className={`text-sm font-semibold ${
-                  tx.type === 'withdraw' ? 'text-brand-red' : 'text-brand-green'
-                }`}>
-                  {tx.type === 'withdraw' ? '-' : '+'}
-                  {tx.asset === 'USDT' ? '$' : ''}{tx.amount.toFixed(2)}
-                </p>
-              </motion.div>
-            ))}
+                </motion.div>
+              );
+            })}
           </div>
         </div>
       )}

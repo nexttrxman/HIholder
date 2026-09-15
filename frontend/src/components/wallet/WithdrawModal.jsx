@@ -3,10 +3,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, AlertTriangle, Check, Loader2 } from 'lucide-react';
 import { useWallet } from '@/contexts/WalletContext';
 import { useTelegram } from '@/hooks/useTelegram';
-import { requestWithdraw } from '@/services/api';
+import {
+  requestWithdraw,
+  WITHDRAWAL_FEE_TRX,
+  MIN_WITHDRAW_USDT,
+  MIN_WITHDRAW_TRX,
+} from '@/services/api';
+import { UsdtIcon, TrxIcon } from '@/components/wallet/AssetIcons';
 
-const TETHER_ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMzkuNDMgMjk1LjI3Ij48cGF0aCBmaWxsPSIjNTBBRjk1IiBkPSJNNjIuMTUgMS40NWwtNjIuMTUgMTE4LjIgNzIuMDMgNDAuNTRoMTk1LjI4bDcyLjA0LTQwLjU0TDI3Ny4xOSAxLjQ1SDYyLjE1eiIvPjxwYXRoIGZpbGw9IiNGRkYiIGQ9Ik0xOTEuMTkgMTQ0LjhjLTMuMTkuMjctMTkuNzYgMS40Ny0yMS41NSAxLjQ3cy0xOC4zNi0xLjItMjEuNTUtMS40N2MtNDIuNTEtMy41NS03NC40Ny0xNC45OS03NC40Ny0yOC43NXMzMS45Ni0yNS4yIDc0LjQ3LTI4Ljc1djQ1Ljc1YzMuMjMuMjMgMTguNTMgMS40NSAyMS42OCAxLjQ1czE4LjIzLTEuMjggMjEuNDItMS40NXYtNDUuNzVjNDIuNDYgMy41NSA3NC4zOCAxNS4wMiA3NC4zOCAyOC43NXMtMzEuOTIgMjUuMi03NC4zOCAyOC43NXptMC02MS41OHYtNDAuNTRoNTcuNzl2LTI4LjQ5aC0xNTguNnYyOC40OWg1Ny43OXY0MC41NGMtNDguMjUgNC4yLTg0LjQ5IDE4Ljg2LTg0LjQ5IDM2LjMyczM2LjI0IDMyLjEyIDg0LjQ5IDM2LjMydjExNS40Nmg0My4wMnYtMTE1LjQ2YzQ4LjE4LTQuMiA4NC4zNS0xOC44NSA4NC4zNS0zNi4zMnMtMzYuMTctMzIuMTItODQuMzUtMzYuMzJ6Ii8+PC9zdmc+';
-const TRX_ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHBhdGggZmlsbD0iI0VGMDAyNyIgZD0iTTE2IDBjOC44MzcgMCAxNiA3LjE2MyAxNiAxNnMtNy4xNjMgMTYtMTYgMTZTMCAyNC44MzcgMCAxNiA3LjE2MyAwIDE2IDB6Ii8+PHBhdGggZmlsbD0iI0ZGRiIgZD0iTTIxLjkzMiA5LjkxM0w3Ljc1IDcuNjg3bDcuMDk5IDE3LjU4NiA5LjcwNi0xMi42MzgtMi42MjMtMi43MjJ6bS0uNzM0IDMuMjU2bC01LjY5MyA3LjM5NC00LjcxLTExLjY3NyA5LjM2NiAxLjUzNi0uOTYzIDIuNzQ3eiIvPjwvc3ZnPg==';
 
 // Validation helpers
 const isValidTronAddress = (address) => {
@@ -26,8 +30,9 @@ export function WithdrawModal({ isOpen, onClose, initialAsset = 'USDT' }) {
   const [error, setError] = useState(null);
 
   const balance = asset === 'USDT' ? usdtBalance : trxBalance;
-  const minWithdraw = asset === 'USDT' ? 5 : 10;
-  const networkFee = 1.5; // TRX
+  const minWithdraw = asset === 'USDT' ? MIN_WITHDRAW_USDT : MIN_WITHDRAW_TRX;
+  // Mismo fee para USDT y para TRX: son 5.5 TRX de costo de red + margen.
+  const networkFee = WITHDRAWAL_FEE_TRX;
 
   const resetForm = () => {
     setStep(1);
@@ -180,7 +185,7 @@ export function WithdrawModal({ isOpen, onClose, initialAsset = 'USDT' }) {
                       : 'bg-white/5 border-white/10 hover:bg-white/10'
                   }`}
                 >
-                  <img src={TETHER_ICON} alt="USDT" className="w-10 h-10" />
+                  <UsdtIcon className="w-10 h-10" />
                   <div className="flex-1 text-left">
                     <p className="font-semibold text-white">USDT</p>
                     <p className="text-sm text-white/50">Tether USD</p>
@@ -200,7 +205,7 @@ export function WithdrawModal({ isOpen, onClose, initialAsset = 'USDT' }) {
                       : 'bg-white/5 border-white/10 hover:bg-white/10'
                   }`}
                 >
-                  <img src={TRX_ICON} alt="TRX" className="w-10 h-10" />
+                  <TrxIcon className="w-10 h-10" />
                   <div className="flex-1 text-left">
                     <p className="font-semibold text-white">TRX</p>
                     <p className="text-sm text-white/50">TRON</p>
@@ -224,7 +229,7 @@ export function WithdrawModal({ isOpen, onClose, initialAsset = 'USDT' }) {
               >
                 {/* Amount Input */}
                 <div>
-                  <label className="text-xs text-white/40 uppercase tracking-wider mb-2 block">
+                  <label className="sys-label mb-2 block">
                     Amount
                   </label>
                   <div className="relative">
@@ -254,7 +259,7 @@ export function WithdrawModal({ isOpen, onClose, initialAsset = 'USDT' }) {
 
                 {/* Address Input */}
                 <div>
-                  <label className="text-xs text-white/40 uppercase tracking-wider mb-2 block">
+                  <label className="sys-label mb-2 block">
                     To Address (TRON)
                   </label>
                   <input
@@ -286,7 +291,7 @@ export function WithdrawModal({ isOpen, onClose, initialAsset = 'USDT' }) {
                 <button
                   onClick={handleContinue}
                   data-testid="withdraw-continue"
-                  className="w-full py-4 rounded-2xl bg-white text-black font-bold hover:bg-gray-200 active:scale-95 transition-all"
+                  className="w-full py-4 rounded-2xl bg-white text-black font-bold hover:brightness-110 shadow-glow-teal active:scale-95 transition-all"
                 >
                   Continue
                 </button>
@@ -326,9 +331,9 @@ export function WithdrawModal({ isOpen, onClose, initialAsset = 'USDT' }) {
                 </div>
 
                 {/* Backend Notice */}
-                <div className="p-3 rounded-xl bg-yellow-500/10 border border-yellow-500/20 flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-yellow-500 flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-yellow-500/80">
+                <div className="p-3 rounded-2xl bg-brand-gold/10 border border-brand-gold/25 flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-brand-gold flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-brand-gold/85">
                     <strong>Note:</strong> Final confirmation requires backend validation. 
                     Your request will be processed and confirmed shortly.
                   </p>
@@ -345,7 +350,7 @@ export function WithdrawModal({ isOpen, onClose, initialAsset = 'USDT' }) {
                   onClick={handleSubmit}
                   disabled={isSubmitting}
                   data-testid="withdraw-submit"
-                  className="w-full py-4 rounded-2xl bg-white text-black font-bold hover:bg-gray-200 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="w-full py-4 rounded-2xl bg-white text-black font-bold hover:brightness-110 shadow-glow-teal active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {isSubmitting ? (
                     <>
@@ -374,7 +379,7 @@ export function WithdrawModal({ isOpen, onClose, initialAsset = 'USDT' }) {
                   Request Submitted
                 </h3>
                 <p className="text-sm text-white/50 mb-6">
-                  Your withdrawal request is being processed. You can track its status in History.
+                  Your withdrawal request is being processed. You can track its status in Wallet → Activity.
                 </p>
                 <button
                   onClick={handleClose}

@@ -1,27 +1,39 @@
 import { useState, useEffect } from 'react';
 import { TonConnectUIProvider } from '@tonconnect/ui-react';
 import { WalletProvider, useWallet } from '@/contexts/WalletContext';
+import { TradeProvider } from '@/contexts/TradeContext';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { BottomNav } from '@/components/layout/BottomNav';
 import { WithdrawModal } from '@/components/wallet/WithdrawModal';
 import { ClaimModal } from '@/components/earn/ClaimModal';
+import { ErrorBoundary } from '@/components/shared/ErrorBoundary';
+import { LanguageProvider } from '@/i18n/LanguageProvider';
 import { AnimatePresence, motion } from 'framer-motion';
 
 // Pages
 import { HomePage } from '@/pages/Home';
+import { AdminPage } from '@/pages/Admin';
 import { WalletPage } from '@/pages/Wallet';
+import { TradePage } from '@/pages/Trade';
 import { MissionsPage } from '@/pages/Missions';
 import { ReferralsPage } from '@/pages/Referrals';
-import { HistoryPage } from '@/pages/History';
 
 import '@/App.css';
+import { TelegramGate, shouldShowTelegramGate } from '@/components/layout/TelegramGate';
 
-// TonConnect manifest - update with your app info
-const manifestUrl = 'https://raw.githubusercontent.com/AntipressTeam/TonConnectManifest/main/tonkeeper.json';
+// TonConnect exige un manifiesto público con url/name/iconUrl. Se sirve desde
+// el propio origen (lo genera el plugin tonconnectManifest en vite.config.js)
+// para no depender de un repo de terceros: cuando ese host no respondió, el
+// claim se cayó con "manifest not found".
+const manifestUrl =
+  typeof window === 'undefined'
+    ? '/tonconnect-manifest.json'
+    : `${window.location.origin}/tonconnect-manifest.json`;
 
-function AppContent() {
+export function AppContent() {
   const { loading, error, pendingClaim } = useWallet();
   const [activeTab, setActiveTab] = useState('home');
+  const [walletSection, setWalletSection] = useState('balance');
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [withdrawAsset, setWithdrawAsset] = useState('USDT');
   const [claimModalOpen, setClaimModalOpen] = useState(false);
@@ -39,7 +51,8 @@ function AppContent() {
     setWithdrawOpen(true);
   };
 
-  const handleNavigate = (tab) => {
+  const handleNavigate = (tab, section) => {
+    if (tab === 'wallet' && section) setWalletSection(section);
     setActiveTab(tab);
   };
 
@@ -86,7 +99,7 @@ function AppContent() {
             <p className="text-sm text-white/50 mb-6">{error}</p>
             <button 
               onClick={() => window.location.reload()}
-              className="px-6 py-3 rounded-xl bg-white text-black font-semibold hover:bg-gray-200 active:scale-95 transition-all"
+              className="px-6 py-3 rounded-2xl bg-white text-black font-semibold shadow-glow-teal hover:brightness-110 active:scale-95 transition-all"
             >
               Try Again
             </button>
@@ -98,7 +111,8 @@ function AppContent() {
 
   return (
     <PageContainer>
-      {/* Page Content */}
+      {/* Page Content — a crashing tab must not take the shell down with it */}
+      <ErrorBoundary key={activeTab}>
       <AnimatePresence mode="wait">
         <motion.div
           key={activeTab}
@@ -108,24 +122,28 @@ function AppContent() {
           transition={{ duration: 0.15 }}
         >
           {activeTab === 'home' && (
-            <HomePage 
-              onNavigate={handleNavigate} 
-              onOpenWithdraw={() => handleOpenWithdraw()}
+            <HomePage
+              onNavigate={handleNavigate}
               onClaimReady={handleClaimReady}
               onOpenClaim={handleOpenClaim}
             />
           )}
           {activeTab === 'wallet' && (
-            <WalletPage onOpenWithdraw={handleOpenWithdraw} />
+            <WalletPage onOpenWithdraw={handleOpenWithdraw} initialSection={walletSection} />
           )}
+          {activeTab === 'trade' && <TradePage />}
           {activeTab === 'missions' && <MissionsPage />}
           {activeTab === 'referrals' && <ReferralsPage />}
-          {activeTab === 'history' && <HistoryPage />}
         </motion.div>
       </AnimatePresence>
+      </ErrorBoundary>
 
       {/* Bottom Navigation */}
-      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+      <BottomNav
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        claimPending={!!pendingClaim}
+      />
 
       {/* Withdraw Modal */}
       <AnimatePresence>
@@ -152,13 +170,43 @@ function AppContent() {
   );
 }
 
+/**
+ * v3.3: el panel del operador vive en una ruta no publicada (#TKadminTK).
+ * Corre en un navegador comun, fuera de Telegram, y NO monta los providers
+ * de la Mini App. Ojo: el nombre es solo discrecion (el bundle es publico y
+ * la puerta real es el ADMIN_TOKEN del Worker), pero evita visitas casuales.
+ */
+function isAdminRoute() {
+  if (typeof window === 'undefined') return false;
+  const { pathname, hash } = window.location;
+  return hash === '#TKadminTK' || pathname.endsWith('/TKadminTK');
+}
+
 function App() {
+  if (isAdminRoute()) {
+    return <AdminPage />;
+  }
+
+  // Fuera de Telegram no hay initData. Sin initData la app entera corre en modo
+  // mock con un saldo inventado, así que en producción se muestra la puerta en
+  // vez de montar los providers. Ver shouldShowTelegramGate.
+  const initData =
+    typeof window === 'undefined' ? null : window.Telegram?.WebApp?.initData || null;
+
+  if (shouldShowTelegramGate({ isProd: import.meta.env.PROD, initData })) {
+    return <TelegramGate />;
+  }
+
   return (
+    <LanguageProvider>
     <TonConnectUIProvider manifestUrl={manifestUrl}>
       <WalletProvider>
-        <AppContent />
+        <TradeProvider>
+          <AppContent />
+        </TradeProvider>
       </WalletProvider>
     </TonConnectUIProvider>
+    </LanguageProvider>
   );
 }
 

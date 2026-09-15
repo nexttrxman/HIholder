@@ -1,0 +1,4 @@
+# TronKeeper es una Mini App de Telegram: fuera de Telegram no hay initData y
+# solo se muestra una puerta. No hay nada que indexar.
+User-agent: *
+Disallow: /

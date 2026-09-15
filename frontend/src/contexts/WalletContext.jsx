@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import {
   authUser,
   registerHold,
@@ -8,6 +8,8 @@ import {
   getReferralPool,
   getTelegramUser,
   initTelegram,
+  applyLocalBalanceDelta,
+  describeApiError,
   DEPOSIT_INFO,
   TON_CONFIG,
 } from '@/services/api';
@@ -16,6 +18,30 @@ const WalletContext = createContext(null);
 
 const HOLD_DURATION = 3000; // 3 seconds to hold
 const MAX_HOLDS_PER_CYCLE = 3;
+
+// Trades executed without a backend (dev/preview) live here so History keeps
+// showing them after a reload.
+const LOCAL_TX_KEY = 'tk_local_tx_v1';
+const LOCAL_TX_LIMIT = 60;
+
+function readLocalTransactions() {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(LOCAL_TX_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function writeLocalTransactions(list) {
+  try {
+    window.localStorage.setItem(LOCAL_TX_KEY, JSON.stringify(list));
+  } catch (e) {
+    /* storage unavailable - ignore */
+  }
+}
 
 export function WalletProvider({ children }) {
   // User state
@@ -27,6 +53,8 @@ export function WalletProvider({ children }) {
   const [usdtBalance, setUsdtBalance] = useState(0);
   const [trxBalance, setTrxBalance] = useState(0);
   const [tonBalance, setTonBalance] = useState(0);
+  // $KEEP (v3.2): token propio, entra por misiones/check-in/claim y por compra.
+  const [keepBalance, setKeepBalance] = useState(0);
 
   // Cycle state
   const [cycle, setCycle] = useState(null);
@@ -45,8 +73,18 @@ export function WalletProvider({ children }) {
   const [referralPool, setReferralPool] = useState({ total: 50000, remaining: 50000 });
 
   // Transactions
-  const [transactions, setTransactions] = useState([]);
+  const [serverTransactions, setTransactions] = useState([]);
+  const [localTransactions, setLocalTransactions] = useState(readLocalTransactions);
   const [loadingTransactions, setLoadingTransactions] = useState(false);
+
+  // Backend ledger + locally executed trades (dev mode), newest first.
+  const transactions = useMemo(
+    () =>
+      [...localTransactions, ...serverTransactions].sort(
+        (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
+      ),
+    [localTransactions, serverTransactions]
+  );
 
   // User identification
   const [uid, setUid] = useState(null);
@@ -74,6 +112,7 @@ export function WalletProvider({ children }) {
         setUsdtBalance(userData.usdt_balance || 0);
         setTrxBalance(userData.trx_balance || 0);
         setTonBalance(userData.ton_balance || 0);
+        setKeepBalance(userData.keep_balance || 0);
         setTotalRefs(userData.total_refs || 0);
         setTrxFromRefs(userData.trx_refs || 0);
         
@@ -107,7 +146,7 @@ export function WalletProvider({ children }) {
       }
     } catch (err) {
       console.error('Failed to load user data:', err);
-      setError('Failed to connect. Please try again.');
+      setError(describeApiError(err));
     } finally {
       setLoading(false);
     }
@@ -125,7 +164,8 @@ export function WalletProvider({ children }) {
         setUsdtBalance(userData.usdt_balance || 0);
         setTrxBalance(userData.trx_balance || 0);
         setTonBalance(userData.ton_balance || 0);
-        
+        setKeepBalance(userData.keep_balance || 0);
+
         if (cycleData) {
           setCycle(cycleData);
           setHoldsCompleted(cycleData.holds_completed || 0);
@@ -144,11 +184,15 @@ export function WalletProvider({ children }) {
   /**
    * Register a hold
    */
-  const doHold = useCallback(async (prize) => {
+  const doHold = useCallback(async (estimatedPrize) => {
     try {
-      const result = await registerHold(prize);
-      
+      // El premio real lo sortea el Worker (rollHoldPrize en lib.js). Lo que
+      // llega acá es solo la estimación que el botón ya mostró en la animación;
+      // se pisa con el valor del servidor apenas responde.
+      const result = await registerHold(estimatedPrize);
+
       if (result.ok) {
+        const prize = Number(result.prize_amount) || estimatedPrize;
         setHoldsCompleted(result.hold_number);
         setRemainingHolds(result.remaining_holds);
         setLastPrize(prize);
@@ -159,7 +203,7 @@ export function WalletProvider({ children }) {
           setClaimExpiresAt(result.claim.expires_at);
         }
 
-        return { success: true, claim: result.claim };
+        return { success: true, claim: result.claim, prize };
       }
       
       return { success: false, error: result.error || 'Hold failed' };
@@ -181,12 +225,15 @@ export function WalletProvider({ children }) {
 
       if (result.ok) {
         setUsdtBalance(result.new_balance ?? (usdtBalance + (result.credited || 0)));
+        if (result.keep_balance !== undefined && result.keep_balance !== null) {
+          setKeepBalance(Number(result.keep_balance) || 0);
+        }
         setPendingClaim(null);
         setClaimExpiresAt(null);
         setHoldsCompleted(0);
         setRemainingHolds(MAX_HOLDS_PER_CYCLE);
         await refreshData();
-        return { success: true, credited: result.credited };
+        return { success: true, credited: result.credited, keepCredited: result.keep_credited || 0 };
       }
 
       // Backend says payment not on chain yet — caller should retry.
@@ -200,6 +247,39 @@ export function WalletProvider({ children }) {
       return { success: false, error: err.message };
     }
   }, [usdtBalance, refreshData]);
+
+  /**
+   * Apply an internal USDT movement (trading) to the cached balance.
+   * Also mirrors it into the dev-mode mock so reloads stay consistent.
+   */
+  const applyUsdtDelta = useCallback((delta) => {
+    const amount = Number(delta) || 0;
+    setUsdtBalance((prev) => Math.max(0, prev + amount));
+    applyLocalBalanceDelta(amount);
+  }, []);
+
+  /**
+   * Apply an internal movement on any wallet asset (used when selling the
+   * TRX/TON balance into USDT from the Trade panel).
+   */
+  const applyAssetDelta = useCallback((asset, delta) => {
+    const amount = Number(delta) || 0;
+    if (asset === 'TRX') setTrxBalance((prev) => Math.max(0, prev + amount));
+    else if (asset === 'TON') setTonBalance((prev) => Math.max(0, prev + amount));
+    else if (asset === 'KEEP') setKeepBalance((prev) => Math.max(0, prev + amount));
+    else applyUsdtDelta(amount);
+  }, [applyUsdtDelta]);
+
+  /**
+   * Prepend a locally executed trade to the activity feed.
+   */
+  const pushLocalTransaction = useCallback((tx) => {
+    setLocalTransactions((prev) => {
+      const next = [tx, ...prev].slice(0, LOCAL_TX_LIMIT);
+      writeLocalTransactions(next);
+      return next;
+    });
+  }, []);
 
   /**
    * Load transaction history
@@ -222,12 +302,18 @@ export function WalletProvider({ children }) {
    * Check if can hold
    */
   const canHold = useCallback(() => {
-    // Can't hold if there's a pending claim
-    if (pendingClaim) return false;
-    // Can't hold if all 3 completed
-    if (holdsCompleted >= MAX_HOLDS_PER_CYCLE) return false;
-    return true;
-  }, [pendingClaim, holdsCompleted]);
+    // Un claim pendiente SOLO bloquea mientras está vivo. Si expiró sin
+    // cobrarse, el premio se perdió y el ciclo se reinicia: seguir devolviendo
+    // false acá dejaba el botón muerto ("standby") hasta un recargo completo de
+    // la app, porque el useEffect de vencimiento solo corre mientras la app
+    // está abierta en primer plano.
+    if (pendingClaim) {
+      const expiry = claimExpiresAt || pendingClaim.expires_at;
+      const live = !!expiry && new Date(expiry).getTime() > Date.now();
+      return !live;
+    }
+    return holdsCompleted < MAX_HOLDS_PER_CYCLE;
+  }, [pendingClaim, claimExpiresAt, holdsCompleted]);
 
   /**
    * Get time until cycle ends
@@ -278,6 +364,11 @@ export function WalletProvider({ children }) {
       if (remaining <= 0) {
         setPendingClaim(null);
         setClaimExpiresAt(null);
+        // The reward went unclaimed, so it is forfeited and the cycle restarts
+        // at zero holds. Without this the button stays locked at 3/3 (canHold
+        // is false) until the 8h window ends.
+        setHoldsCompleted(0);
+        setRemainingHolds(MAX_HOLDS_PER_CYCLE);
         refreshData();
       }
     };
@@ -297,6 +388,7 @@ export function WalletProvider({ children }) {
     usdtBalance,
     trxBalance,
     tonBalance,
+    keepBalance,
 
     // Hold/Cycle
     holdsCompleted,
@@ -304,6 +396,9 @@ export function WalletProvider({ children }) {
     canHold,
     doHold,
     getCycleResetTime,
+    // Crudo para el countdown del standby: getCycleResetTime solo da minutos y
+    // el usuario pidió ver segundo a segundo cuánto falta tras el claim.
+    cycleEndsAt,
     lastPrize,
     HOLD_DURATION,
     MAX_HOLDS_PER_CYCLE,
@@ -324,8 +419,15 @@ export function WalletProvider({ children }) {
 
     // Transactions
     transactions,
+    serverTransactions,
+    localTransactions,
     loadingTransactions,
     loadTransactions,
+    pushLocalTransaction,
+
+    // Balance mutations (used by the Trade panel)
+    applyUsdtDelta,
+    applyAssetDelta,
 
     // Deposit
     depositInfo,

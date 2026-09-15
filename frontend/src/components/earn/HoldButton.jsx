@@ -14,7 +14,8 @@ export function HoldButton({ onClaimReady }) {
     remainingHolds,
     holdsCompleted,
     pendingClaim,
-    getCycleResetTime,
+    cycleEndsAt,
+    refreshData,
   } = useWallet();
   const { vibrate } = useTelegram();
 
@@ -24,14 +25,21 @@ export function HoldButton({ onClaimReady }) {
   const [showPrize, setShowPrize] = useState(false);
   const [prizeAmount, setPrizeAmount] = useState(0);
   const [showRipple, setShowRipple] = useState(false);
+  // Full-screen burst fired when a hold completes. Holds the button centre in
+  // viewport coordinates so the nova radiates from where the finger was.
+  const [nova, setNova] = useState(null);
 
+  const buttonRef = useRef(null);
   const timerRef = useRef(null);
   const startTimeRef = useRef(null);
   const frameRef = useRef(null);
   const isCompletedRef = useRef(false);
 
   const calculatePrize = () => {
-    return Math.floor(Math.random() * 7 + 2) / 100;
+    // ESTIMACIÓN para la animación, no el premio real: el valor definitivo lo
+    // sortea el Worker (rollHoldPrize en lib.js) y vuelve en result.prize.
+    // Mandar el máximo ya no sirve de nada, el servidor lo ignora.
+    return Math.floor(Math.random() * 21 + 15) / 100;
   };
 
   const stopHold = useCallback(() => {
@@ -78,12 +86,23 @@ export function HoldButton({ onClaimReady }) {
     setProgress(1);
     setStatus('done');
     setShowRipple(true);
+
+    // NOVA: overlay the whole screen, centred on the button.
+    const rect = buttonRef.current?.getBoundingClientRect?.();
+    setNova({
+      x: rect ? rect.left + rect.width / 2 : window.innerWidth / 2,
+      y: rect ? rect.top + rect.height / 2 : window.innerHeight / 2,
+      gold: !!pendingClaim,
+    });
+    setTimeout(() => setNova(null), 1100);
     
     const prize = calculatePrize();
     setPrizeAmount(prize);
     
     // Register hold with backend
     const result = await doHold(prize);
+    // El Worker sortea el premio de verdad; se pisa la estimación mostrada.
+    if (result?.success && result.prize) setPrizeAmount(result.prize);
     
     setTimeout(() => {
       setShowPrize(true);
@@ -141,15 +160,53 @@ export function HoldButton({ onClaimReady }) {
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference * (1 - progress);
 
-  const resetTime = getCycleResetTime();
   const isDisabled = !canHold() || (remainingHolds <= 0 && !pendingClaim);
   const hasPendingClaim = !!pendingClaim;
+
+  // Countdown del standby: tras cobrar un claim el botón queda apagado 8 h y
+  // el usuario pidió ver cuánto falta, segundo a segundo — es parte de la
+  // rutina. (Si el claim vence sin firmarse no hay standby: el hold se reabre
+  // enseguida, v3.6.) Tickea solo mientras hay algo que contar, para no
+  // despertar al componente de a un segundo cuando no hace falta.
+  const [nowTs, setNowTs] = useState(() => Date.now());
+  const cooldownMs = cycleEndsAt ? new Date(cycleEndsAt).getTime() - nowTs : 0;
+  // SOLO cuando el boton esta realmente bloqueado (claim cobrado, ventana de
+  // 8 h corriendo). La version anterior tambien lo mostraba con
+  // holdsCompleted===0 y ciclo activo — que es EXACTAMENTE el estado que queda
+  // tras un claim que vencio sin cobrarse — y el usuario veia "New cycle in
+  // 7h..." con el boton habilitado: parecia standby donde habia que jugar.
+  const showCooldown = !hasPendingClaim && !!cycleEndsAt && cooldownMs > 0
+    && isDisabled;
+
+  useEffect(() => {
+    if (!showCooldown) return undefined;
+    const id = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [showCooldown]);
+
+  // Si la cuenta llega a cero con la app abierta, recarga el estado: el ciclo
+  // se habilita solo sin necesitar un recargo manual.
+  useEffect(() => {
+    if (!hasPendingClaim && cycleEndsAt && cooldownMs <= 0 && isDisabled) {
+      refreshData();
+    }
+  }, [cooldownMs, hasPendingClaim, cycleEndsAt, isDisabled, refreshData]);
+
+  const formatRemaining = (ms) => {
+    const total = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const sec = total % 60;
+    if (h > 0) return `${h}h ${m}m ${sec}s`;
+    if (m > 0) return `${m}m ${sec}s`;
+    return `${sec}s`;
+  };
 
   return (
     <div className="relative flex flex-col items-center" data-testid="hold-section">
       <div className="text-center mb-2">
-        <h2 className="font-display text-lg font-semibold text-white">Hold to Earn</h2>
-        <p className="text-xs text-white/40 mt-1">
+        <h2 className="font-display text-lg font-bold tracking-tight text-white text-glow-teal">Hold to Earn</h2>
+        <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-dim mt-1.5">
           {hasPendingClaim 
             ? 'Cycle complete! Claim your reward below' 
             : 'Complete 3 holds to unlock your reward'}
@@ -164,8 +221,8 @@ export function HoldButton({ onClaimReady }) {
               key={num}
               className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
                 num <= holdsCompleted 
-                  ? 'bg-brand-green text-black' 
-                  : 'bg-white/10 text-white/40'
+                  ? 'bg-brand-green text-black shadow-glow-teal' 
+                  : 'bg-white/[0.06] text-white/35 border border-white/[0.07]'
               }`}
             >
               {num}
@@ -177,12 +234,62 @@ export function HoldButton({ onClaimReady }) {
       {/* Pending claim warning */}
       {hasPendingClaim && (
         <motion.div
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-yellow-500/10 border border-yellow-500/30 mb-4"
+          className="chip chip-gold !px-4 !py-2 !text-[11px] mb-4 shadow-glow-gold"
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
         >
-          <AlertTriangle className="w-4 h-4 text-yellow-500" />
-          <span className="text-xs text-yellow-500">Claim before time expires!</span>
+          <AlertTriangle className="w-4 h-4" />
+          <span>Claim before time expires!</span>
+        </motion.div>
+      )}
+
+      {/* ============================================
+          NOVA — full-screen burst when a hold completes
+          ============================================ */}
+      {/* No AnimatePresence here on purpose: the layers below fade themselves
+          out, and an exit animation would keep the overlay mounted after the
+          burst is over. */}
+      {nova && (
+        <motion.div
+          className="fixed inset-0 z-[70] pointer-events-none"
+          data-testid="hold-nova"
+          initial={{ opacity: 1 }}
+          animate={{ opacity: 0 }}
+          transition={{ duration: 1.05, ease: 'easeOut' }}
+          aria-hidden
+        >
+            {/* wash over the whole screen */}
+            <motion.div
+              className="absolute inset-0"
+              initial={{ opacity: 0.9 }}
+              animate={{ opacity: 0 }}
+              transition={{ duration: 0.9, ease: 'easeOut' }}
+              style={{
+                background: `radial-gradient(circle 70vmax at ${nova.x}px ${nova.y}px, ${
+                  nova.gold ? 'rgba(255,209,102,0.30)' : 'rgba(87,214,200,0.28)'
+                } 0%, ${
+                  nova.gold ? 'rgba(255,209,102,0.10)' : 'rgba(87,214,200,0.09)'
+                } 35%, transparent 70%)`,
+              }}
+            />
+            {/* two shockwaves */}
+            {[0, 0.14].map((delay, i) => (
+              <motion.span
+                key={i}
+                className="absolute rounded-full border"
+                style={{
+                  left: nova.x,
+                  top: nova.y,
+                  borderColor: nova.gold ? 'rgba(255,209,102,0.75)' : 'rgba(140,242,219,0.7)',
+                  boxShadow: nova.gold
+                    ? '0 0 40px rgba(255,209,102,0.45)'
+                    : '0 0 40px rgba(87,214,200,0.4)',
+                }}
+                initial={{ width: 40, height: 40, x: -20, y: -20, opacity: 0.95, borderWidth: 3 }}
+                animate={{ width: '190vmax', height: '190vmax', x: '-95vmax', y: '-95vmax', opacity: 0, borderWidth: 1 }}
+                transition={{ duration: 0.95, delay, ease: 'easeOut' }}
+              />
+          ))}
         </motion.div>
       )}
 
@@ -194,21 +301,23 @@ export function HoldButton({ onClaimReady }) {
           ${isHolding ? 'opacity-100' : 'opacity-0'}
         `}
         style={{
-          background: 'radial-gradient(circle, rgba(0,230,118,0.15) 0%, transparent 70%)',
+          background: 'radial-gradient(circle, rgba(87,214,200,0.18) 0%, transparent 70%)',
         }}
         />
 
-        <svg 
+        <svg
           className="absolute inset-0 w-full h-full"
           viewBox="0 0 200 200"
-          style={{ transform: 'rotate(-90deg)' }}
+          /* overflow visible: an SVG filter region is a rectangle, so the
+             ring's glow used to get cut off in a box. */
+          style={{ transform: 'rotate(-90deg)', overflow: 'visible' }}
         >
           <circle
             cx="100"
             cy="100"
             r={radius}
             fill="none"
-            stroke="rgba(255,255,255,0.08)"
+            stroke="rgba(233,255,251,0.08)"
             strokeWidth="6"
           />
           <circle
@@ -216,14 +325,16 @@ export function HoldButton({ onClaimReady }) {
             cy="100"
             r={radius}
             fill="none"
-            stroke={hasPendingClaim ? '#EAB308' : '#00E676'}
+            stroke={hasPendingClaim ? '#ffd166' : '#57d6c8'}
             strokeWidth="6"
             strokeLinecap="round"
             strokeDasharray={circumference}
             strokeDashoffset={strokeDashoffset}
             style={{
               transition: 'stroke-dashoffset 0.1s linear',
-              filter: isHolding ? 'drop-shadow(0 0 8px rgba(0,230,118,0.6))' : 'none',
+              filter: isHolding
+                ? `drop-shadow(0 0 10px ${hasPendingClaim ? 'rgba(255,209,102,0.65)' : 'rgba(87,214,200,0.65)'})`
+                : 'none',
             }}
           />
         </svg>
@@ -231,7 +342,7 @@ export function HoldButton({ onClaimReady }) {
         <AnimatePresence>
           {showRipple && (
             <motion.div
-              className="absolute inset-0 rounded-full border-2 border-brand-green"
+              className="absolute inset-0 rounded-full border-2 border-brand-mint"
               initial={{ scale: 1, opacity: 1 }}
               animate={{ scale: 1.5, opacity: 0 }}
               exit={{ opacity: 0 }}
@@ -240,23 +351,27 @@ export function HoldButton({ onClaimReady }) {
           )}
         </AnimatePresence>
 
+          {/* Sin atributo disabled: un botón disabled no dispara ni el haptic
+              ni el "Wait..." cuando lo apretan en standby. El guard está en
+              startHold. whileTap 1.06: se agranda al apretar y se achica al
+              soltar, sutil, como se pidió. */}
         <motion.button
+          ref={buttonRef}
           data-testid="hold-button"
           className={`
             relative w-40 h-40 rounded-full
             flex items-center justify-center
             select-none cursor-pointer
-            overflow-hidden
             ${isDisabled && !hasPendingClaim ? 'opacity-50 cursor-not-allowed' : ''}
-            ${hasPendingClaim ? 'ring-4 ring-yellow-500/50 animate-pulse' : ''}
+            ${hasPendingClaim ? 'ring-4 ring-brand-gold/40 animate-pulse shadow-glow-gold' : 'shadow-glow-teal'}
           `}
-          onMouseDown={!isDisabled ? startHold : undefined}
+          onMouseDown={startHold}
           onMouseUp={stopHold}
           onMouseLeave={stopHold}
-          onTouchStart={!isDisabled ? startHold : undefined}
+          onTouchStart={startHold}
           onTouchEnd={stopHold}
-          whileTap={!isDisabled ? { scale: 0.95 } : {}}
-          disabled={isDisabled && !hasPendingClaim}
+          whileTap={{ scale: 1.06 }}
+          aria-disabled={isDisabled && !hasPendingClaim ? 'true' : undefined}
         >
           <img 
             src={TETHER_ICON} 
@@ -275,8 +390,8 @@ export function HoldButton({ onClaimReady }) {
               exit={{ scale: 0.8, opacity: 0, y: -100 }}
               transition={{ duration: 0.5, ease: 'easeOut' }}
             >
-              <div className="bg-brand-green/20 backdrop-blur-sm px-6 py-3 rounded-2xl border border-brand-green/30">
-                <span className="font-display text-2xl font-bold text-brand-green">
+              <div className="px-6 py-3 rounded-2xl bg-brand-gold/15 backdrop-blur-md border border-brand-gold/35 shadow-glow-gold">
+                <span className="font-display text-2xl font-bold text-brand-gold text-glow-gold">
                   +${prizeAmount.toFixed(2)}
                 </span>
               </div>
@@ -288,11 +403,11 @@ export function HoldButton({ onClaimReady }) {
       {/* Status text */}
       <div className="mt-3 text-center">
         <span className={`
-          text-sm font-semibold px-4 py-1.5 rounded-full inline-block
-          ${status === 'done' ? 'bg-brand-green/20 text-brand-green' : ''}
-          ${status === 'wait' || status === 'claim!' ? 'bg-yellow-500/20 text-yellow-500' : ''}
-          ${status === 'hold' ? 'text-white/50' : ''}
-          ${!isNaN(parseInt(status)) ? 'text-white/70' : ''}
+          chip !text-[11px] !px-4 !py-1.5 inline-flex
+          ${status === 'done' ? 'chip-teal' : ''}
+          ${status === 'wait' || status === 'claim!' ? 'chip-gold' : ''}
+          ${status === 'hold' ? '!text-white/55' : ''}
+          ${!isNaN(parseInt(status)) ? 'chip-blue sys-value' : ''}
         `}>
           {status === 'hold' && (hasPendingClaim ? 'Claim your reward!' : 'Hold to earn')}
           {status === 'done' && '✓ Done!'}
@@ -302,11 +417,13 @@ export function HoldButton({ onClaimReady }) {
         </span>
       </div>
 
-      {/* Cycle reset timer */}
-      {resetTime && !hasPendingClaim && holdsCompleted === 0 && (
-        <div className="flex items-center gap-1 mt-2 text-xs text-white/40">
+      {/* Countdown del standby: cuánto falta para volver a holdear y claimear.
+          "New cycle in" ya está en los 6 diccionarios; los números no se
+          traducen. */}
+      {showCooldown && (
+        <div className="flex items-center justify-center gap-1.5 mt-3 font-mono text-[10px] uppercase tracking-[0.16em] text-ink-dim">
           <Clock className="w-3 h-3" />
-          <span>New cycle in {resetTime}</span>
+          <span data-testid="hold-cooldown">New cycle in {formatRemaining(cooldownMs)}</span>
         </div>
       )}
     </div>

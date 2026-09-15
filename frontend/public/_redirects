@@ -1,0 +1,3 @@
+# SPA fallback: cualquier ruta que no sea un archivo sirve index.html
+# (necesario para /admin y para deep links de la Mini App en Pages).
+/*    /index.html   200

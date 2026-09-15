@@ -2,6 +2,15 @@ name = "tronkeeper-api"
 main = "worker.js"
 compatibility_date = "2024-01-01"
 
+# La configuración (BOT_TOKEN, SUPA_URL, SUPA_SERVICE_KEY, TON_API_KEY) se setea
+# en el dashboard. Wrangler BORRA en cada deploy las variables de texto
+# configuradas ahí y las reemplaza por las de este archivo — y acá [vars] está
+# vacío, o sea que las reemplaza por nada. Las de tipo Secret no las toca nunca.
+# keep_vars = true evita que un deploy de Git deje al Worker sin configuración
+# si alguien las carga como Text.
+# https://developers.cloudflare.com/workers/wrangler/commands/workers/#deploy
+keep_vars = true
+
 [vars]
 # Non-sensitive variables (optional)
 

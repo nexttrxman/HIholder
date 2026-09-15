@@ -63,9 +63,9 @@ wrangler deploy
 Actualiza `/app/frontend/.env`:
 
 ```env
-REACT_APP_WORKER_URL=https://tu-worker.tu-subdomain.workers.dev
-REACT_APP_TELEGRAM_BOT_URL=https://t.me/TU_BOT
-REACT_APP_DEPOSIT_ADDRESS=TU_WALLET_ADDRESS
+VITE_WORKER_URL=https://tu-worker.tu-subdomain.workers.dev
+VITE_TELEGRAM_BOT_URL=https://t.me/TU_BOT
+VITE_DEPOSIT_ADDRESS=TU_WALLET_ADDRESS
 ```
 
 Deploy a Cloudflare Pages:
@@ -85,17 +85,76 @@ npx wrangler pages deploy build --project-name=tronkeeper
 
 | Variable | Descripción |
 |----------|-------------|
-| `BOT_TOKEN` | Token del bot de Telegram (de @BotFather) |
+| `BOT_TOKEN` | Token del bot de Telegram (de @BotFather). Acepta **varios** separados por coma o salto de línea para publicar la app bajo bots mirror |
 | `SUPA_URL` | URL de tu proyecto Supabase |
 | `SUPA_SERVICE_KEY` | Service role key de Supabase |
+
+> **Cargalas como tipo `Secret`, no `Text`.** Wrangler borra en cada deploy las
+> variables de *texto* configuradas en el dashboard y las reemplaza por las de
+> `wrangler.toml` — que acá está vacío, o sea que las deja en nada. Las de tipo
+> `Secret` no las borra ningún deploy. El `keep_vars = true` de `wrangler.toml`
+> es una red de seguridad por si alguien las carga como `Text`.
+>
+> Ojo también con cargarlas en **Settings → Builds → Variables and secrets**:
+> esas son solo para el *build* y no llegan al `env` del Worker en runtime. Las
+> que valen son las de **Settings → Variables and Secrets**.
+>
+> `GET /health` reporta cuáles están presentes (`env.BOT_TOKEN: true/false`) sin
+> revelar valores. Si dan `false`, el Worker no las ve.
+
+#### Bots mirror
+
+Telegram firma el `initData` con el token del bot desde el que se abrió la Mini
+App. Para publicar la misma app bajo varios bots (por ejemplo uno definitivo y
+uno de pruebas) contra un solo backend, poné todos los tokens en `BOT_TOKEN`:
+
+```
+BOT_TOKEN=111111111:TokenDelBotDefinitivo,222222222:TokenDelBotDePruebas
+```
+
+`parseBotTokens` los separa por coma, espacio o salto de línea, recorta y
+deduplica; `validateInitDataAny` prueba cada uno y devuelve el usuario del
+primero que firme. No debilita la verificación: el HMAC igual tiene que cerrar
+contra alguno de los tokens configurados, y la ventana anti-replay de
+`AUTH_MAX_AGE_SECONDS` se aplica por igual. Cubierto en `tests/mirrors.test.mjs`.
 
 ### Frontend (.env)
 
 | Variable | Descripción |
 |----------|-------------|
-| `REACT_APP_WORKER_URL` | URL del Cloudflare Worker |
-| `REACT_APP_TELEGRAM_BOT_URL` | URL del bot (https://t.me/TU_BOT) |
-| `REACT_APP_DEPOSIT_ADDRESS` | Wallet TRON para depósitos |
+| `VITE_WORKER_URL` | URL del Cloudflare Worker (sin `/` final) |
+| `VITE_TELEGRAM_BOT_URL` | URL del bot (https://t.me/TU_BOT) |
+| `VITE_DEPOSIT_ADDRESS` | Wallet TRON para depósitos |
+| `VITE_TELEGRAM_APP_NAME` | Nombre del Web App creado con `/newapp` en BotFather. **Necesario para que los referidos funcionen** |
+
+### Referidos (v2.7.0)
+
+Antes no existían: ninguna consulta insertaba en `referrals`, así que la tabla
+estaba siempre vacía y el panel no actualizaba nunca.
+
+Flujo completo:
+
+1. El link de referido es `https://t.me/<bot>/<app>?startapp=<uid>`
+   (`buildReferralLink` en `api.js`). **La forma `?start=<uid>` no sirve**: le
+   pasa el parámetro al bot, no a la Mini App, y el Worker nunca se entera.
+2. Telegram pone ese valor en `start_param` dentro del `initData`. Como el HMAC
+   cubre todos los parámetros, no se puede falsificar sin el token del bot.
+3. `handleAuth` lo lee con `extractStartParam` y llama a `register_referral`,
+   que deja una fila en `status = 'pending'`. Es idempotente por el
+   `UNIQUE(referrer_id, referred_id)` y rechaza auto-referidos.
+4. El pago lo dispara `credit_claim` en el **primer claim del referido**:
+   `confirm_pending_referral` marca `confirmed`, acredita **2 TRX** al referente
+   en `internal_wallets.trx_balance`, escribe el `wallet_ledger`
+   (`referral_bonus`) y descuenta de `referral_pool.distributed`.
+
+Si el pool se agota la fila **queda `pending`** y se reintenta en el próximo
+claim, en vez de marcarse confirmada sin pagarla.
+
+Para que funcione hay que crear el Web App con nombre en BotFather
+(`/newapp`) y setear `VITE_TELEGRAM_APP_NAME`.
+
+**Requiere re-ejecutar `supabase/schema.sql`** (agrega `register_referral` y
+`confirm_pending_referral`, y modifica `credit_claim`).
 
 ## Endpoints del Worker
 
@@ -266,3 +325,166 @@ curl -X POST https://tu-worker.workers.dev/auth \
 - Toda la lógica de DB está en el Worker
 - Los retiros quedan en estado `pending` para procesamiento manual
 - El pool de referidos se inicializa con 50,000 TRX
+
+---
+
+## Trade Panel (v2.3)
+
+El Trade tiene su **propia pestaña en el medio de la barra inferior**:
+`Home · Missions · TRADE · Invite · Wallet` (`src/pages/Trade.jsx`).
+No hay panel de trading ni en Home ni en Wallet; Home tampoco tiene los accesos
+rápidos de Deposit/Withdraw (quedan dentro de Wallet).
+
+### Nuevos endpoints del Worker
+
+| Ruta | Body | Devuelve |
+|------|------|----------|
+| `POST /trade` | `{ initData, pair, amount, price }` | `{ ok, position, new_balance, mark_price }` |
+| `POST /trade/close` | `{ initData, position_id, price }` | `{ ok, pnl, pnl_pct, credited, new_balance }` |
+| `POST /trade/sell-asset` | `{ initData, asset, amount?, price }` | `{ ok, asset, amount, price, fee, credited, new_balance, asset_balance }` |
+| `POST /positions` | `{ initData }` | `{ ok, positions, realized_pnl, unrealized_pnl, positions_value }` |
+| `POST /trade/levels` | `{ initData, position_id, take_profit, stop_loss }` | `{ ok, take_profit, stop_loss }` |
+
+- `pair` debe ser uno de `TRADE_CONFIG.ALLOWED_PAIRS` (`TONUSDT`, `BTCUSDT`, `ETHUSDT`,
+  `SOLUSDT`, `HYPEUSDT`, `UNIUSDT`, `TRXUSDT`, `DOGEUSDT`). `TONUSDT` es el id interno del
+  par que en la UI se muestra como **GRAM/USDT**: el token se renombró a Gram el 15/06/2026
+  pero cambiar el id dejaría huérfanas las posiciones ya guardadas.
+- El worker **ignora el precio del cliente** y usa el ticker público de Binance
+  (`fetchMarkPrice`). Si Binance no responde, acepta el precio del chart dentro de un 2%
+  de tolerancia (`isPriceWithinTolerance`).
+- Fee simulado: `0.1%` por lado (`TRADE_CONFIG.FEE_RATE`).
+- **Take Profit / Stop Loss**: opcionales en la orden (`take_profit`, `stop_loss`). El worker
+  valida el bracket con `validateLevels` (TP arriba del entry, SL abajo) y lo guarda en la
+  posición. El frontend monitorea los precios y cierra solo cuando se toca un nivel
+  (`checkLevelTrigger`); el SL gana si un salto cruza ambos.
+- Todo se descuenta del saldo interno de USDT mediante las RPC `open_trade` /
+  `close_trade` (atómicas, en `supabase/schema.sql`).
+
+### Migración de Supabase
+
+Ejecutar la sección **"TRADE POSITIONS TABLE"** y siguientes de `supabase/schema.sql`:
+
+1. `CREATE TABLE trade_positions`
+2. `ALTER TABLE wallet_ledger` para permitir `trade_buy` / `trade_sell`
+3. `CREATE FUNCTION open_trade(...)` y `close_trade(...)`
+
+**v2.4 (Take Profit / Stop Loss)** — sección "ORDER LIMITS" del mismo archivo:
+
+1. `ALTER TABLE trade_positions ADD COLUMN take_profit / stop_loss`
+2. `DROP FUNCTION open_trade(TEXT, TEXT, DECIMAL, DECIMAL)` + nueva firma de 6 parámetros
+3. `CREATE FUNCTION set_trade_levels(...)`
+
+**v2.5 (claim no cobrado)** — requiere re-ejecutar la sección HOLD del schema:
+
+Un claim que vence sin pagarse se **pierde** y el ciclo vuelve a 0 holds.
+`GET /auth` marca el claim como `expired_unclaimed` y resetea
+`hold_cycles.holds_completed` a 0. Antes el ciclo quedaba clavado en 3/3 y
+`POST /hold` rechazaba para siempre hasta el reset de 8 h (regla en
+`resolvePendingClaim`, `lib.js`). El mock de desarrollo y `WalletContext`
+aplican la misma regla.
+
+La regla ahora también vive en `expire_claims_and_cycles()` (el job de pg_cron
+que corre cada minuto). Era necesario: `/auth` solo busca claims con
+`status='pending'`, y el job los volteaba a `expired_unclaimed` sin tocar el
+ciclo, así que en producción el job ganaba la carrera casi siempre y el usuario
+quedaba en 3/3 sin claim hasta el fin de la ventana de 8 h — justo el fallo que
+`resolvePendingClaim` intenta evitar. La función resetea el ciclo **antes** de
+expirar el claim, y trae un `UPDATE` de reparación única para bases ya
+desplegadas que hayan quedado trabadas.
+
+También se corrigió el `EXCEPTION` del bloque que programa el job: sin
+`invalid_schema_name` (3F000), ejecutar el schema sin pg_cron habilitado
+abortaba todo el script en lugar de degradar en silencio.
+
+**v2.6 (Daily Check-In)** — sección "DAILY CHECK-IN" de `supabase/schema.sql`:
+
+1. `ALTER TABLE wallet_ledger` agrega `checkin_daily` / `checkin_weekly`
+2. `CREATE TABLE checkins` (`UNIQUE(user_id, checkin_date)` = idempotencia)
+3. `CREATE FUNCTION daily_checkin(p_user_id)` — acredita el premio diario y, al
+   7mo día de la semana ISO, el bono semanal una sola vez
+
+Endpoints nuevos: `POST /checkin` y `POST /checkin/status`.
+Premios en `CHECKIN_CONFIG` (`cloudflare-worker/lib.js`, espejado en
+`frontend/src/lib/checkin.js`): 0.05 USDT/día, 0.50 USDT a la semana.
+
+**v2.6.1 (RLS y permisos de funciones)** — secciones "RLS" y "PERMISOS DE
+FUNCIONES" al final de `supabase/schema.sql`. **Hay que re-ejecutarlas.**
+
+Todo acceso a la base pasa por el Worker: valida el `initData` de Telegram con
+HMAC-SHA256 en los 12 endpoints y usa la *service key*, que en Supabase tiene
+`BYPASSRLS`. La Mini App no incluye `supabase-js` ni la *anon key*.
+
+Dos agujeros que se cerraron:
+
+1. **No había RLS en ninguna tabla.** Las tablas nuevas de Supabase quedan con
+   RLS deshabilitado, así que la *anon key* —que es pública por diseño— daba
+   lectura y escritura directa sobre `internal_wallets`. Ahora las 12 tablas
+   tienen RLS habilitado **sin políticas**: `anon` y `authenticated` no ven ni
+   modifican nada. Si algún día se conecta un cliente directo, hay que agregar
+   políticas explícitas primero.
+2. **`daily_checkin` era `SECURITY DEFINER`** y Postgres da `EXECUTE` a `PUBLIC`
+   por defecto. La combinación era grave: la función corría como `postgres`, por
+   encima del RLS, y cualquiera podía invocarla por
+   `POST /rest/v1/rpc/daily_checkin` con cualquier `p_user_id` para acreditarse
+   saldo sin pasar por Telegram ni por el Worker. Ahora es `SECURITY INVOKER` y
+   las 6 RPC revocan `EXECUTE` de `PUBLIC`/`anon`/`authenticated`, dejándolo solo
+   en `service_role`.
+
+Verificado en `supabase/tests/schema.test.mjs` con roles reales: uno sin
+`BYPASSRLS` (como `anon`) no ve filas, su `UPDATE` no afecta nada y recibe
+`permission denied for function daily_checkin`; uno con `BYPASSRLS` (como
+`service_role`) sigue viendo todo.
+
+**Anti-replay en `initData`.** La firma HMAC demuestra que el payload viene de
+Telegram, pero no que sea reciente: un `initData` interceptado servía para
+siempre. `validateInitData` ahora rechaza los que tengan más de
+`CONFIG.AUTH_MAX_AGE_SECONDS` (24 h) según su `auth_date`, y también los que no
+lo traigan. La Mini App manda un `initData` fresco en cada apertura, así que un
+usuario real nunca queda afuera. Cubierto por `cloudflare-worker/tests/auth.test.mjs`
+(antes `validateInitData` no tenía ningún test).
+
+### Frontend
+
+| Archivo | Rol |
+|---------|-----|
+| `src/services/market.js` | Klines/ticker de Binance + generador sintético de respaldo |
+| `src/hooks/useMarketData.js` | Polling (6s) y auto-recuperación a datos reales |
+| `src/lib/trade.js` | Espejo de la matemática del worker (validación, fee, PnL) |
+| `src/contexts/TradeContext.jsx` | Posiciones, open/close, fallback a `localStorage` |
+| `src/components/trade/CandleChart.jsx` | Chart de velas SVG propio (crosshair táctil + líneas TP/SL) |
+| `src/components/trade/PairSelector.jsx` | Mini menú de mercados con precio y 24h |
+| `src/components/trade/TradePanel.jsx` | Panel completo / compacto |
+
+Sin `initData` de Telegram (navegador, preview) el panel opera contra el balance demo
+persistido en `localStorage`, así que se puede probar el flujo completo sin backend.
+
+### History → Wallet
+
+La pestaña **History** desapareció de la barra inferior. Su contenido está en
+**Wallet → Activity** (`WalletPage` recibe `initialSection`). La navegación inferior queda
+en 5 tabs: Home, Missions, **Trade**, Invite, Wallet.
+
+### Tests
+
+```bash
+cd frontend && npx vitest run          # 21 tests (nav, compra/cierre, TP-SL, picker, maths)
+cd cloudflare-worker && node --test tests/lib.test.mjs tests/trade.test.mjs   # 51 tests
+```
+
+### Variables de entorno del build del frontend
+
+Se leen en tiempo de **build** (Vite las inlina), no en runtime. En Cloudflare
+Pages van en Settings → Environment variables.
+
+| Variable | Para qué | Si falta |
+|---|---|---|
+| `VITE_WORKER_URL` | URL del Worker (`api.js`) | **obligatoria**: sin ella la app no arranca y lo dice en pantalla |
+| `VITE_APP_URL` | Origen de la app, usado como `url` e `iconUrl` del manifiesto de TonConnect | el manifiesto queda en `http://localhost:3000` y las wallets móviles no pueden volver a la app |
+| `VITE_TELEGRAM_BOT_URL` | Link al bot | cae a `https://t.me/TKcex_bot` |
+| `VITE_DEPOSIT_ADDRESS` | Dirección de depósito mostrada | cae a la hardcodeada en `api.js` |
+
+El manifiesto de TonConnect lo genera `vite.config.js` (plugin
+`tonconnectManifest`) en `/tonconnect-manifest.json`, servido desde el propio
+origen. Antes `App.jsx` apuntaba a un repo de terceros
+(`raw.githubusercontent.com/AntipressTeam/...`) y, cuando ese host no respondía,
+el claim abortaba con "manifest not found".

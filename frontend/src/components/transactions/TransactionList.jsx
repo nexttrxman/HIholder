@@ -7,10 +7,25 @@ import { Clock } from 'lucide-react';
 
 const FILTERS = [
   { id: 'all', label: 'All' },
+  { id: 'trades', label: 'Trades' },
   { id: 'deposit', label: 'Deposits' },
   { id: 'withdraw', label: 'Withdrawals' },
   { id: 'reward', label: 'Rewards' },
 ];
+
+// Cada subpestaña tiene su lista de tipos. El servidor manda las operaciones
+// del ledger ('withdrawal', 'trade_buy', 'checkin_daily'...) y las entradas
+// optimistas locales mandan los nombres de la UI ('buy', 'sell', 'reward'),
+// así que las dos vocabularios entran en la misma pestaña. Antes el filtro
+// comparaba contra 'withdraw' y 'buy'/'sell' solamente, y casi todo quedaba
+// escondido en All.
+const FILTER_TYPES = {
+  trades: ['buy', 'sell', 'trade_buy', 'trade_sell'],
+  deposit: ['deposit'],
+  withdraw: ['withdraw', 'withdrawal', 'fee_deduction'],
+  reward: ['reward', 'claim_credit', 'referral_bonus', 'signup_bonus',
+           'checkin_daily', 'checkin_weekly', 'referral'],
+};
 
 export function TransactionList() {
   const { transactions, loadingTransactions, loadTransactions } = useWallet();
@@ -20,11 +35,12 @@ export function TransactionList() {
     loadTransactions();
   }, [loadTransactions]);
 
-  const filteredTransactions = filter === 'all' 
-    ? transactions 
-    : transactions.filter(tx => tx.type === filter);
+  const filteredTransactions = transactions.filter((tx) => {
+    if (filter === 'all') return true;
+    return (FILTER_TYPES[filter] || []).includes(tx.type);
+  });
 
-  if (loadingTransactions) {
+  if (loadingTransactions && transactions.length === 0) {
     return <LoadingState message="Loading transactions..." />;
   }
 
@@ -39,8 +55,8 @@ export function TransactionList() {
             data-testid={`filter-${id}`}
             className={`
               px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all
-              ${filter === id 
-                ? 'bg-white text-black' 
+              ${filter === id
+                ? 'bg-white text-black'
                 : 'bg-white/5 text-white/60 hover:bg-white/10'
               }
             `}
@@ -52,10 +68,14 @@ export function TransactionList() {
 
       {/* List */}
       {filteredTransactions.length === 0 ? (
-        <EmptyState 
+        <EmptyState
           icon={Clock}
-          title="No transactions"
-          description="Your transaction history will appear here."
+          title={filter === 'all' ? 'No activity yet' : 'Nothing here yet'}
+          description={
+            filter === 'all'
+              ? 'Hold to earn your first reward, or open a demo trade — everything shows up here.'
+              : 'Try another filter.'
+          }
         />
       ) : (
         <div className="space-y-2">
@@ -65,12 +85,9 @@ export function TransactionList() {
         </div>
       )}
 
-      {/* Mock Data Notice */}
       <div className="mt-6 p-3 rounded-xl bg-white/5 border border-white/10 text-center">
         <p className="text-xs text-white/40">
-          Transaction history is currently showing sample data. 
-          <br />
-          <span className="text-white/30">Backend endpoint pending integration.</span>
+          Rewards, deposits, withdrawals and demo trades in one ledger.
         </p>
       </div>
     </div>

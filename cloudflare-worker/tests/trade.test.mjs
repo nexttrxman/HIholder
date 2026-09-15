@@ -1,0 +1,485 @@
+/**
+ * Unit tests for the simulated spot-trade maths.
+ *
+ * Run with: node --test tests/trade.test.mjs
+ *
+ * These exercise the pure helpers only — no Supabase, no exchange HTTP.
+ */
+
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+  TRADE_CONFIG,
+  validateTradeRequest,
+  calcOpenTrade,
+  calcCloseTrade,
+  calcUnrealizedPnl,
+  isPriceWithinTolerance,
+  fetchMarkPrice,
+  pairSymbols,
+  validateWalletSale,
+  walletAssetForPair,
+  pairForWalletAsset,
+  isPlausiblePrice,
+  MARK_SEEDS,
+  priceFromPercent,
+  validateLevels,
+  checkLevelTrigger,
+  previewLevelPnl,
+} from '../lib.js';
+
+const close = (a, b, eps = 1e-9) => Math.abs(a - b) <= eps;
+
+// ============================================
+// validateTradeRequest
+// ============================================
+test('validateTradeRequest: accepts a supported pair with enough balance', () => {
+  const res = validateTradeRequest({ pair: 'TONUSDT', amount: 50, balance: 100 });
+  assert.equal(res.ok, true);
+  assert.equal(res.amount, 50);
+});
+
+test('validateTradeRequest: rejects unknown pair', () => {
+  const res = validateTradeRequest({ pair: 'SCAMUSDT', amount: 10, balance: 100 });
+  assert.equal(res.ok, false);
+  assert.match(res.error, /Unsupported pair/);
+});
+
+test('validateTradeRequest: rejects non-positive / NaN amounts', () => {
+  for (const amount of [0, -5, NaN, 'abc']) {
+    const res = validateTradeRequest({ pair: 'BTCUSDT', amount, balance: 100 });
+    assert.equal(res.ok, false, `expected rejection for amount=${amount}`);
+  }
+});
+
+test('validateTradeRequest: enforces minimum notional', () => {
+  const res = validateTradeRequest({
+    pair: 'ETHUSDT',
+    amount: TRADE_CONFIG.MIN_NOTIONAL - 0.01,
+    balance: 100,
+  });
+  assert.equal(res.ok, false);
+  assert.match(res.error, /Minimum order size/);
+});
+
+test('validateTradeRequest: enforces maximum notional', () => {
+  const res = validateTradeRequest({
+    pair: 'ETHUSDT',
+    amount: TRADE_CONFIG.MAX_NOTIONAL + 1,
+    balance: TRADE_CONFIG.MAX_NOTIONAL * 2,
+  });
+  assert.equal(res.ok, false);
+  assert.match(res.error, /Maximum order size/);
+});
+
+test('validateTradeRequest: balance must cover notional + fee', () => {
+  const amount = 50;
+  const fee = amount * TRADE_CONFIG.FEE_RATE;
+
+  const exact = validateTradeRequest({ pair: 'TONUSDT', amount, balance: amount + fee });
+  assert.equal(exact.ok, true, 'exact balance should be accepted');
+
+  const short = validateTradeRequest({ pair: 'TONUSDT', amount, balance: amount + fee - 0.01 });
+  assert.equal(short.ok, false);
+  assert.match(short.error, /Insufficient USDT balance/);
+});
+
+test('validateTradeRequest: treats missing balance as zero', () => {
+  const res = validateTradeRequest({ pair: 'TONUSDT', amount: 10 });
+  assert.equal(res.ok, false);
+  assert.match(res.error, /Insufficient USDT balance/);
+});
+
+// ============================================
+// calcOpenTrade
+// ============================================
+test('calcOpenTrade: qty, fee and total debit', () => {
+  const res = calcOpenTrade({ amount: 100, price: 2.5 });
+  assert.equal(res.ok, true);
+  assert.ok(close(res.qty, 40), `qty=${res.qty}`);
+  assert.ok(close(res.fee, 0.1), `fee=${res.fee}`);
+  assert.ok(close(res.totalDebit, 100.1), `totalDebit=${res.totalDebit}`);
+});
+
+test('calcOpenTrade: rejects bad inputs', () => {
+  assert.equal(calcOpenTrade({ amount: 0, price: 2 }).ok, false);
+  assert.equal(calcOpenTrade({ amount: 10, price: 0 }).ok, false);
+  assert.equal(calcOpenTrade({ amount: -1, price: 2 }).ok, false);
+  assert.equal(calcOpenTrade({ amount: 'x', price: 2 }).ok, false);
+});
+
+// ============================================
+// calcCloseTrade
+// ============================================
+test('calcCloseTrade: profitable exit is net of both fees', () => {
+  // Bought 40 units at 2.5 (100 USDT + 0.1 fee), selling at 3.0
+  const res = calcCloseTrade({ qty: 40, entryPrice: 2.5, exitPrice: 3 });
+  assert.equal(res.ok, true);
+  assert.ok(close(res.costBasis, 100));
+  assert.ok(close(res.proceeds, 120));
+  assert.ok(close(res.fee, 0.12)); // 0.1% of 120
+  assert.ok(close(res.credit, 119.88));
+  // 119.88 credit - 100 cost - 0.1 open fee = 19.78
+  assert.ok(close(res.pnl, 19.78), `pnl=${res.pnl}`);
+  assert.ok(res.pnl > 0);
+  assert.ok(close(res.pnlPct, 19.78 / 100.1));
+});
+
+test('calcCloseTrade: losing exit returns negative pnl', () => {
+  const res = calcCloseTrade({ qty: 40, entryPrice: 2.5, exitPrice: 2 });
+  assert.ok(close(res.proceeds, 80));
+  assert.ok(close(res.credit, 79.92));
+  assert.ok(close(res.pnl, 79.92 - 100 - 0.1));
+  assert.ok(res.pnl < 0);
+});
+
+test('calcCloseTrade: flat price still loses the two fees', () => {
+  const res = calcCloseTrade({ qty: 40, entryPrice: 2.5, exitPrice: 2.5 });
+  assert.ok(close(res.pnl, 100 - 0.1 - 100 - 0.1));
+  assert.ok(res.pnl < 0, 'round trip must cost the fees');
+});
+
+test('calcCloseTrade: rejects bad inputs', () => {
+  assert.equal(calcCloseTrade({ qty: 0, entryPrice: 1, exitPrice: 1 }).ok, false);
+  assert.equal(calcCloseTrade({ qty: 1, entryPrice: 0, exitPrice: 1 }).ok, false);
+  assert.equal(calcCloseTrade({ qty: 1, entryPrice: 1, exitPrice: -2 }).ok, false);
+});
+
+// ============================================
+// calcUnrealizedPnl
+// ============================================
+test('calcUnrealizedPnl: marks position to market', () => {
+  const res = calcUnrealizedPnl({ qty: 40, entryPrice: 2.5, markPrice: 3 });
+  assert.equal(res.ok, true);
+  assert.ok(close(res.value, 120));
+  assert.ok(close(res.unrealized, 20));
+  assert.ok(close(res.unrealizedPct, 0.2));
+});
+
+test('calcUnrealizedPnl: negative when underwater', () => {
+  const res = calcUnrealizedPnl({ qty: 40, entryPrice: 2.5, markPrice: 1 });
+  assert.ok(close(res.unrealized, -60));
+  assert.ok(res.unrealizedPct < 0);
+});
+
+test('calcUnrealizedPnl: rejects bad inputs', () => {
+  assert.equal(calcUnrealizedPnl({ qty: 0, entryPrice: 1, markPrice: 1 }).ok, false);
+  assert.equal(calcUnrealizedPnl({ qty: 1, entryPrice: 1, markPrice: 0 }).ok, false);
+});
+
+// ============================================
+// isPriceWithinTolerance
+// ============================================
+test('isPriceWithinTolerance: accepts small drift, rejects spoofed fills', () => {
+  // default tolerance is 2%
+  assert.equal(isPriceWithinTolerance(100.5, 100), true); // +0.5%
+  assert.equal(isPriceWithinTolerance(99.5, 100), true); // -0.5%
+  assert.equal(isPriceWithinTolerance(103, 100), false); // +3%
+  assert.equal(isPriceWithinTolerance(97, 100), false); // -3%
+  assert.equal(isPriceWithinTolerance(1, 100), false);
+});
+
+test('isPriceWithinTolerance: honours a custom tolerance', () => {
+  assert.equal(isPriceWithinTolerance(105, 100, 0.1), true); // 5% within 10%
+  assert.equal(isPriceWithinTolerance(111, 100, 0.1), false); // 11% outside 10%
+});
+
+test('isPriceWithinTolerance: invalid client price is rejected', () => {
+  assert.equal(isPriceWithinTolerance(0, 100), false);
+  assert.equal(isPriceWithinTolerance(NaN, 100), false);
+});
+
+test('isPriceWithinTolerance: missing mark price trusts the client', () => {
+  assert.equal(isPriceWithinTolerance(123, null), true);
+  assert.equal(isPriceWithinTolerance(123, 0), true);
+});
+
+// ============================================
+// TON -> GRAM: tickers de mercado por par
+// ============================================
+// Toncoin se renombró a Gram el 15/06/2026. ALLOWED_PAIRS y trade_positions
+// siguen usando TONUSDT (cambiarlo dejaría huérfanas las posiciones abiertas),
+// pero el ticker de mercado puede ser el nuevo o el viejo según el exchange.
+test('pairSymbols: TONUSDT prueba GRAMUSDT primero y los pares sin alias usan su propio símbolo', () => {
+  assert.deepEqual(pairSymbols('TONUSDT'), ['GRAMUSDT', 'TONUSDT']);
+  assert.deepEqual(pairSymbols('BTCUSDT'), ['BTCUSDT']);
+});
+
+test('fetchMarkPrice: usa el ticker nuevo cuando el exchange ya migró', async () => {
+  const asked = [];
+  const price = await fetchMarkPrice('TONUSDT', {
+    fetchImpl: async (url) => {
+      asked.push(url);
+      return { ok: true, json: async () => ({ price: '1.4100' }) };
+    },
+  });
+  assert.equal(price, 1.41);
+  assert.equal(asked.length, 1);
+  assert.ok(asked[0].includes('symbol=GRAMUSDT'), asked[0]);
+});
+
+test('fetchMarkPrice: cae al ticker viejo si el nuevo todavía no existe', async () => {
+  const asked = [];
+  const price = await fetchMarkPrice('TONUSDT', {
+    fetchImpl: async (url) => {
+      asked.push(url);
+      if (url.includes('GRAMUSDT')) return { ok: false };
+      return { ok: true, json: async () => ({ price: '3.4120' }) };
+    },
+  });
+  assert.equal(price, 3.412);
+  assert.deepEqual(asked.map((u) => (u.includes('GRAMUSDT') ? 'GRAM' : 'TON')), ['GRAM', 'TON']);
+});
+
+test('fetchMarkPrice: un ticker que revienta no impide probar el siguiente', async () => {
+  const price = await fetchMarkPrice('TONUSDT', {
+    fetchImpl: async (url) => {
+      if (url.includes('GRAMUSDT')) throw new Error('network down');
+      return { ok: true, json: async () => ({ price: '3.4120' }) };
+    },
+  });
+  assert.equal(price, 3.412);
+});
+
+// ============================================
+// fetchMarkPrice (injected fetch)
+// ============================================
+test('fetchMarkPrice: parses the exchange ticker', async () => {
+  const price = await fetchMarkPrice('TONUSDT', {
+    fetchImpl: async () => ({ ok: true, json: async () => ({ symbol: 'TONUSDT', price: '3.4120' }) }),
+  });
+  assert.equal(price, 3.412);
+});
+
+test('fetchMarkPrice: returns null on HTTP error or bad payload', async () => {
+  assert.equal(await fetchMarkPrice('TONUSDT', { fetchImpl: async () => ({ ok: false }) }), null);
+  assert.equal(
+    await fetchMarkPrice('TONUSDT', { fetchImpl: async () => ({ ok: true, json: async () => ({ price: 'nope' }) }) }),
+    null
+  );
+  assert.equal(
+    await fetchMarkPrice('TONUSDT', {
+      fetchImpl: async () => {
+        throw new Error('network down');
+      },
+    }),
+    null
+  );
+  // Y si todos los tickers del par fallan, sigue siendo null (no un precio viejo).
+  assert.equal(
+    await fetchMarkPrice('BTCUSDT', { fetchImpl: async () => ({ ok: false }) }),
+    null
+  );
+});
+
+// ============================================
+// ORDER LIMITS: Take Profit / Stop Loss
+// ============================================
+test('priceFromPercent: moves a reference price by a percentage', () => {
+  assert.ok(close(priceFromPercent(100, 0.05), 105));
+  assert.ok(close(priceFromPercent(100, -0.03), 97));
+  assert.equal(priceFromPercent(0, 0.05), null);
+  assert.equal(priceFromPercent(100, 'x'), null);
+});
+
+test('validateLevels: both levels optional', () => {
+  const res = validateLevels({ entryPrice: 100 });
+  assert.equal(res.ok, true);
+  assert.equal(res.takeProfit, null);
+  assert.equal(res.stopLoss, null);
+});
+
+test('validateLevels: accepts a valid long bracket', () => {
+  const res = validateLevels({ entryPrice: 100, takeProfit: 110, stopLoss: 95 });
+  assert.equal(res.ok, true);
+  assert.equal(res.takeProfit, 110);
+  assert.equal(res.stopLoss, 95);
+});
+
+test('validateLevels: Take Profit must sit above entry', () => {
+  assert.match(validateLevels({ entryPrice: 100, takeProfit: 100 }).error, /above the entry/);
+  assert.match(validateLevels({ entryPrice: 100, takeProfit: 90 }).error, /above the entry/);
+});
+
+test('validateLevels: Stop Loss must sit below entry', () => {
+  assert.match(validateLevels({ entryPrice: 100, stopLoss: 100 }).error, /below the entry/);
+  assert.match(validateLevels({ entryPrice: 100, stopLoss: 120 }).error, /below the entry/);
+});
+
+test('validateLevels: an inverted bracket is rejected', () => {
+  // sl >= entry is caught first: tp > entry > sl would mean sl < tp anyway.
+  assert.match(validateLevels({ entryPrice: 100, takeProfit: 105, stopLoss: 106 }).error, /below the entry/);
+});
+
+test('validateLevels: rejects garbage input', () => {
+  assert.match(validateLevels({ entryPrice: 100, takeProfit: 'abc' }).error, /positive price/);
+  assert.match(validateLevels({ entryPrice: 100, stopLoss: -5 }).error, /positive price/);
+  assert.equal(validateLevels({ entryPrice: 0 }).ok, false);
+});
+
+test('checkLevelTrigger: fires the Stop Loss first on a gap down', () => {
+  assert.equal(checkLevelTrigger({ entryPrice: 100, markPrice: 94, takeProfit: 110, stopLoss: 95 }), 'sl');
+  assert.equal(checkLevelTrigger({ entryPrice: 100, markPrice: 95, stopLoss: 95 }), 'sl');
+  assert.equal(checkLevelTrigger({ entryPrice: 100, markPrice: 96, stopLoss: 95 }), null);
+});
+
+test('checkLevelTrigger: fires the Take Profit when reached', () => {
+  assert.equal(checkLevelTrigger({ entryPrice: 100, markPrice: 110, takeProfit: 110, stopLoss: 95 }), 'tp');
+  assert.equal(checkLevelTrigger({ entryPrice: 100, markPrice: 109.9, takeProfit: 110 }), null);
+});
+
+test('checkLevelTrigger: no levels, no trigger', () => {
+  assert.equal(checkLevelTrigger({ entryPrice: 100, markPrice: 50 }), null);
+  assert.equal(checkLevelTrigger({ entryPrice: 100, markPrice: 0, stopLoss: 95 }), null);
+});
+
+test('previewLevelPnl: prices the level net of fees', () => {
+  const res = previewLevelPnl({ qty: 1, entryPrice: 100, targetPrice: 95 });
+  assert.equal(res.ok, true);
+  assert.ok(res.pnl < 0, 'a stop loss below entry must be a loss');
+  const expected = calcCloseTrade({ qty: 1, entryPrice: 100, exitPrice: 95 });
+  assert.ok(close(res.pnl, expected.pnl));
+});
+
+// ============================================
+// Venta de saldo interno (TRX/TON -> USDT)
+// ============================================
+test('walletAssetForPair / pairForWalletAsset: solo TRX y TON tienen saldo interno', () => {
+  assert.equal(walletAssetForPair('TRXUSDT'), 'TRX');
+  assert.equal(walletAssetForPair('TONUSDT'), 'TON');
+  assert.equal(walletAssetForPair('BTCUSDT'), null);
+  assert.equal(pairForWalletAsset('TRX'), 'TRXUSDT');
+  assert.equal(pairForWalletAsset('TON'), 'TONUSDT');
+  assert.equal(pairForWalletAsset('USDT'), null);
+});
+
+test('validateWalletSale: acepta una venta cubierta por el saldo', () => {
+  const res = validateWalletSale({ asset: 'TRX', amount: 5, balance: 5 });
+  assert.deepEqual(res, { ok: true, amount: 5 });
+
+  const partial = validateWalletSale({ asset: 'TRX', amount: '2.5', balance: 5 });
+  assert.deepEqual(partial, { ok: true, amount: 2.5 });
+});
+
+test('validateWalletSale: rechaza más de lo que hay', () => {
+  const res = validateWalletSale({ asset: 'TRX', amount: 5.01, balance: 5 });
+  assert.equal(res.ok, false);
+  assert.match(res.error, /Insufficient TRX/);
+});
+
+test('validateWalletSale: rechaza activos que no son de wallet', () => {
+  assert.equal(validateWalletSale({ asset: 'USDT', amount: 5, balance: 5 }).ok, false);
+  assert.equal(validateWalletSale({ asset: 'BTC', amount: 5, balance: 5 }).ok, false);
+  assert.equal(validateWalletSale({ asset: null, amount: 5, balance: 5 }).ok, false);
+});
+
+test('validateWalletSale: rechaza montos inválidos y wallets vacías', () => {
+  assert.equal(validateWalletSale({ asset: 'TRX', amount: 0, balance: 5 }).ok, false);
+  assert.equal(validateWalletSale({ asset: 'TRX', amount: -1, balance: 5 }).ok, false);
+  assert.equal(validateWalletSale({ asset: 'TRX', amount: 'abc', balance: 5 }).ok, false);
+  assert.equal(validateWalletSale({ asset: 'TRX', amount: 1, balance: 0 }).error, 'No TRX available to sell');
+});
+
+// ============================================
+// Pares nuevos y guarda de plausibilidad
+// ============================================
+test('ALLOWED_PAIRS incluye SOL, HYPE y UNI', () => {
+  for (const pair of ['SOLUSDT', 'HYPEUSDT', 'UNIUSDT']) {
+    assert.equal(validateTradeRequest({ pair, amount: 50, balance: 100 }).ok, true, pair);
+    assert.ok(Number.isFinite(MARK_SEEDS[pair]) && MARK_SEEDS[pair] > 0, `seed de ${pair}`);
+  }
+});
+
+test('isPlausiblePrice: acepta el rango real y descarta homónimos', () => {
+  // GRAM cotiza ~1.39; su ATH fue 8.25 y su ATL 0.52.
+  assert.equal(isPlausiblePrice(1.39, 1.39), true);
+  assert.equal(isPlausiblePrice(8.25, 1.39), true);
+  assert.equal(isPlausiblePrice(0.52, 1.39), true);
+  // Un token "Gram" que no es el de The Open Network cotiza a fracciones de centavo.
+  assert.equal(isPlausiblePrice(0.0009, 1.39), false);
+  assert.equal(isPlausiblePrice(900, 1.39), false);
+  assert.equal(isPlausiblePrice(0, 1.39), false);
+  assert.equal(isPlausiblePrice('x', 1.39), false);
+  // Sin semilla conocida no se filtra nada.
+  assert.equal(isPlausiblePrice(42, null), true);
+});
+
+test('fetchMarkPrice: un ticker implausible no gana, se prueba el siguiente', async () => {
+  const asked = [];
+  const price = await fetchMarkPrice('TONUSDT', {
+    fetchImpl: async (url) => {
+      asked.push(url.includes('GRAMUSDT') ? 'GRAM' : 'TON');
+      // GRAMUSDT responde con un homónimo a $0.0009; TONUSDT con el precio real.
+      if (url.includes('GRAMUSDT')) return { ok: true, json: async () => ({ price: '0.0009' }) };
+      return { ok: true, json: async () => ({ price: '1.3900' }) };
+    },
+  });
+  assert.equal(price, 1.39);
+  assert.deepEqual(asked, ['GRAM', 'TON']);
+});
+
+test('fetchMarkPrice: si ningún ticker es plausible devuelve null, no un precio falso', async () => {
+  const price = await fetchMarkPrice('TONUSDT', {
+    fetchImpl: async () => ({ ok: true, json: async () => ({ price: '0.0009' }) }),
+  });
+  assert.equal(price, null);
+});
+
+test('fetchMarkPrice: cae a Binance Futures cuando spot no lista el par', async () => {
+  const asked = [];
+  const price = await fetchMarkPrice('HYPEUSDT', {
+    fetchImpl: async (url) => {
+      asked.push(url.includes('fapi.binance.com') ? 'futures' : 'spot');
+      if (url.includes('fapi.binance.com')) return { ok: true, json: async () => ({ price: '82.90' }) };
+      return { ok: false };
+    },
+  });
+  assert.equal(price, 82.9);
+  assert.deepEqual(asked, ['spot', 'futures']);
+});
+
+test('fetchMarkPrice: si ningún venue responde, null (el precio del cliente no se valida a ciegas)', async () => {
+  const price = await fetchMarkPrice('HYPEUSDT', { fetchImpl: async () => ({ ok: false }) });
+  assert.equal(price, null);
+});
+
+// ============================================
+// $KEEP (v3.2) — validateKeepBuy / KEEP_CONFIG
+// ============================================
+import { KEEP_CONFIG, validateKeepBuy, MANAGED_INTERVAL_SECONDS } from '../lib.js';
+
+test('validateKeepBuy: acepta una compra con saldo suficiente', () => {
+  const res = validateKeepBuy({ amount: 10, balance: 25 });
+  assert.equal(res.ok, true);
+  assert.equal(res.amount, 10);
+});
+
+test('validateKeepBuy: la fee (0.1%) entra en el chequeo de saldo', () => {
+  // 10 + 0.01 > 10.005
+  const res = validateKeepBuy({ amount: 10, balance: 10.005 });
+  assert.equal(res.ok, false);
+  assert.match(res.error, /Insufficient USDT balance/);
+});
+
+test('validateKeepBuy: respeta el notional minimo y maximo', () => {
+  assert.equal(validateKeepBuy({ amount: 0.5, balance: 100 }).ok, false);
+  assert.equal(validateKeepBuy({ amount: 1, balance: 100 }).ok, true);
+  assert.equal(validateKeepBuy({ amount: 100001, balance: 1e9 }).ok, false);
+  for (const amount of [0, -5, NaN, 'abc']) {
+    assert.equal(validateKeepBuy({ amount, balance: 100 }).ok, false);
+  }
+});
+
+test('KEEP_CONFIG: rangos de recompensa espejo del SQL', () => {
+  // Debe coincidir con schema.sql v3.2: 500+floor(random()*701) y 500+floor(random()*2001).
+  assert.equal(KEEP_CONFIG.PAIR, 'KEEPUSDT');
+  assert.deepEqual([KEEP_CONFIG.MISSION_MIN, KEEP_CONFIG.MISSION_MAX], [500, 1200]);
+  assert.deepEqual([KEEP_CONFIG.CHECKIN_MIN, KEEP_CONFIG.CHECKIN_MAX], [500, 500]);
+  assert.equal(KEEP_CONFIG.CHECKIN_WEEKLY, 2000);
+  assert.deepEqual([KEEP_CONFIG.CLAIM_MIN, KEEP_CONFIG.CLAIM_MAX], [500, 2500]);
+});
+
+test('MANAGED_INTERVAL_SECONDS: los timeframes del panel tienen bucket', () => {
+  assert.deepEqual(MANAGED_INTERVAL_SECONDS, { '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400 });
+});

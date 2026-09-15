@@ -1,0 +1,281 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
+
+import { resetMockWallet, authUser, registerHold, getClaim, verifyPayment } from '@/services/api';
+import { WalletProvider } from '@/contexts/WalletContext';
+import { TradeProvider } from '@/contexts/TradeContext';
+import { HoldButton } from '@/components/earn/HoldButton';
+
+/**
+ * Regression net for the core earn loop, so the UI can be restyled safely:
+ *   hold 3s -> prize -> 3 holds per cycle -> claim ready
+ */
+
+const HOLD_MS = 3000;
+const PRIZE_DELAY_MS = 350; // prize overlay appears 300ms after the hold completes
+const RESET_MS = 2400; // 300ms delay + 2000ms prize overlay
+
+function renderHold(onClaimReady = vi.fn()) {
+  render(
+    <WalletProvider>
+      <TradeProvider>
+        <HoldButton onClaimReady={onClaimReady} />
+      </TradeProvider>
+    </WalletProvider>
+  );
+  return onClaimReady;
+}
+
+/** Let the async boot (authUser -> cycle -> wallet) settle under fake timers. */
+async function settle() {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+}
+
+async function holdFor(ms) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+}
+
+describe('Hold to Earn — 3 second hold + claim loop', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetMockWallet();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('does nothing before 3 seconds and pays out exactly at 3s', async () => {
+    renderHold();
+    await settle();
+
+    const button = screen.getByTestId('hold-button');
+    expect(screen.getByText('Hold to earn')).toBeInTheDocument();
+
+    fireEvent.mouseDown(button);
+    await holdFor(2900);
+    expect(screen.queryByText('✓ Done!')).not.toBeInTheDocument();
+
+    await holdFor(150);
+    expect(screen.getByText('✓ Done!')).toBeInTheDocument();
+
+    // the prize overlay (random 0.02 - 0.08 USDT) pops 300ms later
+    await holdFor(PRIZE_DELAY_MS);
+    expect(screen.getByText(/\+\$0\.(1[5-9]|2\d|3[0-5])/)).toBeInTheDocument();
+  });
+
+  it('releasing early cancels the hold', async () => {
+    renderHold();
+    await settle();
+
+    const button = screen.getByTestId('hold-button');
+    fireEvent.mouseDown(button);
+    await holdFor(1500);
+    fireEvent.mouseUp(button);
+    await holdFor(HOLD_MS);
+
+    expect(screen.queryByText('✓ Done!')).not.toBeInTheDocument();
+    expect(screen.getByText('Hold to earn')).toBeInTheDocument();
+  });
+
+  it('counts 3 holds per cycle and unlocks the claim', async () => {
+    const onClaimReady = renderHold();
+    await settle();
+
+    const button = screen.getByTestId('hold-button');
+
+    for (let i = 1; i <= 3; i += 1) {
+      fireEvent.mouseDown(button);
+      await holdFor(HOLD_MS + 50);
+      expect(screen.getByText('✓ Done!')).toBeInTheDocument();
+      await holdFor(RESET_MS + 50);
+
+      if (i < 3) {
+        expect(onClaimReady).not.toHaveBeenCalled();
+      }
+    }
+
+    // third hold completes the cycle -> claim handed to the app
+    expect(onClaimReady).toHaveBeenCalledTimes(1);
+    expect(onClaimReady.mock.calls[0][0]).toMatchObject({
+      claim_id: expect.any(String),
+      total_prize: expect.any(Number),
+      ton_fee: 0.15,
+      treasury_wallet: expect.any(String),
+    });
+
+    // and the button stops offering holds until the claim is resolved
+    expect(screen.getByText('Claim your reward!')).toBeInTheDocument();
+    expect(screen.getByText(/Complete 3 holds to unlock your reward|Cycle complete/)).toBeInTheDocument();
+  });
+
+  it('advances the cycle counter as holds complete', async () => {
+    renderHold();
+    await settle();
+
+    const button = screen.getByTestId('hold-button');
+    fireEvent.mouseDown(button);
+    await holdFor(HOLD_MS + 50);
+    await holdFor(PRIZE_DELAY_MS);
+    expect(screen.getByText(/\+\$0\.(1[5-9]|2\d|3[0-5])/)).toBeInTheDocument();
+    await holdFor(RESET_MS + 50);
+
+    // cycle dots: first one filled, the rest still pending
+    const dots = screen.getByTestId('holds-remaining').firstElementChild.children;
+    expect(dots.length).toBe(3);
+    // filled dots carry the accent background, pending ones do not
+    expect(dots[0].className).toContain('bg-brand-green');
+    expect(dots[1].className).not.toContain('bg-brand-green');
+    expect(dots[2].className).not.toContain('bg-brand-green');
+  });
+});
+
+// ============================================
+// Claim lifecycle: an unclaimed reward must not brick the button
+// ============================================
+describe('unclaimed claim', () => {
+  beforeEach(() => {
+    resetMockWallet();
+    localStorage.clear();
+  });
+
+  /** authUser() hands back the live claim object, so expiring it is a write. */
+  const expirePendingClaim = (auth) => {
+    auth.pending_claim.expires_at = new Date(Date.now() - 1000).toISOString();
+  };
+
+  it('reports the pending claim once the cycle is complete', async () => {
+    for (let i = 0; i < 3; i++) await registerHold(0.25);
+
+    const auth = await authUser();
+    expect(auth.pending_claim).toBeTruthy();
+    expect(auth.pending_claim.total_prize).toBe(0.75);
+    expect(auth.cycle.holds_completed).toBe(3);
+    expect(auth.cycle.remaining_holds).toBe(0);
+  });
+
+  it('forfeits an expired claim and the 3 holds go with it', async () => {
+    for (let i = 0; i < 3; i++) await registerHold(0.25);
+
+    const auth = await authUser();
+    expect(auth.pending_claim).toBeTruthy();
+    expirePendingClaim(auth);
+
+    const after = await authUser();
+    expect(after.pending_claim).toBeNull();
+    // v3.6 (regla final): el claim que vence sin firmarse se pierde con sus 3
+    // holds y el ciclo vuelve a 0: el hold se reabre enseguida. El cooldown de
+    // 8 h rige solo tras un claim cobrado.
+    expect(after.cycle.holds_completed).toBe(0);
+    expect(after.cycle.remaining_holds).toBe(3);
+  });
+
+  it('lets the user hold again straight away after a forfeit', async () => {
+    for (let i = 0; i < 3; i++) await registerHold(0.25);
+    expirePendingClaim(await authUser());
+    await authUser();
+
+    // Pasados los 15 min sin firmar: los 3 holds nuevos generan un claim nuevo.
+    for (let i = 0; i < 3; i++) await registerHold(0.25);
+    const after = await authUser();
+    expect(after.pending_claim).toBeTruthy();
+    expect(after.cycle.holds_completed).toBe(3);
+  });
+
+  it('keeps the claim payable while it has not expired', async () => {
+    for (let i = 0; i < 3; i++) await registerHold(0.25);
+
+    const auth = await authUser();
+    const again = await authUser();
+
+    expect(again.pending_claim).toBeTruthy();
+    expect(again.pending_claim.claim_id).toBe(auth.pending_claim.claim_id);
+    expect(again.cycle.holds_completed).toBe(3);
+  });
+
+  it('tras cobrar el claim queda bloqueado 8 h, no se puede holdear de nuevo', async () => {
+    for (let i = 0; i < 3; i++) await registerHold(0.25);
+    const { claim } = await getClaim();
+    expect(claim).toBeTruthy();
+
+    await verifyPayment(claim.claim_id, 'UQsender');
+
+    // Bug de producción: acá el ciclo volvía a 0 holds y el botón se reabría
+    // apenas recargar. El cooldown tiene que durar la ventana de 8 h.
+    const after = await authUser();
+    expect(after.pending_claim).toBeNull();
+    expect(after.cycle.holds_completed).toBe(3);
+    expect(after.cycle.remaining_holds).toBe(0);
+
+    const hoursLeft = (new Date(after.cycle.ends_at).getTime() - Date.now()) / 3600000;
+    expect(hoursLeft).toBeGreaterThan(7.9);
+    expect(hoursLeft).toBeLessThanOrEqual(8.01);
+  });
+
+  it('does NOT regenerate the claim after a forfeit', async () => {
+    for (let i = 0; i < 3; i++) await registerHold(0.25);
+    const first = (await getClaim()).claim;
+    expect(first).toBeTruthy();
+
+    expirePendingClaim(await authUser());
+    await authUser();
+
+    // Regenerar acá dejaba cobrar el mismo trabajo dos veces.
+    const { claim } = await getClaim();
+    expect(claim).toBeNull();
+  });
+});
+
+// ============================================
+// Nova + unclipped glow
+// ============================================
+describe('hold feedback', () => {
+  beforeEach(() => {
+    resetMockWallet();
+    localStorage.clear();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('does not clip the button or the progress ring', async () => {
+    renderHold();
+    await settle();
+
+    // the old overflow-hidden cut the glow into a box; the image is rounded
+    // on its own so the clip was never needed
+    const button = screen.getByTestId('hold-button');
+    expect(button.className).not.toContain('overflow-hidden');
+
+    const svg = button.parentElement.querySelector('svg');
+    expect(svg.style.overflow).toBe('visible');
+  });
+
+  it('fires a full-screen nova when the hold completes', async () => {
+    renderHold();
+    await settle();
+
+    const button = screen.getByTestId('hold-button');
+    fireEvent.mouseDown(button);
+    await holdFor(HOLD_MS + 50);
+
+    // findBy* cannot advance fake timers — query directly after the act()
+    const nova = screen.getByTestId('hold-nova');
+    // it must cover the whole screen and sit above the app
+    expect(nova.className).toContain('fixed');
+    expect(nova.className).toContain('inset-0');
+    expect(nova.className).toContain('z-[70]');
+    expect(nova.className).toContain('pointer-events-none');
+
+    // and it must clean itself up
+    await holdFor(1200);
+    expect(screen.queryByTestId('hold-nova')).not.toBeInTheDocument();
+  });
+});

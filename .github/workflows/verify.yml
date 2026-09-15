@@ -1,0 +1,50 @@
+name: verify
+
+on:
+  push:
+    branches: [main, "arena/**"]
+  pull_request:
+
+jobs:
+  frontend:
+    name: frontend (vitest + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Vite 8 needs Node 20.19+ / 22.12+
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # The peer ranges in this tree do not resolve cleanly; keep it in sync
+      # with how the project is installed locally.
+      - run: npm ci --legacy-peer-deps
+
+      - name: Tests (32 — hold loop, trade, navigation, error boundary)
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+  worker:
+    name: cloudflare worker (node --test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloudflare-worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # node --test on a directory does not work; list the files.
+      - name: Tests (51 — trade maths, levels, routes)
+        run: node --test tests/lib.test.mjs tests/trade.test.mjs
