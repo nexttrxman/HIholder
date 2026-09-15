@@ -333,7 +333,7 @@ INSERT INTO social_missions
    enabled, sort, reward_keep, repeat, goal, progress_type)
 VALUES
   ('first_deposit', 'app', 'First Deposit',
-   'Make your first deposit (min 5 TRX or 1 USDT). We review it manually.',
+   'Make your first TON deposit (minimum 0.1 TON). We review the chain comment automatically.',
    '', 1.00, 'manual', NULL, true, 10, 3000, 'once', NULL, NULL),
   ('daily_hold', 'app', 'Daily Holder',
    'Start 3 holds today.',

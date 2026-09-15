@@ -4,7 +4,6 @@ import {
   registerHold,
   getClaim,
   verifyPayment,
-  verifyDeposit as verifyTronDeposit,
   getTransactions,
   getReferralPool,
   getTelegramUser,
@@ -87,8 +86,9 @@ export function WalletProvider({ children }) {
     [localTransactions, serverTransactions]
   );
 
-  // User identification
+  // User identification and the per-account TON MEMO code.
   const [uid, setUid] = useState(null);
+  const [depositCode, setDepositCode] = useState(null);
 
   /**
    * Load user data and cycle info
@@ -108,6 +108,7 @@ export function WalletProvider({ children }) {
 
       if (result.ok) {
         const { user: userData, cycle: cycleData, pending_claim } = result;
+        setDepositCode(result.deposit_code || userData.deposit_code || null);
         
         // Set balances
         setUsdtBalance(userData.usdt_balance || 0);
@@ -161,6 +162,7 @@ export function WalletProvider({ children }) {
       const result = await authUser();
       if (result.ok) {
         const { user: userData, cycle: cycleData, pending_claim } = result;
+        setDepositCode(result.deposit_code || userData.deposit_code || null);
         
         setUsdtBalance(userData.usdt_balance || 0);
         setTrxBalance(userData.trx_balance || 0);
@@ -248,24 +250,6 @@ export function WalletProvider({ children }) {
       return { success: false, error: err.message };
     }
   }, [usdtBalance, refreshData]);
-
-  /**
-   * Verify a TRX/USDT deposit by its on-chain transaction hash. The hash is
-   * enough for deposits sent without a MEMO; the Worker verifies the chain and
-   * the RPC makes the credit idempotent.
-   */
-  const verifyDeposit = useCallback(async ({ txHash, asset }) => {
-    try {
-      const result = await verifyTronDeposit({ txHash, asset });
-      if (result.ok) {
-        await refreshData();
-      }
-      return result;
-    } catch (err) {
-      console.error('Verify deposit error:', err);
-      return { ok: false, error: err.message || 'Deposit verification failed' };
-    }
-  }, [refreshData]);
 
   /**
    * Apply an internal USDT movement (trading) to the cached balance.
@@ -362,11 +346,12 @@ export function WalletProvider({ children }) {
   const referralLink = `${telegramBotUrl}?start=${uid}`;
 
   /**
-   * Deposit info with memo
+   * TON deposit instructions. The code is issued by the Worker during signup;
+   * never derive it from uid in the browser.
    */
   const depositInfo = {
     ...DEPOSIT_INFO,
-    memo: uid || 'loading...',
+    code: depositCode || 'loading...',
   };
 
   // Initial load
@@ -450,7 +435,6 @@ export function WalletProvider({ children }) {
 
     // Deposit
     depositInfo,
-    verifyDeposit,
 
     // Actions
     refreshData,

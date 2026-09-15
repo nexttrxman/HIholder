@@ -168,8 +168,6 @@ export default {
   'Confirm close': 'Confirmar fechamento',
   'The position closes automatically when the price reaches either level. Prices are checked every few seconds, so a fast move can fill slightly past the level.': 'A posição fecha automaticamente quando o preço atinge qualquer um dos níveis. Os preços são verificados a cada poucos segundos, então um movimento rápido pode executar um pouco além do nível.',
   'Trading involves risk — you may lose your funds. Trade carefully.': 'Negociar envolve risco: você pode perder seus fundos. Negocie com cuidado.',
-  'Without the MEMO, your deposit cannot be credited to your account.': 'Sem o MEMO, seu depósito não pode ser creditado na sua conta.',
-  'Only send TRX or USDT (TRC-20) to this address. Include your MEMO to identify your deposit.': 'Envie apenas TRX ou USDT (TRC-20) para este endereço. Inclua seu MEMO para identificar seu depósito.',
   'Important': 'Importante',
   'Note:': 'Nota:',
   'Confirm Withdrawal': 'Confirmar saque',
@@ -214,18 +212,22 @@ export default {
   'Request review': 'Solicitar análise',
   'Share on Telegram': 'Compartilhar no Telegram',
   'Weekly bonus': 'Bônus semanal',
-  // Verificador de depósitos TRON v3.7
-  'You can include it for the legacy flow, or send without a MEMO and paste the tx hash below.': 'Você pode incluí-lo no fluxo antigo ou enviar sem MEMO e colar o hash da transação abaixo.',
-  'Verify a deposit without MEMO': 'Verificar depósito sem MEMO',
-  'Paste the confirmed TRON transaction hash. The Worker checks the chain and credits the exact amount.': 'Cole o hash confirmado da transação TRON. O Worker verifica a rede e credita o valor exato.',
-  'Paste the TRON transaction hash first.': 'Cole primeiro o hash da transação TRON.',
-  'This transaction was already credited to your wallet.': 'Esta transação já foi creditada na sua carteira.',
-  'Checking TronGrid…': 'Consultando TronGrid…',
-  'Verify deposit': 'Verificar depósito',
-  'Deposit asset': 'Ativo do depósito',
-  '64-character transaction hash': 'Hash de transação de 64 caracteres',
-  'TRON transaction hash': 'Hash de transação TRON',
-  'Deposit verified.': 'Depósito verificado.',
-  'Verify deposit error:': 'Erro ao verificar o depósito:',
+
+  // Depósitos TON por código MEMO
+  'Only send TON to this address. Sending another asset or network can permanently lose your funds.': 'Envie apenas TON para este endereço. Enviar outro ativo ou rede pode causar a perda permanente dos seus fundos.',
+  'TON Treasury Address': 'Endereço da tesouraria TON',
+  'Your deposit code': 'Seu código de depósito',
+  'Send at least': 'Envie pelo menos',
+  'and enter this exact comment:': 'e informe exatamente este comentário:',
+  'The automatic scanner checks the TON treasury every two minutes. Deposits with a different comment are held for admin review.': 'O scanner automático verifica a tesouraria TON a cada dois minutos. Depósitos com outro comentário ficam aguardando análise administrativa.',
+
+  // Cola de depósitos TON para el administrador
+  'No pending deposits': 'Nenhum depósito pendente',
+  'Chain evidence': 'Evidência da rede',
+  'Credit deposit': 'Creditar depósito',
+  'Reject deposit': 'Rejeitar depósito',
+  'Deposit code for this user:': 'Código de depósito deste usuário:',
+
+  'Rejected deposit': 'Depósito rejeitado',
 
 };

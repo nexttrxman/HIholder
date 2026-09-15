@@ -168,8 +168,6 @@ export default {
   'Confirm close': 'Подтвердить закрытие',
   'The position closes automatically when the price reaches either level. Prices are checked every few seconds, so a fast move can fill slightly past the level.': 'Позиция закрывается автоматически при достижении любого из уровней. Цены проверяются раз в несколько секунд, поэтому резкое движение может исполниться чуть за уровнем.',
   'Trading involves risk — you may lose your funds. Trade carefully.': 'Торговля связана с риском: вы можете потерять средства. Действуйте осторожно.',
-  'Without the MEMO, your deposit cannot be credited to your account.': 'Без MEMO депозит нельзя зачислить на ваш аккаунт.',
-  'Only send TRX or USDT (TRC-20) to this address. Include your MEMO to identify your deposit.': 'Отправляйте на этот адрес только TRX или USDT (TRC-20). Укажите MEMO, чтобы определить депозит.',
   'Important': 'Важно',
   'Note:': 'Примечание:',
   'Confirm Withdrawal': 'Подтвердить вывод',
@@ -214,18 +212,22 @@ export default {
   'Request review': 'Запросить проверку',
   'Share on Telegram': 'Поделиться в Telegram',
   'Weekly bonus': 'Недельный бонус',
-  // Verificador de depósitos TRON v3.7
-  'You can include it for the legacy flow, or send without a MEMO and paste the tx hash below.': 'Вы можете указать его в старом процессе или отправить без MEMO и вставить хеш транзакции ниже.',
-  'Verify a deposit without MEMO': 'Проверить депозит без MEMO',
-  'Paste the confirmed TRON transaction hash. The Worker checks the chain and credits the exact amount.': 'Вставьте подтверждённый хеш транзакции TRON. Worker проверит сеть и зачислит точную сумму.',
-  'Paste the TRON transaction hash first.': 'Сначала вставьте хеш транзакции TRON.',
-  'This transaction was already credited to your wallet.': 'Эта транзакция уже зачислена на ваш кошелёк.',
-  'Checking TronGrid…': 'Проверяем TronGrid…',
-  'Verify deposit': 'Проверить депозит',
-  'Deposit asset': 'Актив депозита',
-  '64-character transaction hash': 'Хеш транзакции из 64 символов',
-  'TRON transaction hash': 'Хеш транзакции TRON',
-  'Deposit verified.': 'Депозит подтверждён.',
-  'Verify deposit error:': 'Ошибка проверки депозита:',
+
+  // Depósitos TON por código MEMO
+  'Only send TON to this address. Sending another asset or network can permanently lose your funds.': 'Отправляйте на этот адрес только TON. Отправка другого актива или через другую сеть может привести к безвозвратной потере средств.',
+  'TON Treasury Address': 'Адрес TON-казначейства',
+  'Your deposit code': 'Ваш код депозита',
+  'Send at least': 'Отправьте не менее',
+  'and enter this exact comment:': 'и укажите этот комментарий точно:',
+  'The automatic scanner checks the TON treasury every two minutes. Deposits with a different comment are held for admin review.': 'Автоматический сканер проверяет TON-казначейство каждые две минуты. Депозиты с другим комментарием отправляются на проверку администратору.',
+
+  // Cola de depósitos TON para el administrador
+  'No pending deposits': 'Нет ожидающих депозитов',
+  'Chain evidence': 'Доказательство в сети',
+  'Credit deposit': 'Зачислить депозит',
+  'Reject deposit': 'Отклонить депозит',
+  'Deposit code for this user:': 'Код депозита пользователя:',
+
+  'Rejected deposit': 'Депозит отклонён',
 
 };

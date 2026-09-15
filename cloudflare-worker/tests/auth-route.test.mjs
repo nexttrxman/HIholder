@@ -134,6 +134,7 @@ test('/auth con claim vencido: 200, ciclo a 0 holds y claim forfeited (regla v3.
   const now = Date.now();
   const fake = fakeSupabase({
     users: [user()],
+    deposit_codes: [{ user_id: TG_ID, code: 'DEP:TEST01' }],
     internal_wallets: [wallet()],
     hold_cycles: [{
       id: 'cyc-1', user_id: TG_ID, status: 'active', holds_completed: 3,
@@ -170,6 +171,7 @@ test('/auth con claim vivo: lo devuelve y no toca nada', async () => {
   const now = Date.now();
   const fake = fakeSupabase({
     users: [user()],
+    deposit_codes: [{ user_id: TG_ID, code: 'DEP:TEST01' }],
     internal_wallets: [wallet()],
     hold_cycles: [{
       id: 'cyc-1', user_id: TG_ID, status: 'active', holds_completed: 3,
@@ -199,6 +201,7 @@ test('/auth sin ciclos: crea usuario, wallet y ciclo nuevos', async () => {
   assert.equal(status, 200);
   assert.equal(body.ok, true);
   assert.equal(body.user.trx_balance, CONFIG.SIGNUP_TRX_BONUS);
+  assert.match(body.deposit_code, /^DEP:[A-Z0-9]{6}$/);
   assert.equal(body.cycle.holds_completed, 0);
   assert.equal(body.cycle.remaining_holds, CONFIG.MAX_HOLDS_PER_CYCLE);
   assert.ok(fake.calls.some((c) => c.table === 'internal_wallets' && c.insert));

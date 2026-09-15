@@ -108,7 +108,28 @@ async function seedUser(balance = 0) {
   return id;
 }
 
-// ---- 2) EL BUG DEL CRON: claim expirado sin reclamar ---------------------
+// ---- 2) depósitos TON por código MEMO -----------------------------------
+{
+  const u = await seedUser(0);
+  await q(`INSERT INTO deposit_codes (user_id, code) VALUES ($1, 'DEP:ABC123')`, [u]);
+  const first = (await one(`SELECT credit_ton_deposit($1,$2,$3,$4,$5,NOW(),NULL) AS r`,
+    [u, 'TON_HASH_1', '0:sender', 0.25, 'DEP:ABC123'])).r;
+  eq('TON deposit: acredita', first.ok, true);
+  near('TON deposit: ton_balance',
+    (await one(`SELECT ton_balance FROM internal_wallets WHERE user_id=$1`, [u])).ton_balance,
+    0.25, 0.000001);
+  eq('TON deposit: First Deposit autoaprobado',
+    (await one(`SELECT status FROM user_social_missions WHERE user_id=$1 AND mission_id='first_deposit'`, [u])).status,
+    'paid');
+  const second = (await one(`SELECT credit_ton_deposit($1,$2,$3,$4,$5,NOW(),NULL) AS r`,
+    [u, 'TON_HASH_1', '0:sender', 0.25, 'DEP:ABC123'])).r;
+  eq('TON deposit: mismo hash es idempotente', second.already_credited, true);
+  eq('TON deposit: un solo ledger de depósito',
+    (await one(`SELECT count(*)::int n FROM wallet_ledger WHERE user_id=$1 AND reference_id='TON_HASH_1' AND asset='TON'`, [u])).n,
+    1);
+}
+
+// ---- 3) EL BUG DEL CRON: claim expirado sin reclamar ---------------------
 {
   const u = await seedUser(0);
   const cyc = await one(
@@ -502,9 +523,10 @@ async function seedUser(balance = 0) {
     SELECT relname FROM pg_class
     WHERE relname IN ('users','hold_cycles','holds','claims','claim_payments',
                       'internal_wallets','wallet_ledger','referral_pool','referrals',
-                      'transactions','trade_positions','checkins','tron_deposits')
+                      'transactions','trade_positions','checkins','deposit_codes',
+                      'ton_deposit_txs','unmatched_deposits')
       AND relrowsecurity = false`)).rows;
-  eq('RLS: habilitado en las 13 tablas', rlsOff.length, 0);
+  eq('RLS: habilitado en las 15 tablas', rlsOff.length, 0);
 
   // Ninguna función sensible puede ser ejecutada por PUBLIC
   const perms = (await q(`
@@ -513,7 +535,7 @@ async function seedUser(balance = 0) {
     FROM pg_proc p
     WHERE p.proname IN ('credit_claim','open_trade','close_trade',
                         'set_trade_levels','daily_checkin','expire_claims_and_cycles',
-                        'register_referral','confirm_pending_referral','credit_tron_deposit')`)).rows;
+                        'register_referral','confirm_pending_referral','credit_ton_deposit')`)).rows;
   eq('RPC: las 9 funciones sensibles existen', perms.length, 9);
   eq('RPC: ninguna queda ejecutable por PUBLIC', perms.filter((r) => r.pub).length, 0);
   eq('RPC: ninguna es SECURITY DEFINER', perms.filter((r) => r.prosecdef).length, 0);

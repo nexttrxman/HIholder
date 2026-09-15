@@ -81,10 +81,14 @@ describe('Wallet — layout', () => {
     expect(screen.getByTestId('deposit-info')).toBeInTheDocument();
   });
 
-  it('ya no exhibe el minimo de deposito en el panel (vive en la mision)', () => {
+  it('muestra la treasury TON y el código individual copiable', async () => {
     renderWallet();
-    expect(screen.getByTestId('deposit-info')).toBeInTheDocument();
-    expect(screen.queryByTestId('deposit-minimum')).not.toBeInTheDocument();
+    expect(await screen.findByTestId('deposit-code')).toBeInTheDocument();
+    expect(screen.getByTestId('deposit-address')).toHaveTextContent(
+      'UQCydneDGeAcamdCFS6e13Z2xoxwA5DsLkFONRdp-cavw-Th'
+    );
+    expect(screen.getByTestId('deposit-memo')).toHaveTextContent('DEP:DEMO01');
+    expect(screen.getByTestId('deposit-info')).toHaveTextContent('exact comment');
   });
 
   it('el toggle cierra y abre el panel de depósito', async () => {

@@ -168,8 +168,6 @@ export default {
   'Confirm close': '确认平仓',
   'The position closes automatically when the price reaches either level. Prices are checked every few seconds, so a fast move can fill slightly past the level.': '价格触及任一水平时会自动平仓。价格每隔几秒检查一次，因此剧烈波动可能略超出该水平成交.',
   'Trading involves risk — you may lose your funds. Trade carefully.': '交易有风险，您可能损失资金，请谨慎操作。',
-  'Without the MEMO, your deposit cannot be credited to your account.': '缺少 MEMO 将无法入账到您的账户.',
-  'Only send TRX or USDT (TRC-20) to this address. Include your MEMO to identify your deposit.': '请仅向此地址发送 TRX 或 USDT（TRC-20）。附上 MEMO 以标识您的充值.',
   'Important': '重要',
   'Note:': '注意：',
   'Confirm Withdrawal': '确认提现',
@@ -214,18 +212,22 @@ export default {
   'Request review': '申请审核',
   'Share on Telegram': '在 Telegram 上分享',
   'Weekly bonus': '每周奖金',
-  // Verificador de depósitos TRON v3.7
-  'You can include it for the legacy flow, or send without a MEMO and paste the tx hash below.': '你可以在旧流程中填写它，也可以不填写 MEMO，直接在下方粘贴交易哈希。',
-  'Verify a deposit without MEMO': '无 MEMO 验证充值',
-  'Paste the confirmed TRON transaction hash. The Worker checks the chain and credits the exact amount.': '粘贴已确认的 TRON 交易哈希。Worker 会检查链上记录并记入准确金额。',
-  'Paste the TRON transaction hash first.': '请先粘贴 TRON 交易哈希。',
-  'This transaction was already credited to your wallet.': '这笔交易已经记入你的钱包。',
-  'Checking TronGrid…': '正在查询 TronGrid…',
-  'Verify deposit': '验证充值',
-  'Deposit asset': '充值资产',
-  '64-character transaction hash': '64 位交易哈希',
-  'TRON transaction hash': 'TRON 交易哈希',
-  'Deposit verified.': '充值已验证。',
-  'Verify deposit error:': '验证充值时出错：',
+
+  // Depósitos TON por código MEMO
+  'Only send TON to this address. Sending another asset or network can permanently lose your funds.': '请仅向此地址发送 TON。发送其他资产或使用其他网络可能导致资金永久丢失。',
+  'TON Treasury Address': 'TON 财库地址',
+  'Your deposit code': '您的充值代码',
+  'Send at least': '请至少发送',
+  'and enter this exact comment:': '并准确填写此备注：',
+  'The automatic scanner checks the TON treasury every two minutes. Deposits with a different comment are held for admin review.': '自动扫描器每两分钟检查 TON 财库。备注不同的充值会交由管理员审核。',
+
+  // Cola de depósitos TON para el administrador
+  'No pending deposits': '没有待处理的充值',
+  'Chain evidence': '链上证据',
+  'Credit deposit': '入账充值',
+  'Reject deposit': '拒绝充值',
+  'Deposit code for this user:': '此用户的充值代码：',
+
+  'Rejected deposit': '充值已拒绝',
 
 };

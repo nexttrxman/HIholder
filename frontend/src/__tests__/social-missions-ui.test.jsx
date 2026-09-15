@@ -98,7 +98,7 @@ describe('Misiones sociales (UI)', () => {
 describe('Misiones v3.3 (UI)', () => {
   const FIRST_DEPOSIT = {
     id: 'first_deposit', platform: 'app', title: 'First Deposit',
-    description: 'Make your first deposit (min 5 TRX or 1 USDT).', url: '',
+    description: 'Make your first TON deposit (minimum 0.1 TON).', url: '',
     reward: 1, verify: 'manual',
     reward_keep: 3000, repeat: 'once', goal: null, progress_type: null, current: null,
   };

@@ -11,6 +11,8 @@ export const CONFIG = {
   CYCLE_DURATION_HOURS: 8,
   MAX_HOLDS_PER_CYCLE: 3,
   TON_FEE: 0.15, // TON per claim
+  TON_DEPOSIT_MIN: 0.1,
+  TON_DEPOSIT_MIN_NANO: 100_000_000,
   // TRX de bienvenida: todo usuario arranca con esto. Sirve además para que
   // un retiro no sea imposible el primer día (ver WITHDRAWAL_FEE_TRX).
   SIGNUP_TRX_BONUS: 1,
@@ -64,6 +66,26 @@ export function generateClaimId() {
   const timestamp = Date.now().toString(36);
   const random = Math.random().toString(36).substring(2, 8);
   return `CLM_${timestamp}_${random}`.toUpperCase();
+}
+
+// ============================================
+// TON DEPOSIT CODE
+// ============================================
+const DEPOSIT_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+export function isValidDepositCode(value) {
+  return typeof value === 'string' && /^DEP:[A-Z0-9]{6}$/.test(value.trim());
+}
+
+/** Generate the six-character code assigned once during Telegram signup. */
+export function generateDepositCode() {
+  const bytes = new Uint8Array(6);
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  return `DEP:${Array.from(bytes, (byte) => DEPOSIT_CODE_ALPHABET[byte % DEPOSIT_CODE_ALPHABET.length]).join('')}`;
 }
 
 // ============================================
@@ -1040,177 +1062,6 @@ export function isValidTronAddress(address) {
   if (typeof address !== 'string') return false;
   const a = address.trim();
   return a.length === 34 && a.startsWith('T') && TRON_BASE58.test(a);
-}
-
-// ============================================
-// TRON DEPOSITS (v3.7) — verification without a MEMO
-// ============================================
-// A TRON transaction hash is the user's proof of payment when a transfer was
-// sent without the per-user MEMO. The Worker still verifies the destination,
-// token and amount against TronGrid before the database credits anything.
-export const TRON_CONFIG = {
-  DEPOSIT_ADDRESS: 'TNjqVzo47ndAvH241njkMLKbda3G6FPgVs',
-  USDT_CONTRACT: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
-  TRONGRID_BASE_URL: 'https://api.trongrid.io',
-  USDT_DECIMALS: 6,
-  TRX_SUN_PER_TRX: 1_000_000,
-};
-
-/** A TronGrid transaction id is a 32-byte hex hash. */
-export function isValidTronTxHash(value) {
-  return typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value.trim());
-}
-
-const TRON_BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-
-/**
- * Decode a Base58Check TRON address to the 21-byte address payload. This does
- * not need the checksum to compare addresses: the checksum is still validated
- * by the network when the transaction is fetched from TronGrid.
- */
-function decodeTronBase58Payload(value) {
-  if (typeof value !== 'string' || value.length === 0) return '';
-  const bytes = [0];
-  for (const char of value.trim()) {
-    const digit = TRON_BASE58_ALPHABET.indexOf(char);
-    if (digit < 0) return '';
-    let carry = digit;
-    for (let i = 0; i < bytes.length; i++) {
-      const next = bytes[i] * 58 + carry;
-      bytes[i] = next & 0xff;
-      carry = next >> 8;
-    }
-    while (carry > 0) {
-      bytes.push(carry & 0xff);
-      carry >>= 8;
-    }
-  }
-
-  // The little-endian accumulator above needs reversing to become big-endian.
-  const decoded = bytes.reverse();
-  let leadingZeroes = 0;
-  for (const char of value) {
-    if (char !== '1') break;
-    leadingZeroes++;
-  }
-  const full = new Uint8Array(leadingZeroes + decoded.length);
-  full.set(decoded, leadingZeroes);
-  if (full.length < 25) return '';
-
-  return Array.from(full.subarray(0, 21))
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-/**
- * Canonical comparison form for a TRON address. TronGrid v1 returns Base58
- * addresses in some endpoints and 41-prefixed hex in others.
- */
-export function normalizeTronAddress(address) {
-  if (typeof address !== 'string' || !address.trim()) return '';
-  const value = address.trim();
-  if (/^41[0-9a-f]{40}$/i.test(value)) return value.toLowerCase();
-  return decodeTronBase58Payload(value) || value.toLowerCase();
-}
-
-const tronContractSucceeded = (transaction) => {
-  const results = Array.isArray(transaction?.ret) ? transaction.ret : [];
-  return results.length === 0 || results.every((result) =>
-    String(result?.contractRet || result?.contract_ret || 'SUCCESS').toUpperCase() === 'SUCCESS'
-  );
-};
-
-const txHashOf = (transaction, fallback = '') =>
-  String(transaction?.txID || transaction?.txid || transaction?.transaction_id || fallback).trim();
-
-const timestampOf = (transaction, fallback = null) => {
-  const raw = transaction?.block_timestamp ?? transaction?.blockTimestamp ?? fallback;
-  const timestamp = Number(raw);
-  return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : null;
-};
-
-/**
- * Parse one confirmed TronGrid record into the small shape the deposit RPC
- * needs. `transfer` is the row returned by /transactions/trc20; `transaction`
- * is the row returned by /v1/transactions/:hash for native TRX.
- *
- * Returning null is deliberate: an absent/mismatched transfer is not a credit
- * and the caller can safely answer "not found yet" without trusting the client.
- */
-export function parseTronDeposit({
-  asset,
-  txHash,
-  treasury = TRON_CONFIG.DEPOSIT_ADDRESS,
-  transaction = null,
-  transfer = null,
-}) {
-  const normalizedAsset = String(asset || '').toUpperCase();
-  const expectedHash = String(txHash || '').trim().toLowerCase();
-  if (!isValidTronTxHash(expectedHash) || !tronContractSucceeded(transaction)) return null;
-
-  if (normalizedAsset === 'USDT') {
-    if (!transfer) return null;
-    const transferHash = String(
-      transfer.transaction_id || transfer.txID || transfer.txid || ''
-    ).trim().toLowerCase();
-    if (transferHash !== expectedHash) return null;
-    if (normalizeTronAddress(transfer.to) !== normalizeTronAddress(treasury)) return null;
-
-    const contract = transfer.token_info?.address || transfer.contract_address || transfer.token;
-    if (contract && normalizeTronAddress(contract) !== normalizeTronAddress(TRON_CONFIG.USDT_CONTRACT)) return null;
-
-    const rawValue = Number(transfer.value);
-    const decimals = Number(transfer.token_info?.decimals ?? TRON_CONFIG.USDT_DECIMALS);
-    const amount = rawValue / (10 ** decimals);
-    if (!Number.isFinite(rawValue) || rawValue <= 0 || !Number.isFinite(amount) || amount <= 0) return null;
-
-    const fromAddress = String(transfer.from || transfer.owner_address || '').trim();
-    const toAddress = String(transfer.to || treasury).trim();
-    if (!fromAddress || normalizeTronAddress(fromAddress) === normalizeTronAddress(treasury)) return null;
-
-    return {
-      tx_hash: expectedHash,
-      asset: 'USDT',
-      amount,
-      from_address: fromAddress,
-      to_address: toAddress,
-      block_timestamp: timestampOf(transfer, timestampOf(transaction)),
-      block_number: transfer.block_number ?? transfer.blockNumber ?? transaction?.blockNumber ?? null,
-    };
-  }
-
-  if (normalizedAsset !== 'TRX' || !transaction) return null;
-
-  const contracts = Array.isArray(transaction.raw_data?.contract)
-    ? transaction.raw_data.contract
-    : Array.isArray(transaction.contracts) ? transaction.contracts : [];
-  const transferContract = contracts.find((contract) =>
-    String(contract?.type || '').toLowerCase() === 'transfercontract'
-  );
-  const value = transferContract?.parameter?.value || transferContract?.value || {};
-  if (!transferContract) return null;
-  if (normalizeTronAddress(value.to_address || value.to) !== normalizeTronAddress(treasury)) return null;
-
-  const sun = Number(value.amount);
-  const amount = sun / TRON_CONFIG.TRX_SUN_PER_TRX;
-  if (!Number.isFinite(sun) || sun <= 0 || !Number.isFinite(amount) || amount <= 0) return null;
-
-  const actualHash = txHashOf(transaction, expectedHash).toLowerCase();
-  if (actualHash !== expectedHash) return null;
-
-  const fromAddress = String(value.owner_address || value.from_address || '').trim();
-  const toAddress = String(value.to_address || value.to || treasury).trim();
-  if (!fromAddress || normalizeTronAddress(fromAddress) === normalizeTronAddress(treasury)) return null;
-
-  return {
-    tx_hash: expectedHash,
-    asset: 'TRX',
-    amount,
-    from_address: fromAddress,
-    to_address: toAddress,
-    block_timestamp: timestampOf(transaction),
-    block_number: transaction.blockNumber ?? transaction.block_number ?? null,
-  };
 }
 
 // ============================================

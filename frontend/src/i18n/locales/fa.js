@@ -168,8 +168,6 @@ export default {
   'Confirm close': 'تأیید بستن',
   'The position closes automatically when the price reaches either level. Prices are checked every few seconds, so a fast move can fill slightly past the level.': 'پوزیشن به‌طور خودکار با رسیدن قیمت به هر یک از دو سطح بسته می‌شود. قیمت‌ها هر چند ثانیه بررسی می‌شوند، بنابراین حرکت سریع ممکن است کمی فراتر از سطح انجام شود.',
   'Trading involves risk — you may lose your funds. Trade carefully.': 'معامله‌گری ریسک دارد و ممکن است سرمایه‌تان را از دست بدهید. با احتیاط عمل کنید.',
-  'Without the MEMO, your deposit cannot be credited to your account.': 'بدون MEMO، واریز شما به حسابتان اضافه نمی‌شود.',
-  'Only send TRX or USDT (TRC-20) to this address. Include your MEMO to identify your deposit.': 'فقط TRX یا USDT (TRC-20) به این آدرس بفرستید. MEMO خود را برای شناسایی واریز درج کنید.',
   'Important': 'مهم',
   'Note:': 'توجه:',
   'Confirm Withdrawal': 'تأیید برداشت',
@@ -214,18 +212,22 @@ export default {
   'Request review': 'درخواست بررسی',
   'Share on Telegram': 'اشتراک‌گذاری در تلگرام',
   'Weekly bonus': 'پاداش هفتگی',
-  // Verificador de depósitos TRON v3.7
-  'You can include it for the legacy flow, or send without a MEMO and paste the tx hash below.': 'می‌توانید آن را در روند قبلی وارد کنید، یا بدون MEMO ارسال کرده و هش تراکنش را پایین وارد کنید.',
-  'Verify a deposit without MEMO': 'تأیید واریز بدون MEMO',
-  'Paste the confirmed TRON transaction hash. The Worker checks the chain and credits the exact amount.': 'هش تأییدشده تراکنش TRON را وارد کنید. Worker شبکه را بررسی و مقدار دقیق را واریز می‌کند.',
-  'Paste the TRON transaction hash first.': 'ابتدا هش تراکنش TRON را وارد کنید.',
-  'This transaction was already credited to your wallet.': 'این تراکنش قبلاً به کیف پول شما واریز شده است.',
-  'Checking TronGrid…': 'در حال بررسی TronGrid…',
-  'Verify deposit': 'تأیید واریز',
-  'Deposit asset': 'دارایی واریز',
-  '64-character transaction hash': 'هش تراکنش ۶۴ کاراکتری',
-  'TRON transaction hash': 'هش تراکنش TRON',
-  'Deposit verified.': 'واریز تأیید شد.',
-  'Verify deposit error:': 'خطا در تأیید واریز:',
+
+  // Depósitos TON por código MEMO
+  'Only send TON to this address. Sending another asset or network can permanently lose your funds.': 'فقط TON را به این آدرس ارسال کنید. ارسال دارایی دیگر یا از شبکه\u200cای دیگر ممکن است باعث از دست رفتن دائمی سرمایه شود.',
+  'TON Treasury Address': 'آدرس خزانه TON',
+  'Your deposit code': 'کد واریز شما',
+  'Send at least': 'حداقل ارسال کنید',
+  'and enter this exact comment:': 'و این توضیح را دقیق وارد کنید:',
+  'The automatic scanner checks the TON treasury every two minutes. Deposits with a different comment are held for admin review.': 'اسکنر خودکار خزانه TON را هر دو دقیقه بررسی می\u200cکند. واریزهایی با توضیح متفاوت برای بررسی مدیر نگه داشته می\u200cشوند.',
+
+  // Cola de depósitos TON para el administrador
+  'No pending deposits': 'واریز معلقی وجود ندارد',
+  'Chain evidence': 'مدرک زنجیره',
+  'Credit deposit': 'واریز کردن سپرده',
+  'Reject deposit': 'رد سپرده',
+  'Deposit code for this user:': 'کد واریز این کاربر:',
+
+  'Rejected deposit': 'واریز رد شد',
 
 };

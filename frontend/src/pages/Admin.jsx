@@ -6,6 +6,8 @@ import {
   adminRejectMission,
   adminListWithdrawals,
   adminResolveWithdrawal,
+  adminListDeposits,
+  adminResolveDeposit,
 } from '@/services/api';
 
 // Panel de admin (v3.3). Vive en #TKadminTK (ruta no publicada) y NO forma
@@ -36,6 +38,7 @@ export function AdminPage() {
   const [tab, setTab] = useState('missions');
   const [missions, setMissions] = useState([]);
   const [withdrawals, setWithdrawals] = useState([]);
+  const [deposits, setDeposits] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
@@ -46,12 +49,14 @@ export function AdminPage() {
     setError('');
     setInfo('');
     try {
-      const [m, w] = await Promise.all([
+      const [m, w, d] = await Promise.all([
         adminListMissionRequests(tk),
         adminListWithdrawals(tk),
+        adminListDeposits(tk),
       ]);
       setMissions(m?.requests || []);
       setWithdrawals(w?.requests || []);
+      setDeposits(d?.deposits || []);
     } catch (err) {
       setError(err?.message || 'Request failed');
       if (/Unauthorized/.test(err?.message || '')) {
@@ -158,7 +163,7 @@ export function AdminPage() {
       </div>
 
       <div className="flex gap-2 mb-4">
-        {[['missions', 'Mission requests'], ['withdrawals', 'Withdrawals']].map(([id, label]) => (
+        {[['missions', 'Mission requests'], ['deposits', 'Deposits'], ['withdrawals', 'Withdrawals']].map(([id, label]) => (
           <button
             key={id}
             type="button"
@@ -172,6 +177,7 @@ export function AdminPage() {
           >
             {label}
             {id === 'missions' && missions.length > 0 ? ` (${missions.length})` : ''}
+            {id === 'deposits' && deposits.length > 0 ? ` (${deposits.length})` : ''}
             {id === 'withdrawals' && withdrawals.length > 0 ? ` (${withdrawals.length})` : ''}
           </button>
         ))}
@@ -230,6 +236,67 @@ export function AdminPage() {
                     data-testid={`reject-${r.user_id}`}
                     className="p-2.5 rounded-xl bg-brand-red/15 text-brand-red border border-brand-red/25 active:scale-95 transition-all disabled:opacity-50"
                     aria-label="Reject"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab === 'deposits' && (
+        <div className="space-y-3" data-testid="admin-deposits">
+          {deposits.length === 0 && (
+            <div className="glass-card rounded-2xl p-6 text-center text-sm text-white/40 flex flex-col items-center gap-2">
+              <Inbox className="w-6 h-6" />
+              No pending deposits
+            </div>
+          )}
+          {deposits.map((d) => (
+            <div key={d.id} className="glass-card rounded-2xl p-4" data-testid={`admin-deposit-${d.id}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 space-y-1">
+                  <p className="text-sm font-semibold text-white">
+                    {Number(d.amount)} TON
+                    <span className="text-white/40 font-normal text-xs"> · {d.status}</span>
+                  </p>
+                  <p className="text-[10px] text-white/35">Chain evidence</p>
+                  <p className="text-xs text-white/55 font-mono break-all">Hash: {d.tx_hash}</p>
+                  <p className="text-xs text-white/55 font-mono break-all">Source: {d.from_address}</p>
+                  <p className="text-xs text-brand-gold font-mono break-all">Comment: {d.comment || '(empty)'}</p>
+                  <p className="text-[10px] text-white/30">Received {fmtDate(d.tx_timestamp)}</p>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      // eslint-disable-next-line no-alert
+                      const code = window.prompt('Deposit code for this user:');
+                      if (!code) return;
+                      act(
+                        () => adminResolveDeposit(token, d.id, 'credited', { code: code.trim() }),
+                        `Credited ${d.amount} TON`
+                      );
+                    }}
+                    data-testid={`deposit-credit-${d.id}`}
+                    className="p-2.5 rounded-xl bg-brand-green/15 text-brand-green border border-brand-green/25 active:scale-95 transition-all disabled:opacity-50"
+                    aria-label="Credit deposit"
+                  >
+                    <Check className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => act(
+                      () => adminResolveDeposit(token, d.id, 'rejected', { note: 'Rejected by admin' }),
+                      `Rejected deposit ${d.tx_hash}`
+                    )}
+                    data-testid={`deposit-reject-${d.id}`}
+                    className="p-2.5 rounded-xl bg-brand-red/15 text-brand-red border border-brand-red/25 active:scale-95 transition-all disabled:opacity-50"
+                    aria-label="Reject deposit"
                   >
                     <X className="w-4 h-4" />
                   </button>
